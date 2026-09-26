@@ -1031,14 +1031,19 @@ def reconcile_ledger(best: dict) -> tuple:
     known = read_ledger()
     LEDGER_STATE.update(rows=len(known), used=True)
 
-    fresh = []
+    fresh, new = [], 0
     for mid, ev in best.items():
         row = known.get(mid)
         if row is None or ev["_size"] > row_size(row):
+            new += row is None
             fresh.append(usage_to_row(mid, ev["when"], ev["model"],
                                       ev["project"], ev["session"], ev["_usage"],
                                       ev["provider"], ev["source"]))
     written = append_ledger(fresh)
+    # What the ledger holds now, not before this run wrote to it: a first run
+    # used to report "ledger holds 0" having just written every call there.
+    if written:
+        LEDGER_STATE.update(rows=len(known) + new)
 
     restored = 0
     for mid, row in known.items():
@@ -1090,16 +1095,27 @@ def covered_span(groups, n_files) -> str:
         n = counts[claude_code.NAME]
         files = f"{n:,} transcript{'' if n == 1 else 's'} on disk{where}"
     else:
-        files = " and ".join(
-            f"{n:,} import file{'' if n == 1 else 's'}" if name == importer.NAME
-            else f"{n:,} {ALL_SOURCES[name].LABEL} {ALL_SOURCES[name].FILES}"
-            for name, n in sorted(counts.items()))
+        parts = []
+        for name, n in sorted(counts.items()):
+            a = ALL_SOURCES[name]
+            what = getattr(a, "FILE", a.FILES) if n == 1 else a.FILES
+            # The importer's label is "Imported events"; its files need no prefix.
+            parts.append(f"{n:,} {what}" if name == importer.NAME else f"{n:,} {a.LABEL} {what}")
+        files = join_words(parts)
     line = f"{window} · {files}"
     if LEDGER_STATE["used"]:
         line += f" · ledger holds {LEDGER_STATE['rows']:,}"
         if LEDGER_STATE["restored"]:
             line += f", {LEDGER_STATE['restored']:,} of them no longer in any transcript"
     return line
+
+
+def join_words(items) -> str:
+    """A list as a sentence names it: "a", "a and b", "a, b and c"."""
+    items = list(items)
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 def blank():
@@ -1281,6 +1297,13 @@ def display_name(by: str, key: str) -> str:
     return key
 
 
+def share_text(fraction: float) -> str:
+    """A share of a total, for a sentence: "12.3%", or "under 0.1%" rather
+    than a "0.0%" that reads as none at all."""
+    pct = fraction * 100
+    return "under 0.1%" if 0 < pct < 0.05 else f"{pct:.1f}%"
+
+
 UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet checked "
                    "against real logs. If a figure looks wrong, please open an issue "
                    "with a sample.")
@@ -1294,10 +1317,19 @@ def report_notes(groups, unknown) -> list:
     something to act on; "info" is the provenance every report carries.
     """
     notes = []
-    for name in sorted(groups.get("source", {})):
-        a = ALL_SOURCES.get(name)
-        if a is not None and a.STATUS == "unverified":
-            notes.append(("warn", f"{a.LABEL} figures are {UNVERIFIED_NOTE}"))
+    sources = groups.get("source", {})
+    unverified = [n for n in sorted(sources)
+                  if getattr(ALL_SOURCES.get(n), "STATUS", "") == "unverified"]
+    if unverified:
+        # One line naming them all, not one per harness saying the same thing.
+        # Beside another source it also says how much of the total they carry,
+        # which is the figure that decides how far to trust the whole.
+        names = join_words(ALL_SOURCES[n].LABEL for n in unverified)
+        share = ""
+        whole = sum(v["total"] for v in sources.values())
+        if len(sources) > 1 and whole:
+            share = f", {share_text(sum(sources[n]['total'] for n in unverified) / whole)} of this total,"
+        notes.append(("warn", f"{names} figures{share} are {UNVERIFIED_NOTE}"))
     for a in ALL_SOURCES.values():
         for text in (a.notes() if hasattr(a, "notes") else []):
             notes.append(("warn", text))
@@ -1305,10 +1337,6 @@ def report_notes(groups, unknown) -> list:
         shown = "standard input" if path == "-" else os.path.basename(path)
         notes.append(("warn", f"{p['skipped']:,} line{'' if p['skipped'] == 1 else 's'} "
                               f"skipped in {shown}: " + "; ".join(p["examples"])))
-    for item in LOOKUPS:
-        if not item["found"]:
-            notes.append(("warn", f"looked up {model_label(item['model'], item['provider'])} "
-                                  "online and found no published price"))
     for (provider, model), via in sorted(FETCHED_USED.items()):
         row = fetched_row(provider, model) or {}
         checked = row.get("_checked", "")
@@ -1317,9 +1345,19 @@ def report_notes(groups, unknown) -> list:
                               f"${row.get('in', 0):g} in and ${row.get('out', 0):g} out per million "
                               f"from {via}, looked up online {when}, not checked by hand"))
     if unknown:
-        notes.append(("warn", f"no price on file for {', '.join(sorted(unknown))}. "
+        # A model looked up online and found nowhere is the same problem as one
+        # with no price on file, so it is one note, which says both.
+        missed = sorted(set(unknown) & {unknown_label(i["model"], i["provider"])
+                                         for i in LOOKUPS if not i["found"]})
+        online = ""
+        if missed and len(missed) == len(unknown):
+            online = ", and none published online either"
+        elif missed:
+            online = f" (and none published online for {join_words(missed)})"
+        notes.append(("warn", f"no price on file for {join_words(sorted(unknown))}{online}. "
                               "Priced at that provider's flagship rate as a stand-in "
-                              "(zero where there is no table at all). Add them under pricing/."
+                              "(zero where there is no table at all). "
+                              f"Add {'it' if len(unknown) == 1 else 'them'} under pricing/."
                               + ("" if ONLINE_LOOKUP[0] else " The online lookup is off.")))
     for provider in sorted(groups.get("provider", {})):
         v = verification(provider)
@@ -2249,6 +2287,9 @@ def summary() -> dict:
         "without_cache": overall["no_cache"],
         "currencies": {c: {"symbol": CURRENCIES[c][0], "name": CURRENCIES[c][1]}
                        for c in CURRENCIES},
+        # The same order the dashboard's pills use. A JSON object's key order
+        # does not survive into Swift, so the order travels as a list.
+        "currency_order": list(CURRENCIES),
         "rates": fx_rates()[0],
         "rate_when": fx_rates()[1],
         "rate_live": fx_rates()[2],

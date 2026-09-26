@@ -50,6 +50,7 @@ LABEL = "Codex"
 STATUS = "unverified"
 PROVIDER = "openai"
 FILES = "sessions"
+FILE = "session"
 
 # Codex before 0.36 recorded no model. Its default then was gpt-5.
 LEGACY_MODEL = "gpt-5"

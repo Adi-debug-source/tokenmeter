@@ -11,9 +11,11 @@ import Foundation
 let engine = ("~/.claude/tools/tokenmeter/tokenmeter.py" as NSString).expandingTildeInPath
 let refreshSeconds: TimeInterval = 60
 
-// Which currencies exist and what they look like is tokenmeter.py's business,
-// not this file's. These are only what shows before the first load returns.
-let currencyOrder = ["USD", "GBP", "EUR", "INR"]
+// Which currencies exist, in what order and what they look like is
+// tokenmeter.py's business, not this file's. These are only what shows before
+// the first load returns; a list kept here once offered four currencies while
+// the dashboard offered seven.
+var currencyOrder = ["USD", "GBP", "EUR", "INR"]
 var currencySymbols: [String: String] = ["GBP": "\u{00A3}", "USD": "$"]
 
 // Everything is held in dollars. Only display converts.
@@ -81,13 +83,6 @@ func shownDifference(_ big: Double, _ small: Double) -> Double {
     let r = rate(displayCurrency)
     guard r != 0 else { return big - small }
     return (((big * r * 100).rounded() - (small * r * 100).rounded()) / 100) / r
-}
-
-func toks(_ n: Int) -> String {
-    if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
-    if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
-    if n >= 1_000 { return String(format: "%.0fk", Double(n) / 1_000) }
-    return "\(n)"
 }
 
 // Column padding. String(format:) ignores a width on %@, so "%-16@" never
@@ -189,6 +184,9 @@ func loadSnapshot() -> Snapshot {
         for (code, info) in cur where info["symbol"] != nil {
             currencySymbols[code] = info["symbol"]!
         }
+    }
+    if let order = root["currency_order"] as? [String], !order.isEmpty {
+        currencyOrder = order
     }
     snap.tokens = root["tokens"] as? [String: Int] ?? [:]
     if let ms = root["models"] as? [[String: Any]] {

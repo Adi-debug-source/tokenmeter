@@ -21,6 +21,7 @@ A module in this folder, added to `ADAPTERS` in `__init__.py`, with:
 | `LABEL` | How reports name it: `Codex`. |
 | `STATUS` | `"verified"` or `"unverified"`. See the rule below. |
 | `FILES` | What it reads, in words: `sessions`. |
+| `FILE` | The same for one of them: `session`. Reports say "1 Codex session". |
 | `default_roots()` | The folders it reads, honouring the harness's own environment variables. |
 | `files(roots, project="", session="")` | The log files under those folders. |
 | `looks_like(line)` | Whether one line of an unknown file is in this format. |

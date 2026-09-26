@@ -48,6 +48,7 @@ LABEL = "OpenCode"
 STATUS = "unverified"
 PROVIDER = ""
 FILES = "databases"
+FILE = "database"
 
 # OpenCode's provider ids, where they differ from Tokenmeter's table names.
 # Anything else passes through and is priced by a table or the online lookup.

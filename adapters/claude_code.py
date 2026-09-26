@@ -23,6 +23,7 @@ LABEL = "Claude Code"
 STATUS = "verified"
 PROVIDER = "anthropic"
 FILES = "transcripts"
+FILE = "transcript"
 
 
 def default_roots() -> list:

@@ -1182,5 +1182,102 @@ class TestNamesAndNotes(Base):
         self.assertEqual(called, [])
 
 
+class TestReportsSayItOnce(Base):
+    """How reports read with several harnesses: found by a clean-room run of
+    1.0.0 on a home with four of them."""
+
+    def several_harnesses(self):
+        """Claude Code, Codex and Gemini CLI together, from the repo's fixtures."""
+        self.write("a.jsonl", record("msg_1", out=1000, read=5000))
+        day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
+        os.makedirs(day)
+        shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"),
+                    os.path.join(day, "rollout-2026-09-24T14-07-33-"
+                                      "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl"))
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.tmp, "codex-home", "sessions")]
+        gemini = os.path.join(self.tmp, "gemini-home")
+        shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home"), gemini)
+        tm.ADAPTER_ROOTS["gemini-cli"] = [os.path.join(gemini, ".gemini", "tmp")]
+        paths = tm.transcripts()
+        return paths, tm.collect(paths, ledger=False)
+
+    def test_unverified_harnesses_share_one_note(self):
+        """Every report said "X figures are unverified" once per harness."""
+        _, (overall, groups, _, unknown) = self.several_harnesses()
+        notes = [t for _, t in tm.report_notes(groups, unknown) if "unverified" in t]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertTrue(notes[0].startswith("Codex and Gemini CLI figures, "), notes[0])
+        share = (groups["source"]["codex"]["total"]
+                 + groups["source"]["gemini-cli"]["total"]) / overall["total"]
+        self.assertIn(f"{share * 100:.1f}% of this total", notes[0])
+
+    def test_one_harness_alone_gives_no_share(self):
+        """Alone, "100% of this total" would say nothing worth reading."""
+        self.several_harnesses()
+        tm._ONLY[:] = ["codex"]
+        _, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        notes = [t for _, t in tm.report_notes(groups, unknown) if "unverified" in t]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertTrue(notes[0].startswith("Codex figures are unverified"), notes[0])
+
+    def test_the_covered_line_reads_as_a_sentence(self):
+        """It read "170 Claude Code transcripts and 2 Codex sessions and
+        1 Gemini CLI sessions and 1 OpenCode databases"."""
+        paths, (_, groups, _, _) = self.several_harnesses()
+        self.assertIn("1 Claude Code transcript, 1 Codex session and 1 Gemini CLI session",
+                      tm.covered_span(groups, paths))
+        tm._OWNER.update({"a": "claude-code", "b": "claude-code", "c": "opencode", "d": "import"})
+        self.assertIn("2 Claude Code transcripts, 1 import file and 1 OpenCode database",
+                      tm.covered_span(groups, ["a", "b", "c", "d"]))
+
+    def test_a_first_run_counts_what_it_just_wrote(self):
+        """A first run said "ledger holds 0" having just written every call."""
+        self.write("a.jsonl", record("msg_1", out=10), record("msg_2", out=20))
+        paths = tm.transcripts()
+        _, groups, *_ = tm.collect(paths)
+        self.assertIn("ledger holds 2", tm.covered_span(groups, paths))
+        # A second run writes nothing new, and a bigger copy of a call already
+        # held supersedes it rather than adding a third.
+        self.write("b.jsonl", record("msg_1", out=5000))
+        paths = tm.transcripts()
+        _, groups, *_ = tm.collect(paths)
+        self.assertIn("ledger holds 2", tm.covered_span(groups, paths))
+
+    def test_a_model_found_nowhere_gets_one_note(self):
+        """It had two: "looked up X online and found no published price" and
+        "no price on file for X", about the same model."""
+        self.write("a.jsonl", record("msg_1", model="claude-nothing-1", out=100))
+        tm.ONLINE_LOOKUP[0] = True
+        real = tm.fetch_text
+
+        def offline(url, timeout=8):
+            raise OSError("offline in tests")
+        tm.fetch_text = offline
+        try:
+            _, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        finally:
+            tm.fetch_text = real
+            tm.ONLINE_LOOKUP[0] = False
+        notes = [t for _, t in tm.report_notes(groups, unknown) if "claude-nothing-1" in t]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("no price on file for claude-nothing-1, and none published online either",
+                      notes[0])
+
+
+class TestMenuBarCurrencies(Base):
+    def test_the_menu_is_sent_every_currency_in_order(self):
+        """The menu offered four currencies from a list of its own; the
+        dashboard offered seven."""
+        self.write("a.jsonl", record("msg_1", out=10))
+        s = tm.summary()
+        self.assertEqual(s["currency_order"], list(tm.CURRENCIES))
+        self.assertEqual(set(s["currency_order"]), set(s["currencies"]))
+        self.assertGreaterEqual(len(s["currency_order"]), 7)
+
+    def test_the_menu_takes_its_list_from_the_engine(self):
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"))
+        self.assertIn('root["currency_order"]', swift)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

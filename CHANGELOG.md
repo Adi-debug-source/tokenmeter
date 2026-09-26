@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.1.0, unreleased
+
+### Look
+
+- A new app icon: a T whose crossbar is a meter, on a graphite body, in the
+  macOS 26 dark icon style. Its reading is the dashboard's clay accent. Every
+  size is drawn at its own resolution, on whole pixels below 128px.
+- The dashboard's "where the money goes" bar shows Output in gold and
+  uncached input in violet. The old green and mustard were too close to tell
+  apart even with full colour vision; the new four were checked as a set for
+  colour-blind separation, and a thin gap now divides the parts.
+
+### Fixes
+
+Each found by a clean-room run of 1.0.0 on a home with four harnesses, and
+each with a test.
+
+- Reports said "X figures are unverified" once per harness. One note now names
+  them all, and beside another source it says what share of the total they
+  carry.
+- The covered line read "2 Codex sessions and 1 Gemini CLI sessions and
+  1 OpenCode databases". Adapters now have a singular name for what they read
+  (`FILE`), and the list reads as a sentence.
+- A first run said "ledger holds 0" having just written every call to it. The
+  count is now taken after the run's own writes.
+- A model looked up online and found nowhere got two notes saying so. It now
+  gets one.
+- The menu bar offered four currencies from a list of its own while the
+  dashboard offered seven. The engine now sends the list, in order, and the
+  menu shows all of it.
+- An unused function was removed from the menu bar app.
+
 ## 1.0.0, 26 September 2026
 
 First public release. The engine was built and used privately for Claude Code

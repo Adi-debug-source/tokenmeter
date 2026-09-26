@@ -6,6 +6,7 @@ An adapter is a module with these names:
   LABEL            how reports name it
   STATUS           "verified" or "unverified"; see README.md for the rule
   FILES            what it reads, in words ("transcripts", "sessions")
+  FILE             the same, for one of them ("transcript", "session")
   default_roots()  the folders it reads when nothing overrides them
   files(roots, project="", session="")   the log files under those folders
   looks_like(line) whether one line of an unknown file is in its format

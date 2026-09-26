@@ -21,6 +21,7 @@ NAME = "import"
 LABEL = "Imported events"
 STATUS = "yours"
 FILES = "import files"
+FILE = "import file"
 
 TOKEN_FIELDS = ("input", "output", "cache_read", "cache_write", "cache_write_5m",
                 "cache_write_1h", "thinking", "web_searches")

@@ -43,6 +43,7 @@ LABEL = "Gemini CLI"
 STATUS = "unverified"
 PROVIDER = "google"
 FILES = "sessions"
+FILE = "session"
 
 
 def default_roots() -> list:
