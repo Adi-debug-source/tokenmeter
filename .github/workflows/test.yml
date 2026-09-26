@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests
+        run: python3 tests/test_tokenmeter.py
+      - name: Menu bar app compiles
+        run: swiftc -typecheck costbar/main.swift && swiftc -typecheck costbar/icon.swift
+      - name: Scripts parse
+        run: bash -n install.sh && bash -n costbar/build.sh && bash -n costbar/install-login-item.sh
+
+  engine:
+    # The engine is plain Python; this proves it on the oldest supported
+    # version and a current one, and away from macOS.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Tests
+        run: python tests/test_tokenmeter.py

@@ -1,0 +1,10 @@
+{"sessionId":"3f9c1a2b-6d41-4f0e-9a52-2b7c8e5d1140","projectHash":"f2d28b381d986b45659e767132a77bd18c96a02991f00ef12014ac67d06140ca","startTime":"2026-09-26T09:12:04.118Z","lastUpdated":"2026-09-26T09:12:04.118Z","kind":"main"}
+{"id":"6b1f0d90-1f3a-4a5c-8a70-0c6b3f4a11d0","timestamp":"2026-09-26T09:12:09.402Z","type":"user","content":"List the files in src and tell me what the entrypoint is."}
+{"id":"a71c4e52-8f2d-4c19-9b03-5d1e77a3c208","timestamp":"2026-09-26T09:12:13.771Z","type":"gemini","content":"The entrypoint is src/main.ts.","model":"gemini-3-pro-preview","thoughts":[],"tokens":null}
+{"id":"a71c4e52-8f2d-4c19-9b03-5d1e77a3c208","timestamp":"2026-09-26T09:12:13.771Z","type":"gemini","content":"The entrypoint is src/main.ts.","model":"gemini-3-pro-preview","thoughts":[],"tokens":{"input":4120,"output":186,"cached":0,"thoughts":0,"tool":0,"total":4306}}
+{"$set":{"lastUpdated":"2026-09-26T09:12:14.002Z"}}
+{"id":"c2903f77-4b6e-4f81-b2ad-9a1c5e2f6633","timestamp":"2026-09-26T09:13:41.115Z","type":"user","content":"Now add a --verbose flag."}
+{"id":"d4e81a06-0c77-4e3b-95f2-6f30a9b41c8e","timestamp":"2026-09-26T09:13:52.640Z","type":"gemini","content":"I added the flag and wired it into the parser.","model":"gemini-3-pro-preview","thoughts":[{"subject":"Plan","description":"Read the arg parser, then patch it.","timestamp":"2026-09-26T09:13:46.220Z"}],"tokens":{"input":9880,"output":402,"cached":7936,"thoughts":1544,"tool":0,"total":11826}}
+{"$set":{"lastUpdated":"2026-09-26T09:13:52.900Z"}}
+{"id":"f0a5b318-2e94-4d6a-8c11-73b0d5ea9f47","timestamp":"2026-09-26T09:14:30.508Z","type":"gemini","content":"Done. Tests pass.","model":"gemini-2.5-flash","thoughts":[],"tokens":{"input":10440,"output":95,"cached":7936,"thoughts":0,"tool":312,"total":10847}}
+{"$set":{"lastUpdated":"2026-09-26T09:14:30.700Z"}}

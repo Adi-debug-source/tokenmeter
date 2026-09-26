@@ -1,0 +1,98 @@
+{
+  "_about": "Per-turn figures a correct Codex parser should extract from each fixture in this folder. All fixtures are synthetic; ids, paths and prompts are invented. Field names and nesting are taken from the openai/codex source at commit e72da2b53805894878023d01949a25a082e0a5cb (26 September 2026) and from the older tags named per generation.",
+  "_conventions": {
+    "input_tokens_raw": "payload.info.last_token_usage.input_tokens exactly as recorded. INCLUSIVE of cached and cache-write tokens.",
+    "cached_input_tokens": "subset of input_tokens that was a prompt-cache read",
+    "cache_write_input_tokens": "subset of input_tokens written to the prompt cache. Only exists in the current generation; absent before.",
+    "uncached_input_tokens": "input_tokens_raw - cached_input_tokens - cache_write_input_tokens. This is the slice billed at the plain input rate.",
+    "output_tokens": "INCLUSIVE of reasoning_output_tokens; do not add reasoning on top",
+    "reasoning_output_tokens": "reference only, already inside output_tokens",
+    "dedupe_key": "what to key on so a repeated event is not counted twice"
+  },
+  "fixtures": [
+    {
+      "file": "gen2_envelope_no_turn_context.jsonl",
+      "generation": "G2 envelope, no turn_context (Codex CLI between rust-v0.31.0 and rust-v0.35.x, roughly Sep to Oct 2025)",
+      "notes": [
+        "No turn_context line exists in this generation and SessionMeta carries no model, so the model is unrecoverable from the log. ccusage substitutes \"gpt-5\" and flags the row is_fallback_model = true.",
+        "TokenUsage has no cache_write_input_tokens field in this generation.",
+        "TokenCountEvent has no rate_limits field in this generation.",
+        "Line 7 is a byte-identical repeat of line 6 and must be dropped."
+      ],
+      "expected_turns": [
+        {"turn": 1, "line": 3, "timestamp": "2025-10-02T08:14:29.884Z", "model": "gpt-5", "model_is_fallback": true, "input_tokens_raw": 5120, "cached_input_tokens": 0, "cache_write_input_tokens": null, "uncached_input_tokens": 5120, "output_tokens": 480, "reasoning_output_tokens": 192, "total_tokens": 5600},
+        {"turn": 2, "line": 6, "timestamp": "2025-10-02T08:15:44.777Z", "model": "gpt-5", "model_is_fallback": true, "input_tokens_raw": 11360, "cached_input_tokens": 4992, "cache_write_input_tokens": null, "uncached_input_tokens": 6368, "output_tokens": 820, "reasoning_output_tokens": 512, "total_tokens": 12180},
+        {"turn": 3, "line": 9, "timestamp": "2025-10-02T08:16:58.204Z", "model": "gpt-5", "model_is_fallback": true, "input_tokens_raw": 12780, "cached_input_tokens": 11136, "cache_write_input_tokens": null, "uncached_input_tokens": 1644, "output_tokens": 296, "reasoning_output_tokens": 0, "total_tokens": 13076}
+      ],
+      "expected_skipped_lines": [
+        {"line": 7, "reason": "duplicate token_count: info.total_token_usage is unchanged from line 6, so no new usage happened"}
+      ],
+      "expected_session_totals": {"input_tokens_raw": 29260, "cached_input_tokens": 16128, "uncached_input_tokens": 13132, "output_tokens": 1596, "reasoning_output_tokens": 704, "total_tokens": 30856},
+      "dedupe_key": "(session file, info.total_token_usage snapshot). Count last_token_usage only when the cumulative total_token_usage differs from the previous one seen in this file."
+    },
+    {
+      "file": "gen3_turn_context.jsonl",
+      "generation": "G3 envelope with turn_context (rust-v0.36.0 onward; rate_limits on token_count from roughly rust-v0.4x)",
+      "notes": [
+        "Model comes from the most recent turn_context line and changes mid-file.",
+        "Line 7 carries info: null, which happens when only rate limits refreshed. It must be skipped, not treated as a zero turn.",
+        "Line 6 repeats line 5's totals exactly and must be dropped.",
+        "The web_search_call response item on line 4 is a billed extra for the provider but carries no token counts of its own; its cost is inside the next token_count."
+      ],
+      "expected_turns": [
+        {"turn": 1, "line": 3, "timestamp": "2026-01-19T11:02:41.663Z", "model": "gpt-5.2-codex", "model_is_fallback": false, "input_tokens_raw": 7300, "cached_input_tokens": 0, "cache_write_input_tokens": null, "uncached_input_tokens": 7300, "output_tokens": 540, "reasoning_output_tokens": 288, "total_tokens": 7840},
+        {"turn": 2, "line": 5, "timestamp": "2026-01-19T11:03:55.117Z", "model": "gpt-5.2-codex", "model_is_fallback": false, "input_tokens_raw": 13160, "cached_input_tokens": 6912, "cache_write_input_tokens": null, "uncached_input_tokens": 6248, "output_tokens": 950, "reasoning_output_tokens": 512, "total_tokens": 14110},
+        {"turn": 3, "line": 9, "timestamp": "2026-01-19T11:07:02.514Z", "model": "gpt-5.3-codex", "model_is_fallback": false, "input_tokens_raw": 21340, "cached_input_tokens": 18432, "cache_write_input_tokens": null, "uncached_input_tokens": 2908, "output_tokens": 1616, "reasoning_output_tokens": 1312, "total_tokens": 22956}
+      ],
+      "expected_skipped_lines": [
+        {"line": 6, "reason": "duplicate token_count, cumulative total unchanged"},
+        {"line": 7, "reason": "info is null, rate limit refresh only"}
+      ],
+      "expected_session_totals": {"input_tokens_raw": 41800, "cached_input_tokens": 25344, "uncached_input_tokens": 16456, "output_tokens": 3106, "reasoning_output_tokens": 2112, "total_tokens": 44906},
+      "expected_billed_extras": {"web_search_calls": 1},
+      "dedupe_key": "(session file, info.total_token_usage snapshot), same rule as G2"
+    },
+    {
+      "file": "gen4_current_paginated.jsonl",
+      "generation": "G4 current, paginated history mode (main at e72da2b, 26 September 2026)",
+      "notes": [
+        "Lines now carry an \"ordinal\" and the file also contains token_usage_record lines that repeat the same numbers. Count EITHER the token_count stream OR the token_usage_record stream, never both, or every figure doubles.",
+        "cache_write_input_tokens exists in this generation and is a subset of input_tokens.",
+        "service tier comes from the thread_settings_applied events and is state that carries forward: turns 1 and 2 are \"default\" (standard), turn 3 is \"priority\" (fast).",
+        "Line 6 repeats line 5's totals exactly. Line 10 has info: null."
+      ],
+      "expected_turns": [
+        {"turn": 1, "token_count_line": 5, "token_usage_record_line": 4, "response_id": "resp_4a1c0e77b2", "ordinal": 4, "timestamp": "2026-09-24T14:08:01.902Z", "model": "gpt-5.6-terra", "model_is_fallback": false, "service_tier": "default", "input_tokens_raw": 4200, "cached_input_tokens": 0, "cache_write_input_tokens": 3840, "uncached_input_tokens": 360, "output_tokens": 512, "reasoning_output_tokens": 256, "total_tokens": 4712},
+        {"turn": 2, "token_count_line": 9, "token_usage_record_line": 8, "response_id": "resp_9f22d5c108", "ordinal": 8, "timestamp": "2026-09-24T14:09:26.680Z", "model": "gpt-5.6-terra", "model_is_fallback": false, "service_tier": "default", "input_tokens_raw": 9800, "cached_input_tokens": 4096, "cache_write_input_tokens": 0, "uncached_input_tokens": 5704, "output_tokens": 640, "reasoning_output_tokens": 384, "total_tokens": 10440},
+        {"turn": 3, "token_count_line": 14, "token_usage_record_line": 13, "response_id": "resp_c30a18ef45", "ordinal": 13, "timestamp": "2026-09-24T14:11:38.006Z", "model": "gpt-5.6-luna", "model_is_fallback": false, "service_tier": "priority", "input_tokens_raw": 12500, "cached_input_tokens": 9600, "cache_write_input_tokens": 0, "uncached_input_tokens": 2900, "output_tokens": 300, "reasoning_output_tokens": 0, "total_tokens": 12800}
+      ],
+      "expected_skipped_lines": [
+        {"line": 6, "reason": "duplicate token_count, ordinal 5, cumulative total unchanged from ordinal 4"},
+        {"line": 10, "reason": "info is null, rate limit refresh only"}
+      ],
+      "expected_session_totals": {"input_tokens_raw": 26500, "cached_input_tokens": 13696, "cache_write_input_tokens": 3840, "uncached_input_tokens": 8964, "output_tokens": 1452, "reasoning_output_tokens": 640, "total_tokens": 27952},
+      "expected_billed_extras": {"web_search_calls": 1},
+      "dedupe_key": "token_count stream: (session file, info.total_token_usage snapshot), or equivalently the line ordinal plus a changed cumulative. token_usage_record stream: payload.response_id, which is unique per upstream response."
+    },
+    {
+      "file": "exec_headless_turn_completed.jsonl",
+      "generation": "codex exec --json stdout, saved to a file by the user. Not a rollout. ccusage reads these when a CODEX_HOME entry has neither sessions/ nor archived_sessions/.",
+      "notes": [
+        "turn.completed carries no timestamp and no model. A parser must fall back to the file mtime for the date and has no model at all; ccusage substitutes \"gpt-5\".",
+        "Usage here is per turn, not cumulative, so no delta arithmetic and no dedupe by cumulative total.",
+        "Usage has no total_tokens field; derive it as input_tokens + output_tokens."
+      ],
+      "expected_turns": [
+        {"turn": 1, "line": 4, "timestamp": null, "model": "gpt-5", "model_is_fallback": true, "input_tokens_raw": 3100, "cached_input_tokens": 0, "cache_write_input_tokens": 2816, "uncached_input_tokens": 284, "output_tokens": 410, "reasoning_output_tokens": 192, "total_tokens_derived": 3510},
+        {"turn": 2, "line": 6, "timestamp": null, "model": "gpt-5", "model_is_fallback": true, "input_tokens_raw": 7400, "cached_input_tokens": 2816, "cache_write_input_tokens": 0, "uncached_input_tokens": 4584, "output_tokens": 260, "reasoning_output_tokens": 96, "total_tokens_derived": 7660}
+      ],
+      "expected_skipped_lines": [],
+      "expected_session_totals": {"input_tokens_raw": 10500, "cached_input_tokens": 2816, "cache_write_input_tokens": 2816, "uncached_input_tokens": 4868, "output_tokens": 670, "reasoning_output_tokens": 288, "total_tokens_derived": 11170},
+      "dedupe_key": "none needed: every turn.completed is its own turn and nothing repeats"
+    }
+  ],
+  "_abbreviations_in_fixtures": [
+    "gen4 thread_settings_applied: the real ThreadSettingsSnapshot also requires permission_profile and collaboration_mode, whose inner shapes were not enumerated. Those two keys are omitted from the fixture. Every key that IS present matches the source.",
+    "gen4 session_meta omits optional fields that carry skip_serializing_if and would not appear when unset."
+  ]
+}

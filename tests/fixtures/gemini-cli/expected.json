@@ -1,0 +1,74 @@
+{
+  "harness": "gemini-cli",
+  "fixture_root": "fixtures/gemini-cli/home",
+  "notes": [
+    "Set HOME to fixture_root, or GEMINI_DATA_DIR to <fixture_root>/.gemini/tmp, to point a parser at this tree.",
+    "Working directory comes from .gemini/projects.json (path -> slug) or from .gemini/tmp/<slug>/.project_root. It is not in the chat file.",
+    "provider is not written by the harness. 'google' is the only provider gemini-cli talks to for these models, so a parser must supply it.",
+    "tokens.input (promptTokenCount) INCLUDES tokens.cached (cachedContentTokenCount), so uncached_input = input - cached.",
+    "tokens.output (candidatesTokenCount) EXCLUDES tokens.thoughts (thoughtsTokenCount).",
+    "cache write is never reported by the Gemini API usageMetadata, so cache_write is always 0.",
+    "tokens.tool (toolUsePromptTokenCount) is a separate prompt-side count, not inside promptTokenCount.",
+    "The file is append-only JSONL. Message id a71c4e52... appears twice: once with tokens null, once with tokens filled. Last line for an id wins.",
+    "Lines with $set are metadata updates and carry no usage. Lines with $rewindTo (not present here) truncate history back to an id."
+  ],
+  "calls": [
+    {
+      "dedup_key": "session-2026-09-26T09-12-3f9c1a2b.jsonl#a71c4e52-8f2d-4c19-9b03-5d1e77a3c208",
+      "session_id": "3f9c1a2b-6d41-4f0e-9a52-2b7c8e5d1140",
+      "cwd": "/Users/example/code/demo",
+      "timestamp": "2026-09-26T09:12:13.771Z",
+      "model": "gemini-3-pro-preview",
+      "provider": "google",
+      "uncached_input": 4120,
+      "cache_read": 0,
+      "cache_write": 0,
+      "tool_prompt": 0,
+      "output": 186,
+      "reasoning": 0,
+      "harness_cost": null,
+      "duplicate_lines_in_file": 2
+    },
+    {
+      "dedup_key": "session-2026-09-26T09-12-3f9c1a2b.jsonl#d4e81a06-0c77-4e3b-95f2-6f30a9b41c8e",
+      "session_id": "3f9c1a2b-6d41-4f0e-9a52-2b7c8e5d1140",
+      "cwd": "/Users/example/code/demo",
+      "timestamp": "2026-09-26T09:13:52.640Z",
+      "model": "gemini-3-pro-preview",
+      "provider": "google",
+      "uncached_input": 1944,
+      "cache_read": 7936,
+      "cache_write": 0,
+      "tool_prompt": 0,
+      "output": 402,
+      "reasoning": 1544,
+      "harness_cost": null,
+      "duplicate_lines_in_file": 1
+    },
+    {
+      "dedup_key": "session-2026-09-26T09-12-3f9c1a2b.jsonl#f0a5b318-2e94-4d6a-8c11-73b0d5ea9f47",
+      "session_id": "3f9c1a2b-6d41-4f0e-9a52-2b7c8e5d1140",
+      "cwd": "/Users/example/code/demo",
+      "timestamp": "2026-09-26T09:14:30.508Z",
+      "model": "gemini-2.5-flash",
+      "provider": "google",
+      "uncached_input": 2504,
+      "cache_read": 7936,
+      "cache_write": 0,
+      "tool_prompt": 312,
+      "output": 95,
+      "reasoning": 0,
+      "harness_cost": null,
+      "duplicate_lines_in_file": 1
+    }
+  ],
+  "totals": {
+    "calls": 3,
+    "uncached_input": 8568,
+    "cache_read": 15872,
+    "cache_write": 0,
+    "tool_prompt": 312,
+    "output": 683,
+    "reasoning": 1544
+  }
+}

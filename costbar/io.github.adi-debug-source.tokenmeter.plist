@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>io.github.adi-debug-source.tokenmeter</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/Applications/Tokenmeter.app/Contents/MacOS/Tokenmeter</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardErrorPath</key><string>/tmp/tokenmeter.err</string>
+</dict>
+</plist>

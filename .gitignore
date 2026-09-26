@@ -1,0 +1,23 @@
+# Built by costbar/build.sh
+costbar/costbar
+costbar/AppIcon.icns
+costbar/*.iconset/
+costbar/.mkicon
+
+# Caches written beside the engine
+.fx_rates.json
+.today_cost.json
+.fetched_prices.json
+*.tmp
+
+# Usage history never belongs in this repository
+cost-ledger.jsonl
+cost-ledger.jsonl.*
+*.ledger
+
+# Rendered dashboards
+Tokenmeter.html
+
+__pycache__/
+*.pyc
+.DS_Store

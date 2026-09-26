@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"0198f4aa-11bc-7d02-8e44-9a0b5c7d3e21"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Updated the loader and added one test."}}
+{"type":"turn.completed","usage":{"input_tokens":3100,"cached_input_tokens":0,"cache_write_input_tokens":2816,"output_tokens":410,"reasoning_output_tokens":192}}
+{"type":"turn.started"}
+{"type":"turn.completed","usage":{"input_tokens":7400,"cached_input_tokens":2816,"cache_write_input_tokens":0,"output_tokens":260,"reasoning_output_tokens":96}}

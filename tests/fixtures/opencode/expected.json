@@ -1,0 +1,121 @@
+{
+  "harness": "opencode",
+  "fixture_root": "fixtures/opencode/home/.local/share/opencode",
+  "database": "opencode.db",
+  "build_script": "fixtures/opencode/build_db.sql",
+  "notes": [
+    "Set HOME to fixtures/opencode/home, or OPENCODE_DATA_DIR to the fixture_root, to point a parser at this tree.",
+    "tokens.input EXCLUDES cache.read and cache.write (opencode subtracts them before storing).",
+    "tokens.output EXCLUDES tokens.reasoning (opencode stores visibleOutputTokens).",
+    "Two write paths coexist in one database. The v1 path (table message + part) is the legacy TUI path; the v2 path (table session_message) is the event-sourced path.",
+    "v1 DUPLICATE HAZARD: the assistant row in `message` carries the LAST step's tokens only, while its `cost` is the SUM over all steps. Counting message rows undercounts every multi-step turn. The per-call unit on the v1 path is the `step-finish` row in `part`. ccusage reads message rows and does not read `part`.",
+    "v2: one assistant row per LLM step, UPDATEd in place as the stream arrives, so there is one row per API call and no duplicate rows. Forked sessions copy the parent's rows with new ids but the same seq.",
+    "cost: the v1 path stores a real USD figure per step-finish part and a summed figure on the message. The v2 path hardcodes cost 0 (packages/core/src/session/runner/llm.ts), so cost must be computed from tokens there."
+  ],
+  "calls": [
+    {
+      "dedup_key": "part:prt_v1step0001",
+      "path": "v1",
+      "session_id": "ses_v1demo0001",
+      "message_id": "msg_v1asst0001",
+      "cwd": "/Users/example/code/demo",
+      "timestamp_ms": 1790000030000,
+      "model": "claude-sonnet-4-5",
+      "provider": "anthropic",
+      "uncached_input": 4220,
+      "cache_read": 0,
+      "cache_write": 1725,
+      "output": 287,
+      "reasoning": 0,
+      "harness_cost": 0.0219
+    },
+    {
+      "dedup_key": "part:prt_v1step0002",
+      "path": "v1",
+      "session_id": "ses_v1demo0001",
+      "message_id": "msg_v1asst0001",
+      "cwd": "/Users/example/code/demo",
+      "timestamp_ms": 1790000061000,
+      "model": "claude-sonnet-4-5",
+      "provider": "anthropic",
+      "uncached_input": 2170,
+      "cache_read": 21504,
+      "cache_write": 2371,
+      "output": 455,
+      "reasoning": 480,
+      "harness_cost": 0.0213
+    },
+    {
+      "dedup_key": "session_message:msg_v2asst0001",
+      "path": "v2",
+      "session_id": "ses_v2demo0002",
+      "message_id": "msg_v2asst0001",
+      "cwd": "/Users/example/code/demo",
+      "timestamp_ms": 1790000310000,
+      "model": "gpt-5.2-codex",
+      "provider": "openai",
+      "uncached_input": 1810,
+      "cache_read": 18880,
+      "cache_write": 1280,
+      "output": 233,
+      "reasoning": 0,
+      "harness_cost": 0
+    },
+    {
+      "dedup_key": "session_message:msg_v2asst0002",
+      "path": "v2",
+      "session_id": "ses_v2demo0002",
+      "message_id": "msg_v2asst0002",
+      "cwd": "/Users/example/code/demo",
+      "timestamp_ms": 1790000360000,
+      "model": "gpt-5.2-codex",
+      "provider": "openai",
+      "uncached_input": 2150,
+      "cache_read": 0,
+      "cache_write": 0,
+      "output": 279,
+      "reasoning": 900,
+      "harness_cost": 0
+    }
+  ],
+  "wrong_answer_a_naive_parser_gives": {
+    "description": "Reading the v1 `message` row instead of its `part` step-finish rows yields one call with the last step's tokens only.",
+    "uncached_input": 2170,
+    "cache_read": 21504,
+    "cache_write": 2371,
+    "output": 455,
+    "reasoning": 480,
+    "missing_vs_expected": {
+      "uncached_input": 4220,
+      "cache_write": 1725,
+      "output": 287
+    }
+  },
+  "cross_check": {
+    "description": "Per-session columns on the `session` table should equal the sum of that session's calls.",
+    "ses_v1demo0001": {
+      "tokens_input": 6390,
+      "tokens_output": 742,
+      "tokens_reasoning": 480,
+      "tokens_cache_read": 21504,
+      "tokens_cache_write": 4096,
+      "cost": 0.0432
+    },
+    "ses_v2demo0002": {
+      "tokens_input": 3960,
+      "tokens_output": 512,
+      "tokens_reasoning": 900,
+      "tokens_cache_read": 18880,
+      "tokens_cache_write": 1280,
+      "cost": 0
+    }
+  },
+  "totals": {
+    "calls": 4,
+    "uncached_input": 10350,
+    "cache_read": 40384,
+    "cache_write": 5376,
+    "output": 1254,
+    "reasoning": 1380
+  }
+}
