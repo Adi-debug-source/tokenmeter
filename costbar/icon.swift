@@ -7,22 +7,37 @@
 //
 //   swiftc -O -o /tmp/mkicon icon.swift && /tmp/mkicon out.iconset
 //
-// The picture is the app's own chart: rising bars with a cumulative line over
-// them. Someone who has seen the dashboard recognises it, and someone who has
-// not still reads "spend, going up".
+// The picture is a T whose crossbar is a meter: the solid part is the
+// reading so far, a clay tick marks where it stands, and the rest of the
+// scale is a groove the reading has yet to travel. It is drawn in the macOS
+// 26 dark icon style: a graphite body lit from above, the glyph lifted off it
+// by a soft shadow, and one accent that gives off light, the way Stocks and
+// Activity Monitor light theirs.
 
 import AppKit
 import Foundation
 
-let ACC_HI  = NSColor(srgbRed: 0.925, green: 0.588, blue: 0.451, alpha: 1)   // #ec9673
-let ACC_LO  = NSColor(srgbRed: 0.769, green: 0.373, blue: 0.216, alpha: 1)   // #c45f37
-let LINE    = NSColor(srgbRed: 0.427, green: 0.678, blue: 0.878, alpha: 1)   // #6dade0
-let BG_HI   = NSColor(srgbRed: 0.137, green: 0.153, blue: 0.173, alpha: 1)   // #23272c
-let BG_LO   = NSColor(srgbRed: 0.043, green: 0.051, blue: 0.063, alpha: 1)   // #0b0d10
+func hex(_ h: UInt32, _ a: CGFloat = 1) -> NSColor {
+    NSColor(srgbRed: CGFloat((h >> 16) & 0xff) / 255, green: CGFloat((h >> 8) & 0xff) / 255,
+            blue: CGFloat(h & 0xff) / 255, alpha: a)
+}
+
+let BODY_HI = hex(0x2B2F36)   // graphite, top
+let BODY_LO = hex(0x0E1013)   // graphite, bottom
+let INK_HI  = hex(0xFFFFFF)   // the T, top
+let INK_LO  = hex(0xC3C8D0)   // the T, bottom
+let GROOVE  = hex(0x07080A)
+// The reading is the dashboard's accent, exactly: --acc2 at the top, the
+// chart bars' foot at the bottom, and --acc for its light. Change them together.
+let ACC_HI  = hex(0xE8916F)   // the reading, top
+let ACC_LO  = hex(0xC9663F)   // the reading, bottom
+let GLOW    = hex(0xD97757)   // light the reading gives off
 
 /// Apple's icon outline is a squircle, not a rounded rectangle. Circular
 /// corners read as subtly wrong beside native icons, and the difference is
-/// most visible at large sizes in the Dock.
+/// most visible at large sizes in the Dock. macOS 26 and later re-mask an
+/// icon to their own shape and add a glass edge, but only when the icon
+/// already follows this outline; otherwise it is shrunk onto a grey tile.
 func squircle(in r: CGRect, n: CGFloat = 5) -> NSBezierPath {
     let p = NSBezierPath()
     let a = r.width / 2, b = r.height / 2
@@ -39,12 +54,31 @@ func squircle(in r: CGRect, n: CGFloat = 5) -> NSBezierPath {
     return p
 }
 
-func gradient(_ from: NSColor, _ to: NSColor) -> NSGradient {
-    NSGradient(starting: from, ending: to)!
+/// A polygon with its own corner radius at each vertex; zero for a sharp one.
+func roundedPolygon(_ pts: [CGPoint], _ radii: [CGFloat], into p: NSBezierPath) {
+    let n = pts.count
+    p.move(to: CGPoint(x: (pts[n - 1].x + pts[0].x) / 2, y: (pts[n - 1].y + pts[0].y) / 2))
+    for i in 0..<n {
+        if radii[i] <= 0 { p.line(to: pts[i]) }
+        else { p.appendArc(from: pts[i], to: pts[(i + 1) % n], radius: radii[i]) }
+    }
+    p.close()
 }
 
-/// One icon at one size. `s` is the edge length in pixels; everything is
-/// expressed as a fraction of it so the drawing is resolution independent.
+func withShadow(_ color: NSColor, blur: CGFloat, dy: CGFloat, _ body: () -> Void) {
+    NSGraphicsContext.saveGraphicsState()
+    let sh = NSShadow()
+    sh.shadowColor = color
+    sh.shadowBlurRadius = blur
+    sh.shadowOffset = NSSize(width: 0, height: dy)
+    sh.set()
+    body()
+    NSGraphicsContext.restoreGraphicsState()
+}
+
+/// One icon at one size. `s` is the edge length in pixels. The mark is laid
+/// out on a 1024 unit grid, origin top left, and mapped to pixels; below
+/// 128px every edge is rounded to a whole pixel so small sizes stay crisp.
 func drawIcon(size s: CGFloat) -> NSImage {
     let img = NSImage(size: NSSize(width: s, height: s))
     img.lockFocus()
@@ -52,106 +86,141 @@ func drawIcon(size s: CGFloat) -> NSImage {
     ctx.imageInterpolation = .high
     ctx.shouldAntialias = true
 
+    let k = s / 1024
+    let snap = s < 128
+    func X(_ x: CGFloat) -> CGFloat { snap ? (x * k).rounded() : x * k }
+    func Y(_ y: CGFloat) -> CGFloat { snap ? (s - y * k).rounded() : s - y * k }
+    func P(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: X(x), y: Y(y)) }
+    func R(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+        let x0 = X(x), x1 = X(x + w), y0 = Y(y + h), y1 = Y(y)
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
     // Apple's grid: the shape occupies 824 of a 1024 canvas, leaving room for
     // the shadow the system expects an icon to carry itself.
     let inset = s * 0.098
     let box = CGRect(x: inset, y: inset * 1.14, width: s - inset * 2, height: s - inset * 2)
     let shape = squircle(in: box)
 
-    NSGraphicsContext.saveGraphicsState()
-    let shadow = NSShadow()
-    shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-    shadow.shadowBlurRadius = s * 0.035
-    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.012)
-    shadow.set()
-    BG_LO.setFill()
-    shape.fill()
-    NSGraphicsContext.restoreGraphicsState()
+    withShadow(NSColor.black.withAlphaComponent(0.5), blur: s * 0.03, dy: -s * 0.012) {
+        BODY_LO.setFill()
+        shape.fill()
+    }
 
     NSGraphicsContext.saveGraphicsState()
     shape.addClip()
-    gradient(BG_HI, BG_LO).draw(in: box, angle: -90)
+    NSGradient(starting: BODY_HI, ending: BODY_LO)!.draw(in: box, angle: -90)
+    // Light from above: a broad, faint pool at the top centre. Drawn over a
+    // box larger than the icon, not a sub-rectangle: a radial gradient is only
+    // transparent at the edge of the rect it is given, so a smaller rect
+    // leaves a visible seam where it stops.
+    NSGradient(colorsAndLocations: (NSColor.white.withAlphaComponent(0.075), 0),
+               (NSColor.white.withAlphaComponent(0.0), 1))!
+        .draw(in: box.insetBy(dx: -box.width * 0.25, dy: -box.height * 0.25),
+              relativeCenterPosition: CGPoint(x: 0, y: 0.75))
 
-    // A warm bloom in the upper left, the same light source the dashboard uses.
-    // Drawn over the whole box, not a sub-rectangle: a radial gradient is only
-    // transparent at the edge of the rect it is given, so a smaller rect left
-    // a visible horizontal seam across the icon where it stopped.
-    let bloom = NSGradient(colorsAndLocations:
-        (NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 0.22), 0.0),
-        (NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 0.06), 0.45),
-        (NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 0.0), 1.0))!
-    bloom.draw(in: box.insetBy(dx: -box.width * 0.3, dy: -box.height * 0.3),
-               relativeCenterPosition: CGPoint(x: -0.34, y: 0.42))
+    // ---- the mark ----------------------------------------------------------
+    // Sat a little below the body's centre, because the crossbar makes a T
+    // top heavy. The crossbar is thinner than the stem, as in a typeface:
+    // equal strokes make the horizontal look the heavier of the two.
+    let cy = 1024 - (inset * 1.14 + box.height / 2) / k
+    let H: CGFloat = 424
+    let top = cy + 16 - H / 2
+    let barL: CGFloat = 228, barR: CGFloat = 796, barH: CGFloat = 88
+    let barB = top + barH
+    let stemW: CGFloat = 104, foot = top + H
+    let stemL = 512 - stemW / 2, stemR = 512 + stemW / 2
+    let reading: CGFloat = 626
+    let term = 22 * k
 
-    // ---- the chart -------------------------------------------------------
-    // Below 32pt the full drawing turns to porridge, so the small sizes get
-    // fewer, fatter bars and no dot. Apple's own icons simplify the same way.
-    let small = s < 32
-    let heights: [CGFloat] = small ? [0.34, 0.56, 0.78, 1.0]
-                                   : [0.30, 0.45, 0.36, 0.68, 1.0]
-
-    // Bars sit in the lower half; the line sweeps through the upper half.
-    // Together they fill the square rather than hugging one corner.
-    let plot = CGRect(x: box.minX + box.width * 0.155, y: box.minY + box.height * 0.235,
-                      width: box.width * 0.69, height: box.height * 0.34)
-
-    let gap = plot.width * (small ? 0.10 : 0.085)
-    let bw = (plot.width - gap * CGFloat(heights.count - 1)) / CGFloat(heights.count)
-    let radius = min(bw * 0.28, s * 0.022)
-
-    for (i, h) in heights.enumerated() {
-        let bh = max(plot.height * h, s * 0.022)
-        let r = CGRect(x: plot.minX + (bw + gap) * CGFloat(i), y: plot.minY,
-                       width: bw, height: bh)
-        let bar = NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
+    if s < 32 {
+        // Sixteen pixels: a plain T on whole pixels. A meter cannot survive
+        // at this size, and a tick one pixel wide only makes the T look broken.
+        let path = NSBezierPath()
+        let bh = 2 / k, sw = 2 / k
+        path.append(NSBezierPath(rect: R(barL + 24, top + 16, barR - barL - 48, bh)))
+        path.append(NSBezierPath(rect: R(512 - sw / 2, top + 16, sw, H - 40)))
+        hex(0xF2F4F6).setFill()
+        path.fill()
+    } else {
+        // The groove the reading travels along, milled into the body. Lit from
+        // above, so its upper edge is in shadow and its lower lip catches a
+        // sliver of light.
+        let groove = NSBezierPath()
+        roundedPolygon([P(barL, top), P(barR, top), P(barR, barB), P(barL, barB)],
+                       [term, term, term, term], into: groove)
+        GROOVE.setFill()
+        groove.fill()
         NSGraphicsContext.saveGraphicsState()
-        bar.addClip()
-        gradient(ACC_HI, ACC_LO).draw(in: r, angle: -90)
+        groove.addClip()
+        let outside = NSBezierPath(rect: box.insetBy(dx: -s, dy: -s))
+        outside.append(groove)
+        outside.windingRule = .evenOdd
+        withShadow(NSColor.black.withAlphaComponent(0.9), blur: s * 0.012, dy: -s * 0.006) {
+            NSColor.black.setFill()
+            outside.fill()
+        }
+        withShadow(NSColor.white.withAlphaComponent(0.10), blur: s * 0.002, dy: s * 0.003) {
+            NSColor.black.setFill()
+            outside.fill()
+        }
+        // Light from the reading, spilling a short way down the groove.
+        NSGradient(starting: GLOW.withAlphaComponent(0.30), ending: GLOW.withAlphaComponent(0))!
+            .draw(in: R(reading, top, 170, barH), angle: 0)
         NSGraphicsContext.restoreGraphicsState()
-    }
 
-    // The cumulative line: always climbing, which is the one honest thing a
-    // running total does. It rises across the upper half, clear of the bars.
-    let lineLo = plot.minY + plot.height * 0.62
-    let lineHi = box.minY + box.height * 0.775
-    let pts: [CGPoint] = heights.enumerated().map { i, _ in
-        let run = heights[0...i].reduce(0, +) / heights.reduce(0, +)
-        return CGPoint(x: plot.minX + (bw + gap) * CGFloat(i) + bw / 2,
-                       y: lineLo + (lineHi - lineLo) * run)
-    }
-    let line = NSBezierPath()
-    line.lineWidth = max(s * (small ? 0.032 : 0.021), 1)
-    line.lineCapStyle = .round
-    line.lineJoinStyle = .round
-    for (i, p) in pts.enumerated() {
-        if i == 0 { line.move(to: p) } else { line.line(to: p) }
-    }
-    // A dark backing stroke keeps the line readable where it crosses a bar.
-    // Kept tight: too wide and the line reads as a clumsy tube.
-    let halo = line.copy() as! NSBezierPath
-    halo.lineWidth = line.lineWidth * 1.75
-    NSColor(srgbRed: 0.043, green: 0.051, blue: 0.063, alpha: 0.9).setStroke()
-    halo.stroke()
-    LINE.setStroke()
-    line.stroke()
+        // The T: the reading so far and the stem, one shape, lifted off the
+        // body by its shadow. The stem starts inside the crossbar so the two
+        // join without a seam.
+        let ink = NSBezierPath()
+        roundedPolygon([P(barL, top), P(reading, top), P(reading, barB), P(barL, barB)],
+                       [term, 0, 0, term], into: ink)
+        roundedPolygon([P(stemL, top + 10), P(stemR, top + 10), P(stemR, foot), P(stemL, foot)],
+                       [0, 0, term, term], into: ink)
+        withShadow(NSColor.black.withAlphaComponent(0.55), blur: s * 0.022, dy: -s * 0.010) {
+            INK_LO.setFill()
+            ink.fill()
+        }
+        NSGraphicsContext.saveGraphicsState()
+        ink.addClip()
+        // The gradient covers the whole glyph's box, so the crossbar and the
+        // stem read as one piece of material.
+        NSGradient(starting: INK_HI, ending: INK_LO)!.draw(in: ink.bounds, angle: -90)
+        // A faint shade along the crossbar's underside, where it turns away
+        // from the light, so the glyph reads as a solid rather than a sticker.
+        NSGradient(starting: NSColor.black.withAlphaComponent(0),
+                   ending: NSColor.black.withAlphaComponent(0.10))!
+            .draw(in: R(barL, top, reading - barL, barH), angle: -90)
+        if s >= 128 {
+            // The specular edge along the top; below 128px it is under a pixel.
+            NSColor.white.withAlphaComponent(0.95).setFill()
+            NSBezierPath(rect: R(barL, top, reading - barL, 3)).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
 
-    // The head of the line, so the eye lands on "now".
-    if !small, let last = pts.last {
-        let rr = s * 0.026
-        NSColor(srgbRed: 0.043, green: 0.051, blue: 0.063, alpha: 1).setFill()
-        NSBezierPath(ovalIn: CGRect(x: last.x - rr, y: last.y - rr,
-                                    width: rr * 2, height: rr * 2)).fill()
-        LINE.setFill()
-        NSBezierPath(ovalIn: CGRect(x: last.x - rr * 0.6, y: last.y - rr * 0.6,
-                                    width: rr * 1.2, height: rr * 1.2)).fill()
+        // The reading: the one accent, and the only thing that gives off
+        // light. It stands proud of the crossbar above and below, like the
+        // cursor on an instrument.
+        let tw = max(16, 1.6 / k), over: CGFloat = 30
+        let tickR = R(reading - tw / 2, top - over, tw, barH + over * 2)
+        let tick = NSBezierPath(roundedRect: tickR, xRadius: tickR.width / 2, yRadius: tickR.width / 2)
+        withShadow(GLOW.withAlphaComponent(0.85), blur: s * 0.035, dy: 0) { GLOW.setFill(); tick.fill() }
+        withShadow(GLOW.withAlphaComponent(0.6), blur: s * 0.012, dy: 0) { GLOW.setFill(); tick.fill() }
+        NSGraphicsContext.saveGraphicsState()
+        tick.addClip()
+        NSGradient(starting: ACC_HI, ending: ACC_LO)!.draw(in: tickR, angle: -90)
+        NSGraphicsContext.restoreGraphicsState()
     }
     NSGraphicsContext.restoreGraphicsState()
 
-    // A hairline rim, the thing that stops a dark icon looking like a hole.
+    // A hairline edge, the thing that stops a dark icon looking like a hole
+    // on macOS 12 to 15, which show the icon exactly as drawn. macOS 26 and
+    // later draw their own glass edge over it.
     NSGraphicsContext.saveGraphicsState()
-    let rim = squircle(in: box.insetBy(dx: s * 0.003, dy: s * 0.003))
-    rim.lineWidth = max(s * 0.0055, 0.6)
-    NSColor.white.withAlphaComponent(0.085).setStroke()
+    shape.addClip()
+    let rim = squircle(in: box.insetBy(dx: s * 0.002, dy: s * 0.002))
+    rim.lineWidth = max(s * 0.004, 0.5)
+    NSColor.white.withAlphaComponent(0.07).setStroke()
     rim.stroke()
     NSGraphicsContext.restoreGraphicsState()
 

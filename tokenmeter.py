@@ -1457,7 +1457,12 @@ DASH_CSS = """/* Tokenmeter dashboard.
   --bg:#090a0c; --card:#121417; --card2:#171a1f;
   --line:#212429; --line2:#2c313a;
   --ink:#eef0f4; --dim:#8c94a2; --dimmer:#5c6371;
+  /* --acc and --acc2 are also the app icon's tick (costbar/icon.swift). */
   --acc:#d97757; --acc2:#e8916f; --cool:#5b9dd9; --good:#5cab7f; --warm:#c9a227;
+  /* The four parts of a bill, as a set: checked together for colour-blind
+     separation on --bg (worst neighbouring pair Delta E 18.6 under
+     protanopia, against a floor of 8). Change one and re-check them all. */
+  --s1:var(--acc); --s2:var(--cool); --s3:#d4a03c; --s4:#9085e9;
   --r:15px; --ease:cubic-bezier(.22,.68,.16,1);
 }
 *{box-sizing:border-box}
@@ -1583,6 +1588,8 @@ svg{display:block;width:100%;overflow:visible}
 
 /* ---------- composition ---------- */
 .stack{display:flex;height:46px;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+/* a hairline of page between parts, so neighbours never merge */
+.seg+.seg{border-left:2px solid var(--bg)}
 .seg{transform:scaleX(0);transform-origin:left;transition:transform .95s var(--ease),filter .2s}
 .reveal .seg{transform:scaleX(1)}
 .seg:hover{filter:brightness(1.25)}
@@ -1957,10 +1964,10 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered=""):
                      f'<div class="win-c">{w["calls"]:,}</div></div>')
 
     # ---- component composition -------------------------------------------
-    comp = [("Cache reads", t["cache_read"], overall["cache_read"], "var(--acc)"),
-            ("Cache writes", t["cache_write"], overall["cache_write"], "var(--cool)"),
-            ("Output", t["output"], overall["output"], "var(--good)"),
-            ("Input, uncached", t["input"], overall["input"], "var(--warm)")]
+    comp = [("Cache reads", t["cache_read"], overall["cache_read"], "var(--s1)"),
+            ("Cache writes", t["cache_write"], overall["cache_write"], "var(--s2)"),
+            ("Output", t["output"], overall["output"], "var(--s3)"),
+            ("Input, uncached", t["input"], overall["input"], "var(--s4)")]
     stack, legend = "", ""
     for i, (name, tk, cost, col) in enumerate(comp):
         pct = (cost / total * 100) if total else 0

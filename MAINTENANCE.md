@@ -102,20 +102,35 @@ does. `AppIcon.icns` is gitignored for the same reason the compiled binary is.
 It only re-renders when `icon.swift` is newer than the `.icns`, so ordinary
 builds stay quick. Force it with `rm AppIcon.icns && ./build.sh`.
 
-Three things it gets right that are easy to lose:
+The design is a T whose crossbar is a meter: the solid part is the reading so
+far, a clay tick marks where it stands, and the rest of the scale is a groove
+still to travel. It follows the macOS 26 dark icon style: a graphite body lit
+from above, the glyph lifted off it by a soft shadow, and one accent that
+gives off light. The tick's clay is the dashboard's accent (`--acc`,
+`--acc2` and the chart bars' foot colour); change one and change the other.
+
+Four things it gets right that are easy to lose:
 
 1. **The outline is a squircle, not a rounded rectangle.** Circular corners
    read as subtly wrong next to native icons. `squircle()` is a superellipse
-   at n=5.
-2. **Every size is drawn at its own resolution**, not downsampled from 1024,
-   and below 32pt it switches to four fatter bars with no dot. A five-bar
-   chart with a marker turns to porridge at 16pt.
-3. **The radial bloom covers the whole box.** A radial gradient is transparent
-   only at the edge of the rectangle it is given, so drawing it into a
-   half-height rect left a hard horizontal seam across the icon.
+   at n=5. It matters more since macOS 26: the system re-masks an icon to its
+   own shape and adds a glass edge only when the icon already follows this
+   outline, and shrinks anything else onto a grey tile.
+2. **Every size is drawn at its own resolution**, not downsampled from 1024.
+   Below 128px every edge is rounded to a whole pixel, and at 16px the mark
+   becomes a plain two-pixel T with no meter, because a one-pixel tick only
+   makes the T look broken.
+3. **Every gradient covers the whole box it fills.** A radial gradient is
+   transparent only at the edge of the rectangle it is given, so drawing one
+   into a smaller rect leaves a hard seam across the icon. The glyph's
+   gradient spans the whole T, so crossbar and stem read as one piece.
+4. **The crossbar is thinner than the stem** (88 and 104 units), as in a
+   typeface. Equal strokes make the horizontal look the heavier of the two.
 
-Check a change at 16 and 32 magnified, not just at 512. If Finder still shows
-the old icon after a rebuild, that is its cache: `touch` the bundle.
+Check a change at 16 and 32 magnified, not just at 512, and look at it the
+way the system presents it (`NSWorkspace.shared.icon(forFile:)` on the built
+app), since macOS 26 and later redraw the edge. If Finder still shows the old
+icon after a rebuild, that is its cache: `touch` the bundle.
 
 ## Rebuilding the menu bar app
 
