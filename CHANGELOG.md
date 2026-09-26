@@ -2,6 +2,27 @@
 
 ## 1.1.0, unreleased
 
+### Several harnesses
+
+When more than one harness or provider is in view, every face shows what
+mixing tools needs. One harness on one provider sees exactly what it did.
+
+- Dashboard: a Harness menu beside the currencies shows any one harness on a
+  page of its own. Every page is built by the engine in the same pass, drawn
+  over the same days, and nothing is recomputed in the browser.
+- The spend chart splits each day by harness, with a legend to leave one out.
+- By model groups models under the provider whose prices they were charged
+  at, each naming the harnesses that used it, and flags any model priced from
+  an online lookup or a stand-in rate.
+- A By harness table compares calls, cost per call, cache use and the share of
+  each harness's cost that is output.
+- "How far to trust this" shows, as shares of the total, how much was read by
+  verified readers and where each price came from.
+- Projects name the harnesses that worked on them.
+- Menu bar: By model stays the default. "Break down by" switches it to
+  harnesses or to providers with their models, and remembers the choice.
+- Terminal: `--by source` compares harnesses with cost per call and cache use.
+
 ### Look
 
 - A new app icon: a T whose crossbar is a meter, on a graphite body, in the
@@ -31,6 +52,12 @@ each with a test.
   dashboard offered seven. The engine now sends the list, in order, and the
   menu shows all of it.
 - An unused function was removed from the menu bar app.
+- The dashboard's "where the money goes" left out web searches, so its parts
+  did not add up to the total. They now have a part of their own when there
+  are any.
+- Dashboard notes that already ended in a full stop printed two.
+- The spend chart's axis read $0.0 on every line when a page's figures were
+  pennies. Small figures now get the decimals they need.
 
 ## 1.0.0, 26 September 2026
 

@@ -159,7 +159,7 @@ requesting only `wght` will load but sit still. Both families are SIL Open
 Font License, which permits embedding; keep `fonts/README.md` with them so the
 attribution travels.
 
-## Two things the chart gets wrong if you touch it
+## Three things the chart gets wrong if you touch it
 
 1. **The SVG viewBox must match the pixel box the JavaScript draws in.** It
    was once a fixed `0 0 900 268` while the drawing used `clientWidth`, so the
@@ -167,6 +167,40 @@ attribution travels.
    sets the viewBox from the measured width every time.
 2. **The tooltip sits beside the bar, never over it.** Covering the thing you
    are describing hides the answer.
+3. **Every page's gradients carry the page's name.** With several harnesses
+   each page draws its own chart, and a gradient id shared between them can
+   resolve to one inside a hidden page, which does not paint.
+
+## Several harnesses
+
+The views for mixing tools appear only when `is_multi()` is true: more than
+one harness or more than one provider in what is being shown. With one of
+each, every face is exactly what it was, and tests hold it there.
+
+- **One pass, split.** `collect_views()` reads the logs once and adds each
+  call to the whole run's `_Tally` and to its harness's own. A harness's page
+  is built from its part, so its figures match the whole run's to the last
+  bit, and nothing is recomputed in the browser. `collect()` is the same pass
+  without the split.
+- **Links between groups** are extra groups keyed by pairs:
+  `source_model`, `source_project`, `source_provider`, `provider_model`,
+  `day_source` and `day_provider`. They cost one `add()` each per call.
+- **Shared helpers** feed every face the same numbers: `harness_rows()`,
+  `models_by_provider()` and `trust_summary()`.
+- **By model is the default everywhere.** The dashboard shows it first; the
+  menu bar shows it unless "Break down by" is changed; the terminal adds
+  nothing unless asked with `--by source`. Harness views are a choice, not
+  the page's first word.
+- **Colours follow the harness, not its rank.** `chart_series()` takes
+  harnesses in the order the adapters are listed and providers in the order
+  of the price tables, five colours at most, the rest folded into "Other".
+  The five were checked as a set for colour-blind separation on the page
+  background; change one and check them again.
+- **Every page shares one time axis**, the whole run's days, so switching
+  harness keeps each date where it was.
+
+To see it without several harnesses of your own, build a scratch home from
+`tests/fixtures` as the clean-room steps do, and render the dashboard there.
 
 ## When a number looks wrong
 

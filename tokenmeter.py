@@ -1139,6 +1139,7 @@ def add(row, ev):
 
 
 # Models priced this run from a rate looked up online: (provider, model) -> source.
+# The whole run's; a harness's own view carries its own in its _Tally.
 FETCHED_USED: dict = {}
 
 
@@ -1158,43 +1159,214 @@ def unknown_label(model: str, provider: str) -> str:
     return f"{model} ({provider})"
 
 
-def collect(paths, since=None, ledger=True, until=None):
-    overall = blank()
-    groups = {"project": defaultdict(blank), "model": defaultdict(blank),
-              "day": defaultdict(blank), "session": defaultdict(blank),
-              # For the dashboard's rhythm charts: when in the day and week the
-              # work actually happens. Free to collect in the pass we already make.
-              "hour": defaultdict(blank), "weekday": defaultdict(blank),
-              # Which harness each call came from, and whose price table it
-              # used. Also what decides the verification notes in each report.
-              "source": defaultdict(blank), "provider": defaultdict(blank)}
-    meta = {}
-    unknown = set()
-    FETCHED_USED.clear()
-    for ev in iter_events(paths, since, ledger=ledger, until=until):
-        add(overall, ev)
-        add(groups["project"][ev["project"]], ev)
-        add(groups["model"][ev["model"]], ev)
-        add(groups["session"][ev["session"]], ev)
-        add(groups["source"][ev["source"]], ev)
-        add(groups["provider"][ev["provider"]], ev)
+class _Tally:
+    """One view's figures, built up one priced call at a time: the whole run,
+    or one harness's share of it. Every face reads these and adds nothing."""
+
+    def __init__(self):
+        self.overall = blank()
+        self.groups = {
+            "project": defaultdict(blank), "model": defaultdict(blank),
+            "day": defaultdict(blank), "session": defaultdict(blank),
+            # For the dashboard's rhythm charts: when in the day and week the
+            # work actually happens. Free to collect in the pass we already make.
+            "hour": defaultdict(blank), "weekday": defaultdict(blank),
+            # Which harness each call came from, and whose price table it
+            # used. Also what decides the verification notes in each report.
+            "source": defaultdict(blank), "provider": defaultdict(blank),
+            # Links between them, keyed by pairs, for the views that mix
+            # harnesses: which harnesses used a model or worked on a project,
+            # and whose table priced each model.
+            "source_model": defaultdict(blank), "source_project": defaultdict(blank),
+            "source_provider": defaultdict(blank), "provider_model": defaultdict(blank),
+            # Each day split by harness and by provider, for the spend chart.
+            "day_source": defaultdict(blank), "day_provider": defaultdict(blank),
+        }
+        self.meta = {}
+        self.unknown = set()
+        # Models priced from a rate looked up online: (provider, model) -> source.
+        self.fetched = {}
+
+    def add(self, ev):
+        g = self.groups
+        add(self.overall, ev)
+        add(g["project"][ev["project"]], ev)
+        add(g["model"][ev["model"]], ev)
+        add(g["session"][ev["session"]], ev)
+        add(g["source"][ev["source"]], ev)
+        add(g["provider"][ev["provider"]], ev)
+        add(g["source_model"][(ev["source"], ev["model"])], ev)
+        add(g["source_project"][(ev["source"], ev["project"])], ev)
+        add(g["source_provider"][(ev["source"], ev["provider"])], ev)
+        add(g["provider_model"][(ev["provider"], ev["model"])], ev)
         if ev["when"]:
             local = ev["when"].astimezone()
-            add(groups["day"][local.strftime("%Y-%m-%d")], ev)
-            add(groups["hour"][local.strftime("%H")], ev)
-            add(groups["weekday"][str(local.weekday())], ev)
+            day = local.strftime("%Y-%m-%d")
+            add(g["day"][day], ev)
+            add(g["day_source"][(day, ev["source"])], ev)
+            add(g["day_provider"][(day, ev["provider"])], ev)
+            add(g["hour"][local.strftime("%H")], ev)
+            add(g["weekday"][str(local.weekday())], ev)
         if ev["cost"]["_unknown_model"]:
-            unknown.add(unknown_label(ev["model"], ev["provider"]))
+            self.unknown.add(unknown_label(ev["model"], ev["provider"]))
         elif ev["cost"]["_fetched"]:
-            FETCHED_USED[(ev["provider"], ev["model"])] = ev["cost"]["_fetched"]
-        m = meta.setdefault(ev["session"], {"project": ev["project"], "cwd": ev["cwd"],
-                                            "first": ev["when"], "last": ev["when"]})
+            self.fetched[(ev["provider"], ev["model"])] = ev["cost"]["_fetched"]
+        m = self.meta.setdefault(ev["session"], {"project": ev["project"], "cwd": ev["cwd"],
+                                                 "first": ev["when"], "last": ev["when"]})
         if ev["when"]:
             if not m["first"] or ev["when"] < m["first"]:
                 m["first"] = ev["when"]
             if not m["last"] or ev["when"] > m["last"]:
                 m["last"] = ev["when"]
-    return overall, groups, meta, unknown
+
+    def result(self):
+        return self.overall, self.groups, self.meta, self.unknown
+
+
+def collect(paths, since=None, ledger=True, until=None):
+    """Every figure a report needs, from one pass: (overall, groups, meta, unknown)."""
+    return collect_views(paths, since, ledger=ledger, until=until, split=False)[0].result()
+
+
+def collect_views(paths, since=None, ledger=True, until=None, split=True):
+    """The whole run and, with split, each harness's part of it, in one pass.
+
+    Returns (whole, {source: part}), each a _Tally. The dashboard's page for
+    one harness is built from its part, so no figure is recomputed anywhere
+    else and the logs are read once however many harnesses there are.
+    """
+    whole, parts = _Tally(), {}
+    for ev in iter_events(paths, since, ledger=ledger, until=until):
+        whole.add(ev)
+        if split:
+            if ev["source"] not in parts:
+                parts[ev["source"]] = _Tally()
+            parts[ev["source"]].add(ev)
+    FETCHED_USED.clear()
+    FETCHED_USED.update(whole.fetched)
+    return whole, parts
+
+
+def harness_pages(parts, paths) -> dict:
+    """What render_html needs to give each harness a page of its own:
+    {source: (its tally, its covered line)}, or nothing when there is one."""
+    if len(parts) < 2:
+        return {}
+    return {source: (part, covered_span(part.groups, [p for p in paths
+                                                      if _OWNER.get(p, claude_code.NAME) == source]))
+            for source, part in parts.items()}
+
+
+def is_multi(groups) -> bool:
+    """Whether a view mixes harnesses or providers. Only then do the faces show
+    what mixing needs; one harness on one provider sees exactly what it did."""
+    return len(groups.get("source", {})) > 1 or len(groups.get("provider", {})) > 1
+
+
+def price_confidence(provider: str, model: str, unknown, fetched) -> str:
+    """How far one model's price can be trusted, in the words reports use:
+    measured, published, looked_up or estimated."""
+    if unknown_label(model, provider) in unknown:
+        return "estimated"
+    if (provider, model) in fetched:
+        return "looked_up"
+    return "measured" if verification(provider)["measured"] else "published"
+
+
+CONFIDENCE_WORDS = {
+    "measured": "checked against real usage",
+    "published": "from the published page",
+    "looked_up": "looked up online",
+    "estimated": "a stand-in rate",
+}
+
+
+def cache_hit_pct(row) -> float:
+    """Of a row's prompt tokens, the percentage served from cache."""
+    t = row["tokens"]
+    prompt = t["input"] + t["cache_write"] + t["cache_read"]
+    return t["cache_read"] / prompt * 100 if prompt else 0.0
+
+
+STATUS_WORDS = {"verified": "verified", "unverified": "unverified", "yours": "imported"}
+
+
+def harness_rows(groups) -> list:
+    """One row per harness in a view, dearest first, with what comparing
+    harnesses needs: share of the total, cost per call, how much came from
+    cache, how much of its cost is output, and whose models it used."""
+    sources = groups.get("source", {})
+    whole = sum(v["total"] for v in sources.values())
+    used = defaultdict(list)
+    for (source, provider), v in sorted(groups.get("source_provider", {}).items(),
+                                        key=lambda kv: -kv[1]["total"]):
+        used[source].append(display_name("provider", provider))
+    rows = []
+    for name, v in sorted(sources.items(), key=lambda kv: -kv[1]["total"]):
+        status = getattr(ALL_SOURCES.get(name), "STATUS", "")
+        rows.append({
+            "name": name, "label": display_name("source", name),
+            "status": status, "status_word": STATUS_WORDS.get(status, status),
+            "total": v["total"], "calls": v["calls"],
+            "share": v["total"] / whole if whole else 0.0,
+            "per_call": v["total"] / v["calls"] if v["calls"] else 0.0,
+            "cache_hit_pct": cache_hit_pct(v),
+            "output_share": v["output"] / v["total"] if v["total"] else 0.0,
+            "providers": used[name],
+        })
+    return rows
+
+
+def models_by_provider(groups, unknown, fetched=None) -> list:
+    """Models grouped under the provider whose table priced them, dearest
+    first, each with the harnesses that used it and how far its price can be
+    trusted."""
+    fetched = FETCHED_USED if fetched is None else fetched
+    users = defaultdict(list)
+    for (source, model), v in sorted(groups.get("source_model", {}).items(),
+                                     key=lambda kv: -kv[1]["total"]):
+        users[model].append(display_name("source", source))
+    out = {}
+    for (provider, model), v in groups.get("provider_model", {}).items():
+        p = out.setdefault(provider, {"name": provider, "label": display_name("provider", provider),
+                                      "measured": verification(provider)["measured"],
+                                      "has_table": provider in TABLES,
+                                      "total": 0.0, "calls": 0, "models": []})
+        p["total"] += v["total"]
+        p["calls"] += v["calls"]
+        p["models"].append({"model": model, "total": v["total"], "calls": v["calls"],
+                            "per_call": v["total"] / v["calls"] if v["calls"] else 0.0,
+                            "confidence": price_confidence(provider, model, unknown, fetched),
+                            "harnesses": users[model]})
+    for p in out.values():
+        p["models"].sort(key=lambda m: -m["total"])
+    return sorted(out.values(), key=lambda p: -p["total"])
+
+
+def trust_summary(groups, unknown, fetched=None) -> dict:
+    """How much of a view's total rests on what, for the trust panel and the
+    menu bar: the share read by unverified harnesses, and the share priced at
+    each level of confidence. Shares of the view's own total, 0 to 1."""
+    fetched = FETCHED_USED if fetched is None else fetched
+    sources = groups.get("source", {})
+    whole = sum(v["total"] for v in sources.values())
+    unverified = [n for n in sorted(sources)
+                  if getattr(ALL_SOURCES.get(n), "STATUS", "") == "unverified"]
+    price = {k: 0.0 for k in CONFIDENCE_WORDS}
+    for (provider, model), v in groups.get("provider_model", {}).items():
+        price[price_confidence(provider, model, unknown, fetched)] += v["total"]
+    share = (lambda x: x / whole) if whole else (lambda x: 0.0)
+    read = {"verified": 0.0, "unverified": 0.0, "imported": 0.0}
+    for n, v in sources.items():
+        status = getattr(ALL_SOURCES.get(n), "STATUS", "")
+        read["verified" if status == "verified" else "imported" if status == "yours"
+             else "unverified"] += v["total"]
+    return {
+        "unverified": unverified,
+        "unverified_share": share(read["unverified"]),
+        "read": {k: share(v) for k, v in read.items()},
+        "price": {k: share(v) for k, v in price.items()},
+    }
 
 
 # ---------------------------------------------------------------- rendering
@@ -1299,9 +1471,14 @@ def display_name(by: str, key: str) -> str:
 
 def share_text(fraction: float) -> str:
     """A share of a total, for a sentence: "12.3%", or "under 0.1%" rather
-    than a "0.0%" that reads as none at all."""
+    than a "0.0%" that reads as none at all, and "over 99.9%" rather than a
+    "100.0%" printed beside a part that is not zero."""
     pct = fraction * 100
-    return "under 0.1%" if 0 < pct < 0.05 else f"{pct:.1f}%"
+    if 0 < pct < 0.05:
+        return "under 0.1%"
+    if 99.95 <= pct < 100:
+        return "over 99.9%"
+    return f"{pct:.1f}%"
 
 
 UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet checked "
@@ -1309,13 +1486,18 @@ UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet che
                    "with a sample.")
 
 
-def report_notes(groups, unknown) -> list:
+def report_notes(groups, unknown, fetched=None, only=None) -> list:
     """What every face must say alongside the figures, as (level, text).
 
     The same list feeds the terminal, the dashboard and the menu bar, so the
     three never disagree about how far a number can be trusted. "warn" is
     something to act on; "info" is the provenance every report carries.
+
+    For one harness's page of the dashboard, fetched is that view's own
+    looked-up models and only names the harness, so its notes speak for it
+    alone.
     """
+    fetched = FETCHED_USED if fetched is None else fetched
     notes = []
     sources = groups.get("source", {})
     unverified = [n for n in sorted(sources)
@@ -1331,13 +1513,15 @@ def report_notes(groups, unknown) -> list:
             share = f", {share_text(sum(sources[n]['total'] for n in unverified) / whole)} of this total,"
         notes.append(("warn", f"{names} figures{share} are {UNVERIFIED_NOTE}"))
     for a in ALL_SOURCES.values():
+        if only and a.NAME != only:
+            continue
         for text in (a.notes() if hasattr(a, "notes") else []):
             notes.append(("warn", text))
     for path, p in sorted(importer.PROBLEMS.items()):
         shown = "standard input" if path == "-" else os.path.basename(path)
         notes.append(("warn", f"{p['skipped']:,} line{'' if p['skipped'] == 1 else 's'} "
                               f"skipped in {shown}: " + "; ".join(p["examples"])))
-    for (provider, model), via in sorted(FETCHED_USED.items()):
+    for (provider, model), via in sorted(fetched.items()):
         row = fetched_row(provider, model) or {}
         checked = row.get("_checked", "")
         when = dt.date.fromisoformat(checked).strftime("%d %b %Y").lstrip("0") if checked else ""
@@ -1418,7 +1602,19 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
               f"at {unit_money(overall['cache_read'] / max(t['cache_read'], 1) * 1e6)} per million, "
               f"against full input rates{RESET}")
 
-    if by:
+    if by == "source":
+        # Harnesses compared, when asked for: what mixing tools needs, cost per
+        # call and cache use being where they differ most.
+        print()
+        print(f"  {BOLD}by harness{RESET}")
+        rows = harness_rows(groups)
+        width = max((len(r["label"]) for r in rows), default=10)
+        for r in rows:
+            mark = f"{GREEN}verified  {RESET}" if r["status"] == "verified" else f"{DIM}{r['status_word']:<10}{RESET}"
+            print(f"    {r['label']:<{width}}  {mark}{money(r['total']):>11}  "
+                  f"{DIM}{r['calls']:>6,} calls  {money(r['per_call']):>8} a call  "
+                  f"{r['cache_hit_pct']:5.1f}% from cache{RESET}")
+    elif by:
         print()
         print(f"  {BOLD}by {by}{RESET}")
         items = sorted(groups[by].items(), key=lambda kv: -kv[1]["total"])
@@ -1497,10 +1693,11 @@ DASH_CSS = """/* Tokenmeter dashboard.
   --ink:#eef0f4; --dim:#8c94a2; --dimmer:#5c6371;
   /* --acc and --acc2 are also the app icon's tick (costbar/icon.swift). */
   --acc:#d97757; --acc2:#e8916f; --cool:#5b9dd9; --good:#5cab7f; --warm:#c9a227;
-  /* The four parts of a bill, as a set: checked together for colour-blind
-     separation on --bg (worst neighbouring pair Delta E 18.6 under
-     protanopia, against a floor of 8). Change one and re-check them all. */
-  --s1:var(--acc); --s2:var(--cool); --s3:#d4a03c; --s4:#9085e9;
+  /* The parts of a bill, as a set: checked together for colour-blind
+     separation on --bg (worst neighbouring pair Delta E 15.2 under
+     deuteranopia, against a floor of 8). Change one and re-check them all.
+     The same five, in the same order, colour harnesses side by side. */
+  --s1:var(--acc); --s2:var(--cool); --s3:#d4a03c; --s4:#9085e9; --s5:#1aa382;
   --r:15px; --ease:cubic-bezier(.22,.68,.16,1);
 }
 *{box-sizing:border-box}
@@ -1610,10 +1807,9 @@ h2{font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim
 svg{display:block;width:100%;overflow:visible}
 .gridline{stroke:var(--line);stroke-width:1}
 .axlab{fill:var(--dimmer);font-size:10.5px;font-variant-numeric:tabular-nums}
-.dbar{fill:url(#bargrad);transition:opacity .18s}
+.dbar{transition:opacity .18s}
 .dbar.dull{opacity:.3}
 .cum{fill:none;stroke:var(--cool);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
-.cumfill{fill:url(#cumgrad)}
 .hit{fill:transparent;cursor:crosshair}
 .cross{stroke:var(--dim);stroke-width:1;stroke-dasharray:3 4;opacity:0;transition:opacity .14s}
 .knob{fill:var(--cool);stroke:var(--bg);stroke-width:2.5;opacity:0;transition:opacity .14s}
@@ -1681,12 +1877,41 @@ footer{margin-top:58px;padding-top:26px;border-top:1px solid var(--line);color:v
 footer p{margin:0 0 8px;max-width:78ch}
 .warn{color:var(--warm)}
 
+/* ---------- several harnesses ---------- */
+.hpick{display:inline-flex;align-items:center;gap:9px;margin-left:auto;color:var(--dimmer);font-size:10.5px;
+  letter-spacing:.16em;text-transform:uppercase;font-weight:600;animation:up .6s var(--ease) .9s both}
+.hsel{background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238c94a2' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 13px center;
+  color:var(--ink);border:1px solid var(--line2);border-radius:999px;padding:7px 32px 7px 15px;font:inherit;
+  font-size:12.5px;font-weight:500;letter-spacing:0;text-transform:none;cursor:pointer;
+  appearance:none;-webkit-appearance:none;transition:border-color .2s}
+.hsel:hover,.hsel:focus{border-color:var(--dim);outline:none}
+.slegend{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.sl{background:transparent;border:1px solid var(--line2);color:var(--dim);border-radius:9px;
+  padding:5px 12px;font:inherit;font-size:12px;cursor:pointer;transition:.2s}
+.sl:hover{color:var(--ink);border-color:var(--dim)}
+.sl.off{opacity:.38}
+.sw{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:8px}
+.chip{display:inline-block;font-size:10.5px;line-height:1.55;padding:0 7px;border-radius:999px;
+  border:1px solid var(--line2);color:var(--dim);margin-left:8px;vertical-align:1px}
+.badge{display:inline-block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;line-height:1.65;
+  padding:0 7px;border-radius:999px;border:1px solid var(--line2);color:var(--dimmer);margin-left:8px;vertical-align:1px}
+.badge.ok{color:var(--good);border-color:#2d5a43}
+.badge.un{color:var(--warm);border-color:#5a4b1e}
+tr.grp td{color:var(--ink);font-weight:600;background:#ffffff05;border-bottom-color:var(--line2)}
+.conf{font-weight:400;font-size:11.5px;color:var(--dimmer);margin-left:10px}
+.tbar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:4px 0 16px;background:var(--line)}
+.tbar div+div{border-left:2px solid var(--card)}
+.tl{display:flex;align-items:center;gap:9px;margin:0 0 7px;font-size:13px;color:var(--dim)}
+.tl b{margin-left:auto;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.cum.neutral{stroke:#c3cad4}
+.knob.neutral{fill:#c3cad4}
+
 /* ---------- reveal ---------- */
 .fade{opacity:0;transform:translateY(18px);transition:opacity .75s var(--ease),transform .75s var(--ease)}
 .fade.reveal{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){
   *{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
-  .fade,h1 .ln>span,.pill,.sub,.hero .card{opacity:1!important;transform:none!important}
+  .fade,h1 .ln>span,.pill,.hpick,.sub,.hero .card{opacity:1!important;transform:none!important}
   .win-bar,.col,.bar-cell i,.seg{transform:none!important}
   tbody tr{opacity:1!important;transform:none!important}
   #sweep{display:none}
@@ -1695,8 +1920,10 @@ footer p{margin:0 0 8px;max-width:78ch}
 """
 
 DASH_JS = """/* Tokenmeter dashboard behaviour.
-   Convert currency in place, draw the time chart, reveal on scroll. No
-   framework, no build step, nothing fetched at open time. */
+   Convert currency in place, draw the time chart, reveal on scroll, and with
+   several harnesses show one of them on its own. No framework, no build step,
+   nothing fetched at open time, and no figure computed here: every total was
+   worked out by tokenmeter.py and only added up or scaled for drawing. */
 const D = __PAYLOAD__;
 const SLOW = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
@@ -1745,14 +1972,32 @@ function tweenAll(dur) {
   })(t0);
 }
 
+/* ---- pages. One per harness when there are several, all rendered up front;
+   the Harness menu beside the currencies chooses which one shows. All
+   harnesses together is the default. ---- */
+let ACTIVE = D.first;
+const HIDDEN = {};   // series switched off in the chart's legend
+const view = key => document.querySelector('.view[data-view="' + key + '"]');
+document.querySelectorAll('.hsel').forEach(s => { s.value = ACTIVE; });
+
+function show(key) {
+  if (!view(key)) return;
+  ACTIVE = key;
+  document.querySelectorAll('.view').forEach(v => { v.hidden = v.dataset.view !== key; });
+  document.querySelectorAll('.hsel').forEach(s => { s.value = key; });
+  drawChart();
+}
+document.querySelectorAll('.hsel').forEach(s => s.addEventListener('change', () => show(s.value)));
+
 function paint(cur, tween) {
   CUR = cur;
   tweenAll(tween ? 620 : 0);
   document.querySelectorAll('.pill').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
-  const note = document.getElementById('rate-note');
-  if (note) note.textContent = cur === 'USD'
-    ? 'Billed currency. No conversion applied.'
-    : (D.rates[cur] || 1).toFixed(4) + ' to the dollar · ' + D.rateWhen;
+  document.querySelectorAll('.rate-note').forEach(function (note) {
+    note.textContent = cur === 'USD'
+      ? 'Billed currency. No conversion applied.'
+      : (D.rates[cur] || 1).toFixed(4) + ' to the dollar · ' + D.rateWhen;
+  });
   try { localStorage.setItem('cur', cur); } catch (e) {}
   drawChart();
 }
@@ -1762,12 +2007,18 @@ document.querySelectorAll('.pill').forEach(function (b) {
 
 /* ---- the time chart ---- */
 let MODE = 'cost';
-const days = D.days;
-let geom = null;
 
 function drawChart() {
-  const host = document.getElementById('chart');
+  const root = view(ACTIVE);
+  const host = root && root.querySelector('.chart');
   const svg = host && host.querySelector('svg');
+  const V = D.views[ACTIVE] || {days: []};
+  const days = V.days;
+  /* With several harnesses each day's bar is split between them. A series
+     switched off in the legend leaves the bars, the scale and the running
+     total, so what remains can be read on its own. */
+  const stacked = !!(V.series && V.series.length);
+  const series = stacked ? V.series.filter(s => !HIDDEN[s.name]) : [];
   if (!svg || !days.length) return;
   const W = Math.max(320, host.clientWidth), H = 268;
   /* The viewBox must match the pixel box we draw in. It used to be a fixed
@@ -1780,7 +2031,9 @@ function drawChart() {
   const iw = W - padL - padR, ih = H - padT - padB;
   const rate = D.rates[CUR] || 1, sym = D.symbols[CUR] || '$';
 
-  const val = d => MODE === 'cost' ? d.total * rate : d.tokens;
+  const part = (d, s) => MODE === 'cost' ? (d.by[s.name] || 0) * rate : (d.byTok[s.name] || 0);
+  const val = d => stacked ? series.reduce((a, s) => a + part(d, s), 0)
+                           : (MODE === 'cost' ? d.total * rate : d.tokens);
   const peak = Math.max.apply(null, days.map(val)) || 1;
   let run = 0;
   const cum = days.map(d => (run += val(d)));
@@ -1790,10 +2043,14 @@ function drawChart() {
   const x = i => padL + i * bw;
   const y = v => padT + ih - (v / peak) * ih;
   const yc = v => padT + ih - (v / cumPeak) * ih;
-  geom = {padL, padT, ih, bw, x, yc, cum, rate};
+  host._geom = {padL, padT, ih, bw, x, yc, cum, rate, days, series, stacked};
 
+  /* Small figures get the decimals they need: a page of pennies otherwise
+     read $0.0 on every line of the axis. */
+  const dp = peak >= 1 ? -1 : peak >= 0.1 ? 2 : 3;
   const shortNum = v => MODE === 'cost'
-    ? (v >= 1000 ? sym + Math.round(v / 1000) + 'k' : sym + v.toFixed(v < 10 ? 1 : 0))
+    ? (v >= 1000 ? sym + Math.round(v / 1000) + 'k'
+       : sym + (dp < 0 ? v.toFixed(v < 10 ? 1 : 0) : v.toFixed(dp)))
     : (v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? Math.round(v / 1e6) + 'M'
        : v >= 1e3 ? Math.round(v / 1e3) + 'k' : Math.round(v));
 
@@ -1805,18 +2062,37 @@ function drawChart() {
          shortNum(peak * i / 4) + '</text>';
   }
 
+  const grow = (i, top, h) => SLOW ? '' :
+    '<animate attributeName="height" values="0;' + h.toFixed(2) + '" dur="0.75s" begin="' +
+    Math.min(500, i * 8) + 'ms" fill="freeze" calcMode="spline" keySplines="0.22 0.68 0.16 1" keyTimes="0;1"/>' +
+    '<animate attributeName="y" values="' + (padT + ih) + ';' + top.toFixed(2) + '" dur="0.75s" begin="' +
+    Math.min(500, i * 8) + 'ms" fill="freeze" calcMode="spline" keySplines="0.22 0.68 0.16 1" keyTimes="0;1"/>';
+
   let bars = '';
   days.forEach(function (d, i) {
     const v = val(d), h = Math.max(v > 0 ? 1.5 : 0, (v / peak) * ih);
     const bx = x(i) + bw * 0.17, bwid = Math.max(1, bw * 0.66);
-    bars += '<rect class="dbar" data-i="' + i + '" x="' + bx.toFixed(2) + '" y="' + (padT + ih - h).toFixed(2) +
-            '" width="' + bwid.toFixed(2) + '" height="' + h.toFixed(2) + '" rx="' + Math.min(2.5, bw * 0.3).toFixed(2) + '">' +
-            (SLOW ? '' :
-              '<animate attributeName="height" values="0;' + h.toFixed(2) + '" dur="0.75s" begin="' +
-              Math.min(500, i * 8) + 'ms" fill="freeze" calcMode="spline" keySplines="0.22 0.68 0.16 1" keyTimes="0;1"/>' +
-              '<animate attributeName="y" values="' + (padT + ih) + ';' + (padT + ih - h).toFixed(2) + '" dur="0.75s" begin="' +
-              Math.min(500, i * 8) + 'ms" fill="freeze" calcMode="spline" keySplines="0.22 0.68 0.16 1" keyTimes="0;1"/>') +
-            '</rect>';
+    const rx = Math.min(2.5, bw * 0.3).toFixed(2);
+    if (!stacked) {
+      bars += '<rect class="dbar" data-i="' + i + '" style="fill:url(#bargrad-' + ACTIVE + ')" x="' +
+              bx.toFixed(2) + '" y="' + (padT + ih - h).toFixed(2) +
+              '" width="' + bwid.toFixed(2) + '" height="' + h.toFixed(2) + '" rx="' + rx + '">' +
+              grow(i, padT + ih - h, h) + '</rect>';
+      return;
+    }
+    /* Segments stacked from the baseline in the legend's order, a pixel of
+       page between neighbours so two similar colours never merge. */
+    let base = padT + ih;
+    const shown = series.filter(s => part(d, s) > 0);
+    shown.forEach(function (s, j) {
+      const sh = v > 0 ? h * part(d, s) / v : 0;
+      const gap = j < shown.length - 1 && sh > 2 ? 1 : 0;
+      const top = base - sh;
+      bars += '<rect class="dbar" data-i="' + i + '" style="fill:' + s.color + '" x="' + bx.toFixed(2) +
+              '" y="' + top.toFixed(2) + '" width="' + bwid.toFixed(2) + '" height="' + (sh - gap).toFixed(2) +
+              '" rx="' + (j === shown.length - 1 ? rx : 0) + '">' + grow(i, top, sh - gap) + '</rect>';
+      base = top;
+    });
   });
 
   let line = '';
@@ -1834,42 +2110,56 @@ function drawChart() {
              '" text-anchor="middle">' + d.short + '</text>';
   });
 
+  /* Split bars already use the harness colours, so the running total drops
+     to a neutral line rather than wearing one of them. */
+  const lineColour = stacked ? '#c3cad4' : '#5b9dd9';
   svg.innerHTML =
     '<defs>' +
-    '<linearGradient id="bargrad" x1="0" y1="0" x2="0" y2="1">' +
+    /* Ids carry the page's name: a gradient defined inside a hidden page
+       can fail to paint the page that is showing. */
+    '<linearGradient id="bargrad-' + ACTIVE + '" x1="0" y1="0" x2="0" y2="1">' +
       '<stop offset="0%" stop-color="#e8916f"/><stop offset="100%" stop-color="#c9663f"/></linearGradient>' +
-    '<linearGradient id="cumgrad" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0%" stop-color="#5b9dd9" stop-opacity=".22"/>' +
-      '<stop offset="100%" stop-color="#5b9dd9" stop-opacity="0"/></linearGradient></defs>' +
-    g + '<path class="cumfill" d="' + area + '"/>' + bars +
-    '<path class="cum" d="' + line + '"' +
+    '<linearGradient id="cumgrad-' + ACTIVE + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="' + lineColour + '" stop-opacity="' + (stacked ? '.12' : '.22') + '"/>' +
+      '<stop offset="100%" stop-color="' + lineColour + '" stop-opacity="0"/></linearGradient></defs>' +
+    g + '<path class="cumfill" style="fill:url(#cumgrad-' + ACTIVE + ')" d="' + area + '"/>' + bars +
+    '<path class="cum' + (stacked ? ' neutral' : '') + '" d="' + line + '"' +
       (SLOW ? '' : ' stroke-dasharray="5000" stroke-dashoffset="5000">' +
         '<animate attributeName="stroke-dashoffset" values="5000;0" dur="1.7s" begin="0.15s" fill="freeze"/></path>') +
       (SLOW ? '/>' : '') +
-    '<line class="cross" id="cross" y1="' + padT + '" y2="' + (padT + ih) + '"/>' +
-    '<circle class="knob" id="knob" r="4.5"/>' + ticks +
+    '<line class="cross" y1="' + padT + '" y2="' + (padT + ih) + '"/>' +
+    '<circle class="knob' + (stacked ? ' neutral' : '') + '" r="4.5"/>' + ticks +
     '<rect class="hit" x="' + padL + '" y="' + padT + '" width="' + iw + '" height="' + ih + '"/>';
 
-  svg.querySelector('.hit').addEventListener('mousemove', onMove);
-  svg.querySelector('.hit').addEventListener('mouseleave', onLeave);
+  svg.querySelector('.hit').addEventListener('mousemove', e => onMove(e, host));
+  svg.querySelector('.hit').addEventListener('mouseleave', () => onLeave(host));
 }
 
-function onMove(e) {
-  const host = document.getElementById('chart'), box = host.getBoundingClientRect();
-  const {padL, padT, ih, bw, x, yc, cum, rate} = geom;
+function onMove(e, host) {
+  const box = host.getBoundingClientRect();
+  const {padL, bw, x, yc, cum, rate, days, series, stacked} = host._geom;
   const i = clamp(0, days.length - 1, Math.floor((e.clientX - box.left - padL) / bw));
   const d = days[i], cx = x(i) + bw / 2;
 
-  const cross = document.getElementById('cross'), knob = document.getElementById('knob');
+  const cross = host.querySelector('.cross'), knob = host.querySelector('.knob');
   cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.style.opacity = 1;
   knob.setAttribute('cx', cx); knob.setAttribute('cy', yc(cum[i])); knob.style.opacity = 1;
   host.querySelectorAll('.dbar').forEach(b => b.classList.toggle('dull', +b.dataset.i !== i));
 
   const running = MODE === 'cost' ? fmt(cum[i] / rate, CUR)
     : (cum[i] >= 1e9 ? (cum[i] / 1e9).toFixed(2) + 'B' : Math.round(cum[i] / 1e6) + 'M') + ' tokens';
-  const tip = document.getElementById('tip');
-  tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(d.total, CUR) + '</b><i>' +
-    d.calls.toLocaleString() + ' calls · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
+  const tip = host.querySelector('.tip');
+  if (stacked) {
+    const usd = series.reduce((a, s) => a + (d.by[s.name] || 0), 0);
+    const calls = series.reduce((a, s) => a + (d.byCalls[s.name] || 0), 0);
+    tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(usd, CUR) + '</b>' +
+      series.filter(s => d.by[s.name]).map(s => '<i><span class="sw" style="background:' + s.color +
+        '"></span>' + s.label + ' ' + fmt(d.by[s.name], CUR) + '</i>').join('') +
+      '<i>' + calls.toLocaleString() + ' calls · running ' + running + '</i>';
+  } else {
+    tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(d.total, CUR) + '</b><i>' +
+      d.calls.toLocaleString() + ' calls · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
+  }
   tip.classList.add('on');
 
   /* Sit beside the bar, never on top of it. Flip to the other side near the
@@ -1881,26 +2171,38 @@ function onMove(e) {
   tip.style.top = clamp(0, Math.max(0, box.height - th), e.clientY - box.top - th / 2) + 'px';
 }
 
-function onLeave() {
-  document.getElementById('tip').classList.remove('on');
-  document.getElementById('cross').style.opacity = 0;
-  document.getElementById('knob').style.opacity = 0;
-  document.querySelectorAll('.dbar').forEach(b => b.classList.remove('dull'));
+function onLeave(host) {
+  host.querySelector('.tip').classList.remove('on');
+  host.querySelector('.cross').style.opacity = 0;
+  host.querySelector('.knob').style.opacity = 0;
+  host.querySelectorAll('.dbar').forEach(b => b.classList.remove('dull'));
 }
 
 document.querySelectorAll('.tg').forEach(function (b) {
   b.addEventListener('click', function () {
-    document.querySelectorAll('.tg').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); MODE = b.dataset.mode; drawChart();
+    MODE = b.dataset.mode;
+    document.querySelectorAll('.tg').forEach(x => x.classList.toggle('on', x.dataset.mode === MODE));
+    drawChart();
+  });
+});
+
+/* The chart's legend switches a harness in and out. Switching off the last
+   one brings them all back rather than leaving an empty chart. */
+document.querySelectorAll('.sl').forEach(function (b) {
+  b.addEventListener('click', function () {
+    const name = b.dataset.series, V = D.views[ACTIVE];
+    HIDDEN[name] = !HIDDEN[name];
+    if (V.series && V.series.every(s => HIDDEN[s.name])) V.series.forEach(s => { delete HIDDEN[s.name]; });
+    document.querySelectorAll('.sl').forEach(x => x.classList.toggle('off', !!HIDDEN[x.dataset.series]));
+    drawChart();
   });
 });
 
 /* legend hover dims the rest, so one component can be read alone */
-const legend = document.querySelector('.legend');
-if (legend) {
+document.querySelectorAll('.legend').forEach(function (legend) {
   legend.addEventListener('mouseenter', () => legend.classList.add('muted'));
   legend.addEventListener('mouseleave', () => legend.classList.remove('muted'));
-}
+});
 
 /* ---- reveal on scroll, with the table rows stepping in ---- */
 const io = new IntersectionObserver(function (entries) {
@@ -1923,7 +2225,7 @@ try { stored = localStorage.getItem('cur'); } catch (e) {}
 paint(stored && D.rates[stored] ? stored : D.current, false);
 
 /* headline settles out of a blur as it counts */
-const hero = document.getElementById('headline');
+const hero = view(ACTIVE) && view(ACTIVE).querySelector('.headline');
 if (hero && !SLOW) {
   hero.classList.add('settling');
   const target = parseFloat(hero.dataset.usd), t0 = performance.now(), dur = 1250;
@@ -1937,7 +2239,35 @@ if (hero && !SLOW) {
 """
 
 
-def render_html(overall, groups, meta, unknown, label, out_path, covered=""):
+# Colours for harnesses (or providers) side by side in the spend chart, taken
+# in a fixed order so each keeps its colour however the figures move. Checked
+# as a set for colour-blind separation on the page background, neighbour by
+# neighbour; a sixth series and beyond folds into "Other" rather than taking
+# a colour that could be mistaken for one of these.
+SERIES_COLOURS = ("#d97757", "#5b9dd9", "#d4a03c", "#9085e9", "#1aa382")
+OTHER_COLOUR = "#8f9aab"
+
+
+def chart_series(groups, kind) -> list:
+    """The series a split chart shows: (name, label, colour), in a fixed order.
+
+    Harnesses in the order the adapters are listed, providers in the order of
+    the price tables, so colour follows the thing and never its rank. Past
+    five, the smallest fold into one grey "Other".
+    """
+    present = groups.get(kind, {})
+    fixed = list(ALL_SOURCES) if kind == "source" else list(TABLES)
+    names = [n for n in fixed if n in present] + sorted(n for n in present if n not in fixed)
+    if len(names) > len(SERIES_COLOURS):
+        keep = set(sorted(names, key=lambda n: -present[n]["total"])[:len(SERIES_COLOURS) - 1])
+        names = [n for n in names if n in keep]
+    out = [(n, display_name(kind, n), SERIES_COLOURS[i]) for i, n in enumerate(names)]
+    if len(present) > len(names):
+        out.append(("_other", "Other", OTHER_COLOUR))
+    return out
+
+
+def render_html(overall, groups, meta, unknown, label, out_path, covered="", views=None):
     """The full dashboard: everything the engine knows, laid out to be read.
 
     The menu bar is a glance and the terminal report is a check. This is the
@@ -1945,12 +2275,19 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered=""):
     a running total, where the money goes by component, by model, by project
     and by session, and when in the day and week the work actually happens.
 
+    With more than one harness, views is {source: (_Tally, covered)} from
+    collect_views: each harness then gets a page of its own, rendered here in
+    full, and a Harness menu beside the currencies chooses which one shows.
+    Nothing is recomputed in the browser. With one harness on one provider the
+    page is exactly what it always was.
+
     One file, no framework, no build step, nothing fetched when it opens.
     """
-    days = sorted(groups["day"].items())
-    t = overall["tokens"]
     rates, when, live = fx_rates()
-    total = overall["total"]
+    page_multi = is_multi(groups)
+    hrows = harness_rows(groups)
+    several = len(hrows) > 1 and bool(views)
+    today = dt.date.today()
 
     def m(usd):
         """A money value the currency switcher can rewrite in place."""
@@ -1967,158 +2304,406 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered=""):
 
         Sections are built out of order (the tables before the page around
         them), so each gets a placeholder and the numbers are filled in page
-        order once the document is assembled. Numbering them as they were
-        built made the first section on the page read 03.
+        order once the page is assembled. Numbering them as they were built
+        made the first section on the page read 03.
         """
         return (f'<div class="hd"><span class="no">\u00a7NO\u00a7</span><h2>{title}</h2>'
                 f'<span class="rule"></span></div><p class="lede">{lede}</p>')
 
-    # ---- rolling windows, the definitions the menu bar uses ----------------
-    today = dt.date.today()
+    def numbered(doc):
+        parts = doc.split("\u00a7NO\u00a7")
+        return parts[0] + "".join(f"{i:02d}" + p for i, p in enumerate(parts[1:], 1))
 
-    def window(first_day):
-        acc = {"total": 0.0, "calls": 0}
-        for day, v in groups["day"].items():
-            try:
-                d = dt.datetime.strptime(day, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            if d >= first_day:
-                acc["total"] += v["total"]
-                acc["calls"] += v["calls"]
-        return acc
+    def chips(names):
+        return "".join(f'<span class="chip">{html.escape(n)}</span>' for n in names)
 
-    wins = [("Today", window(today)),
-            ("Last 7 days", window(today - dt.timedelta(days=6))),
-            ("Last 30 days", window(today - dt.timedelta(days=29))),
-            ("All time", {"total": total, "calls": overall["calls"]})]
-    wmax = max((w[1]["total"] for w in wins), default=0) or 1
-    win_html = ""
-    for i, (name, w) in enumerate(wins):
-        win_html += (f'<div class="win"><div style="flex:1"><div class="win-k">{name}</div>'
-                     f'<div class="win-bar" style="width:{w["total"] / wmax * 100:.1f}%;'
-                     f'transition-delay:{i * 90}ms"></div></div>'
-                     f'<div class="win-v">{m(w["total"])}</div>'
-                     f'<div class="win-c">{w["calls"]:,}</div></div>')
+    def badge(status):
+        word = STATUS_WORDS.get(status, status)
+        kind = {"verified": " ok", "unverified": " un"}.get(status, "")
+        return f'<span class="badge{kind}">{html.escape(word)}</span>' if word else ""
 
-    # ---- component composition -------------------------------------------
-    comp = [("Cache reads", t["cache_read"], overall["cache_read"], "var(--s1)"),
-            ("Cache writes", t["cache_write"], overall["cache_write"], "var(--s2)"),
-            ("Output", t["output"], overall["output"], "var(--s3)"),
-            ("Input, uncached", t["input"], overall["input"], "var(--s4)")]
-    stack, legend = "", ""
-    for i, (name, tk, cost, col) in enumerate(comp):
-        pct = (cost / total * 100) if total else 0
-        if pct > 0.15:
-            stack += (f'<div class="seg" style="width:{pct:.3f}%;background:{col};'
-                      f'transition-delay:{i * 110}ms" title="{name}"></div>')
-        legend += (f'<div class="lg"><span class="dot" style="background:{col}"></span>'
-                   f'<span class="lg-k">{name}</span><span class="lg-t">{toks(tk)}</span>'
-                   f'<span class="lg-v">{m(cost)}</span></div>')
+    def share_bar(parts):
+        """A thin bar of shares that add to one, and a line per part."""
+        bar = "".join(f'<div style="width:{v * 100:.3f}%;background:{c}"></div>'
+                      for _, v, c in parts if v > 0)
+        rows = "".join(f'<p class="tl"><span class="dot" style="background:{c}"></span>{k}'
+                       f'<b>{share_text(v)}</b></p>' for k, v, c in parts if v > 0)
+        return f'<div class="tbar">{bar}</div>{rows}'
 
-    # ---- caching ----------------------------------------------------------
-    prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
-    hit = (t["cache_read"] / prompt_tokens * 100) if prompt_tokens else 0
-    no_cache = overall["no_cache"]
-    saved = no_cache - total
-    saved_pct = (saved / no_cache * 100) if no_cache else 0
-    multiple = (no_cache / total) if total else 0
-    per_m = overall["cache_read"] / max(t["cache_read"], 1) * 1e6
+    def page(overall, groups, meta, unknown, covered, fetched=None, only=None, axis=None):
+        """One page of the dashboard: the whole run, or one harness's part.
+        Returns its HTML and what its chart draws. A harness's page draws its
+        chart over the whole run's days (axis), so switching page keeps every
+        date where it was."""
+        days = sorted(groups["day"].items())
+        chart_days = [(d, groups["day"].get(d) or blank()) for d in axis] if axis else days
+        t = overall["tokens"]
+        total = overall["total"]
+        several_here = len(groups["source"]) > 1
 
-    # ---- tables -----------------------------------------------------------
-    def table(key, heading, lede, limit=10, strip="", name_of=None):
-        items = sorted(groups[key].items(), key=lambda kv: -kv[1]["total"])[:limit]
-        if not items:
-            return ""
-        peak = max((v["total"] for _, v in items), default=0) or 1
-        rows = ""
-        for k, v in items:
-            name = name_of(k) if name_of else (k.replace(strip, "") if strip else k)
-            name = html.escape(name if len(name) < 46 else "\u2026" + name[-44:])
-            per_call = v["total"] / v["calls"] if v["calls"] else 0
-            rows += (f'<tr><td class="bar-cell">{name}'
-                     f'<i style="width:calc({v["total"] / peak * 100:.1f}% - 20px)"></i></td>'
-                     f'<td class="n dim mono">{v["calls"]:,}</td>'
-                     f'<td class="n dim mono">{m(per_call)}</td>'
-                     f'<td class="n">{m(v["total"])}</td></tr>')
-        return (f'<section class="fade">{head(heading, lede)}'
-                f'<table><thead><tr><th></th><th class="n">Calls</th>'
-                f'<th class="n">Per call</th><th class="n">Total</th></tr></thead>'
-                f'<tbody>{rows}</tbody></table></section>')
+        # ---- rolling windows, the definitions the menu bar uses ------------
+        def window(first_day):
+            acc = {"total": 0.0, "calls": 0}
+            for day, v in groups["day"].items():
+                try:
+                    d = dt.datetime.strptime(day, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                if d >= first_day:
+                    acc["total"] += v["total"]
+                    acc["calls"] += v["calls"]
+            return acc
 
-    # ---- sessions ---------------------------------------------------------
-    sess = sorted(groups["session"].items(), key=lambda kv: -kv[1]["total"])[:10]
-    srows = ""
-    speak = max((v["total"] for _, v in sess), default=0) or 1
-    for sid, v in sess:
-        info = meta.get(sid, {})
-        stamp = info.get("last")
-        pretty = stamp.astimezone().strftime("%d %b, %H:%M") if stamp else "\u2014"
-        proj = html.escape(project_name(info.get("project") or "")[-34:])
-        srows += (f'<tr><td class="bar-cell mono">{html.escape(sid[:8])}'
-                  f'<i style="width:calc({v["total"] / speak * 100:.1f}% - 20px)"></i></td>'
-                  f'<td class="dim">{proj}</td><td class="dim">{pretty}</td>'
-                  f'<td class="n dim mono">{v["calls"]:,}</td>'
-                  f'<td class="n">{m(v["total"])}</td></tr>')
-    sessions_html = ('<section class="fade">'
-                     + head("Dearest sessions", "A single session can be a large share of a "
-                            "month. These are the ten that cost the most.")
-                     + '<table><thead><tr><th>Session</th><th>Project</th><th>Last seen</th>'
-                       '<th class="n">Calls</th><th class="n">Total</th></tr></thead>'
-                       f'<tbody>{srows}</tbody></table></section>') if srows else ""
+        wins = [("Today", window(today)),
+                ("Last 7 days", window(today - dt.timedelta(days=6))),
+                ("Last 30 days", window(today - dt.timedelta(days=29))),
+                ("All time", {"total": total, "calls": overall["calls"]})]
+        wmax = max((w[1]["total"] for w in wins), default=0) or 1
+        win_html = ""
+        for i, (name, w) in enumerate(wins):
+            win_html += (f'<div class="win"><div style="flex:1"><div class="win-k">{name}</div>'
+                         f'<div class="win-bar" style="width:{w["total"] / wmax * 100:.1f}%;'
+                         f'transition-delay:{i * 90}ms"></div></div>'
+                         f'<div class="win-v">{m(w["total"])}</div>'
+                         f'<div class="win-c">{w["calls"]:,}</div></div>')
 
-    # ---- rhythm -----------------------------------------------------------
-    def columns(key, labels, fmt_label):
-        vals = [groups[key].get(k, {}).get("total", 0.0) for k in labels]
-        peak = max(vals) or 1
-        cols = "".join(
-            f'<div class="col" style="height:{max(2, v / peak * 100):.1f}%;'
-            f'transition-delay:{i * 26}ms" title="{fmt_label(labels[i]) or labels[i]}: '
-            f'{money(v)}"></div>' for i, v in enumerate(vals))
-        xs = "".join(f'<span>{fmt_label(k)}</span>' for k in labels)
-        return f'<div class="cols">{cols}</div><div class="cols-x">{xs}</div>'
+        # ---- component composition ---------------------------------------
+        comp = [("Cache reads", toks(t["cache_read"]), overall["cache_read"], "var(--s1)"),
+                ("Cache writes", toks(t["cache_write"]), overall["cache_write"], "var(--s2)"),
+                ("Output", toks(t["output"]), overall["output"], "var(--s3)"),
+                ("Input, uncached", toks(t["input"]), overall["input"], "var(--s4)")]
+        # Billed per search, not per token. Left out, the parts did not add up
+        # to the total, as the menu bar's once did not.
+        if overall["web_search"]:
+            n = t["searches"]
+            comp.append(("Web searches", f"{n:,} search{'' if n == 1 else 'es'}",
+                         overall["web_search"], "var(--s5)"))
+        stack, legend = "", ""
+        for i, (name, tk, cost, col) in enumerate(comp):
+            pct = (cost / total * 100) if total else 0
+            if pct > 0.15:
+                stack += (f'<div class="seg" style="width:{pct:.3f}%;background:{col};'
+                          f'transition-delay:{i * 110}ms" title="{name}"></div>')
+            legend += (f'<div class="lg"><span class="dot" style="background:{col}"></span>'
+                       f'<span class="lg-k">{name}</span><span class="lg-t">{tk}</span>'
+                       f'<span class="lg-v">{m(cost)}</span></div>')
 
-    hours = [f"{h:02d}" for h in range(24)]
-    wdays = [str(i) for i in range(7)]
-    wnames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    rhythm = ('<section class="fade">'
-              + head("When the work happens",
-                     "Local time, all time. Spend rather than calls, so a quiet hour of heavy "
-                     "thinking outweighs a busy hour of small ones.")
-              + '<div class="rhythm">'
-              f'<div><p class="sub-h">By hour</p>'
-              f'{columns("hour", hours, lambda h: h if int(h) % 3 == 0 else "")}</div>'
-              f'<div><p class="sub-h">By day of week</p>'
-              f'{columns("weekday", wdays, lambda d: wnames[int(d)])}</div>'
-              '</div></section>')
+        # ---- caching ------------------------------------------------------
+        prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
+        hit = (t["cache_read"] / prompt_tokens * 100) if prompt_tokens else 0
+        no_cache = overall["no_cache"]
+        saved = no_cache - total
+        saved_pct = (saved / no_cache * 100) if no_cache else 0
+        multiple = (no_cache / total) if total else 0
+        per_m = overall["cache_read"] / max(t["cache_read"], 1) * 1e6
 
-    # ---- chart payload ----------------------------------------------------
-    day_rows = []
-    for day, v in days:
-        d = dt.datetime.strptime(day, "%Y-%m-%d")
-        tk = sum(v["tokens"][k] for k in ("input", "cache_write", "cache_read", "output"))
-        day_rows.append({"total": v["total"], "calls": v["calls"], "tokens": tk,
-                         "short": d.strftime("%d %b"), "full": d.strftime("%a %d %b %Y"),
-                         "tokShort": toks(tk)})
+        # ---- tables -------------------------------------------------------
+        def table(key, heading, lede, limit=10, strip="", name_of=None, extra=None):
+            items = sorted(groups[key].items(), key=lambda kv: -kv[1]["total"])[:limit]
+            if not items:
+                return ""
+            peak = max((v["total"] for _, v in items), default=0) or 1
+            rows = ""
+            for k, v in items:
+                name = name_of(k) if name_of else (k.replace(strip, "") if strip else k)
+                name = html.escape(name if len(name) < 46 else "\u2026" + name[-44:])
+                per_call = v["total"] / v["calls"] if v["calls"] else 0
+                rows += (f'<tr><td class="bar-cell">{name}{extra(k) if extra else ""}'
+                         f'<i style="width:calc({v["total"] / peak * 100:.1f}% - 20px)"></i></td>'
+                         f'<td class="n dim mono">{v["calls"]:,}</td>'
+                         f'<td class="n dim mono">{m(per_call)}</td>'
+                         f'<td class="n">{m(v["total"])}</td></tr>')
+            return (f'<section class="fade">{head(heading, lede)}'
+                    f'<table><thead><tr><th></th><th class="n">Calls</th>'
+                    f'<th class="n">Per call</th><th class="n">Total</th></tr></thead>'
+                    f'<tbody>{rows}</tbody></table></section>')
+
+        def models_by_provider_table():
+            """Models under the provider whose prices they were charged at, each
+            naming the harnesses that used it when there are several."""
+            provs = models_by_provider(groups, unknown, fetched)
+            if not provs:
+                return ""
+            peak = max((x["total"] for p in provs for x in p["models"]), default=0) or 1
+            rows = ""
+            for p in provs:
+                how = ("checked against real usage" if p["measured"]
+                       else "published rates" if p["has_table"] else "no price table")
+                rows += (f'<tr class="grp"><td>{html.escape(p["label"])}<span class="conf">{how}</span></td>'
+                         f'<td class="n dim mono">{p["calls"]:,}</td><td></td>'
+                         f'<td class="n">{m(p["total"])}</td></tr>')
+                for x in p["models"][:10]:
+                    name = x["model"].replace("claude-", "") if p["name"] == DEFAULT_PROVIDER else x["model"]
+                    name = html.escape(name if len(name) < 46 else "\u2026" + name[-44:])
+                    tag = {"looked_up": "looked up", "estimated": "stand-in rate"}.get(x["confidence"], "")
+                    rows += (f'<tr><td class="bar-cell">{name}'
+                             + (f'<span class="badge un">{tag}</span>' if tag else "")
+                             + (chips(x["harnesses"]) if several_here else "")
+                             + f'<i style="width:calc({x["total"] / peak * 100:.1f}% - 20px)"></i></td>'
+                             f'<td class="n dim mono">{x["calls"]:,}</td>'
+                             f'<td class="n dim mono">{m(x["per_call"])}</td>'
+                             f'<td class="n">{m(x["total"])}</td></tr>')
+            return (f'<section class="fade">'
+                    + head("By model", "Grouped under the provider whose prices they were charged "
+                           "at. Cost per call is the honest comparison between models: a cheap model "
+                           "called often is not a cheap model.")
+                    + '<table><thead><tr><th></th><th class="n">Calls</th>'
+                      '<th class="n">Per call</th><th class="n">Total</th></tr></thead>'
+                    + f'<tbody>{rows}</tbody></table></section>')
+
+        def harness_table():
+            """The harnesses compared, where mixing tools shows its differences."""
+            rows_ = harness_rows(groups)
+            if len(rows_) < 2:
+                return ""
+            peak = max(r["total"] for r in rows_) or 1
+            rows = "".join(
+                f'<tr><td class="bar-cell"><span class="sw" style="background:{colour.get(("source", r["name"]), OTHER_COLOUR)}"></span>'
+                f'{html.escape(r["label"])}{badge(r["status"])}'
+                f'<i style="width:calc({r["total"] / peak * 100:.1f}% - 20px)"></i></td>'
+                f'<td class="n dim mono">{r["calls"]:,}</td>'
+                f'<td class="n dim mono">{m(r["per_call"])}</td>'
+                f'<td class="n dim mono">{r["cache_hit_pct"]:.1f}%</td>'
+                f'<td class="n dim mono">{r["output_share"] * 100:.1f}%</td>'
+                f'<td class="n">{m(r["total"])}</td></tr>' for r in rows_)
+            return (f'<section class="fade">'
+                    + head("By harness", "The same work compared across tools. Cost per call and "
+                           "cache use are where harnesses differ most; output is the share of each "
+                           "one\u2019s cost spent on the answer rather than the context.")
+                    + '<table><thead><tr><th></th><th class="n">Calls</th><th class="n">Per call</th>'
+                      '<th class="n">From cache</th><th class="n">Output</th>'
+                      '<th class="n">Total</th></tr></thead>'
+                    + f'<tbody>{rows}</tbody></table></section>')
+
+        def trust_panel():
+            """How far this page's total can be trusted, in one place, instead of
+            a note per harness and a note per table."""
+            ts = trust_summary(groups, unknown, fetched)
+            read = [("Verified readers", ts["read"]["verified"], "var(--good)"),
+                    ("Unverified readers", ts["read"]["unverified"], "var(--warm)"),
+                    ("Your own imports", ts["read"]["imported"], "var(--dim)")]
+            price = [("Checked against real usage", ts["price"]["measured"], "var(--good)"),
+                     ("From the published page", ts["price"]["published"], "var(--cool)"),
+                     ("Looked up online", ts["price"]["looked_up"], "var(--warm)"),
+                     ("At a stand-in rate", ts["price"]["estimated"], "#e66767")]
+            names = join_words(display_name("source", n) for n in ts["unverified"])
+            why = (f'{names} {"is" if len(ts["unverified"]) == 1 else "are"} read from the '
+                   'published log format and not yet checked against real logs.'
+                   if ts["unverified"] else "Every harness here is read by a verified reader.")
+            return (f'<section class="fade">'
+                    + head("How far to trust this", "Who read the logs, and where each price came "
+                           "from, as shares of this page\u2019s total.")
+                    + '<div class="cmp trust">'
+                    f'<div class="card"><h3>Who read the logs</h3>{share_bar(read)}'
+                    f'<small>{html.escape(why)}</small></div>'
+                    f'<div class="card"><h3>Where the prices came from</h3>{share_bar(price)}'
+                    '<small>Published rates are read figure by figure from each provider\u2019s '
+                    'own page; only real bills or a harness\u2019s own cost figures count as '
+                    'checked against usage.</small></div>'
+                    '</div></section>')
+
+        # ---- sessions -----------------------------------------------------
+        sess = sorted(groups["session"].items(), key=lambda kv: -kv[1]["total"])[:10]
+        srows = ""
+        speak = max((v["total"] for _, v in sess), default=0) or 1
+        for sid, v in sess:
+            info = meta.get(sid, {})
+            stamp = info.get("last")
+            pretty = stamp.astimezone().strftime("%d %b, %H:%M") if stamp else "\u2014"
+            proj = html.escape(project_name(info.get("project") or "")[-34:])
+            srows += (f'<tr><td class="bar-cell mono">{html.escape(sid[:8])}'
+                      f'<i style="width:calc({v["total"] / speak * 100:.1f}% - 20px)"></i></td>'
+                      f'<td class="dim">{proj}</td><td class="dim">{pretty}</td>'
+                      f'<td class="n dim mono">{v["calls"]:,}</td>'
+                      f'<td class="n">{m(v["total"])}</td></tr>')
+        sessions_html = ('<section class="fade">'
+                         + head("Dearest sessions", "A single session can be a large share of a "
+                                "month. These are the ten that cost the most.")
+                         + '<table><thead><tr><th>Session</th><th>Project</th><th>Last seen</th>'
+                           '<th class="n">Calls</th><th class="n">Total</th></tr></thead>'
+                           f'<tbody>{srows}</tbody></table></section>') if srows else ""
+
+        # ---- rhythm -------------------------------------------------------
+        def columns(key, labels, fmt_label):
+            vals = [groups[key].get(k, {}).get("total", 0.0) for k in labels]
+            peak = max(vals) or 1
+            cols = "".join(
+                f'<div class="col" style="height:{max(2, v / peak * 100):.1f}%;'
+                f'transition-delay:{i * 26}ms" title="{fmt_label(labels[i]) or labels[i]}: '
+                f'{money(v)}"></div>' for i, v in enumerate(vals))
+            xs = "".join(f'<span>{fmt_label(k)}</span>' for k in labels)
+            return f'<div class="cols">{cols}</div><div class="cols-x">{xs}</div>'
+
+        hours = [f"{h:02d}" for h in range(24)]
+        wdays = [str(i) for i in range(7)]
+        wnames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        rhythm = ('<section class="fade">'
+                  + head("When the work happens",
+                         "Local time, all time. Spend rather than calls, so a quiet hour of heavy "
+                         "thinking outweighs a busy hour of small ones.")
+                  + '<div class="rhythm">'
+                  f'<div><p class="sub-h">By hour</p>'
+                  f'{columns("hour", hours, lambda h: h if int(h) % 3 == 0 else "")}</div>'
+                  f'<div><p class="sub-h">By day of week</p>'
+                  f'{columns("weekday", wdays, lambda d: wnames[int(d)])}</div>'
+                  '</div></section>')
+
+        # ---- chart payload ------------------------------------------------
+        # Split by harness when there are several, else by provider when there
+        # are several; otherwise one bar a day, as it always was.
+        kind = "source" if several_here else "provider" if len(groups["provider"]) > 1 else ""
+        series = chart_series(groups, kind) if kind else []
+        named = {n for n, _, _ in series}
+
+        def split(day):
+            by, tok, calls = defaultdict(float), defaultdict(int), defaultdict(int)
+            for n in groups[kind]:
+                v = groups["day_" + kind].get((day, n))
+                if v is None:
+                    continue
+                k = n if n in named else "_other"
+                by[k] += v["total"]
+                tok[k] += sum(v["tokens"][c] for c in ("input", "cache_write", "cache_read", "output"))
+                calls[k] += v["calls"]
+            return dict(by), dict(tok), dict(calls)
+
+        day_rows = []
+        for day, v in chart_days:
+            d = dt.datetime.strptime(day, "%Y-%m-%d")
+            tk = sum(v["tokens"][k] for k in ("input", "cache_write", "cache_read", "output"))
+            row = {"total": v["total"], "calls": v["calls"], "tokens": tk,
+                   "short": d.strftime("%d %b"), "full": d.strftime("%a %d %b %Y"),
+                   "tokShort": toks(tk)}
+            if series:
+                row["by"], row["byTok"], row["byCalls"] = split(day)
+            day_rows.append(row)
+
+        spend_lede = "Bars are each day. The line is the running total."
+        series_legend = ""
+        if series:
+            spend_lede = (f"Each day\u2019s bar split by {'harness' if kind == 'source' else 'provider'}. "
+                          "The line is the running total. Click a name to leave it out.")
+            series_legend = '<div class="slegend">' + "".join(
+                f'<button class="sl" data-series="{n}"><span class="sw" style="background:{c}"></span>'
+                f'{html.escape(lab)}</button>' for n, lab, c in series) + '</div>'
+
+        # A sentence gets one full stop: notes that already end in one used to
+        # print two.
+        warn = "".join(
+            f'<p class="{"warn" if level == "warn" else ""}">'
+            f'{html.escape(text[:1].upper() + text[1:] + ("" if text.endswith(".") else "."))}</p>'
+            for level, text in report_notes(groups, unknown, fetched, only))
+
+        avg_call = total / overall["calls"] if overall["calls"] else 0
+        avg_day = total / len(days) if days else 0
+        busiest = max(days, key=lambda kv: kv[1]["total"]) if days else None
+
+        body = (
+            '<div class="hero">'
+            f'<div class="card lift"><span class="big m headline" data-usd="{total:.8f}" '
+            f'data-shown="{total:.8f}">{money(total)}</span>'
+            '<div class="big-sub rate-note"></div>'
+            '<div class="hero-foot">'
+            f'<div class="kpi"><b>{overall["calls"]:,}</b><span>API calls</span></div>'
+            f'<div class="kpi"><b>{toks(prompt_tokens)}</b><span>Prompt tokens</span></div>'
+            f'<div class="kpi"><b>{toks(t["output"])}</b><span>Output tokens</span></div>'
+            f'<div class="kpi"><b>{hit:.1f}%</b><span>From cache</span></div>'
+            '</div></div>'
+            f'<div class="card lift wins reveal-on">{win_html}</div>'
+            '</div>'
+
+            '<section class="fade"><div class="chart-head"><div>'
+            + head("Spend over time", spend_lede)
+            + '</div><div class="toggles">'
+            '<button class="tg on" data-mode="cost">Cost</button>'
+            '<button class="tg" data-mode="tokens">Tokens</button>'
+            '</div></div>' + series_legend
+            + '<div class="chart"><div class="tip"></div>'
+            '<svg viewBox="0 0 900 268" height="268"></svg></div></section>'
+
+            '<section class="fade">'
+            + head("Where the money goes", "Cache reads are the great majority of the tokens and "
+                   "a minority of the cost, which is the whole argument for caching.")
+            + f'<div class="stack">{stack}</div><div class="legend">{legend}</div></section>'
+
+            '<section class="fade">'
+            + head("What caching is worth",
+                   "The same tokens, priced as if none of them had ever been cached.")
+            + '<div class="cmp">'
+            f'<div class="card"><h3>With cache reads</h3><div class="v">{m(total)}</div>'
+            f'<small>What you actually ran. {toks(t["cache_read"])} of those prompt tokens were '
+            f'cache hits, at {unit_money(per_m)} per million against full input rates.</small></div>'
+            f'<div class="card"><h3>Without cache reads</h3><div class="v">{m(no_cache)}</div>'
+            f'<small>The same {toks(prompt_tokens)} prompt tokens billed fresh on every call, at '
+            'each model\u2019s own rate.</small></div>'
+            f'<div class="card good"><h3>Saved</h3><div class="v">{m_sub(no_cache, total)}</div>'
+            f'<small>{saved_pct:.1f}% cheaper. Caching made it {multiple:.1f}x less expensive.'
+            '</small></div></div></section>'
+
+            # By model first: the breakdown that matters most, on every page.
+            + (models_by_provider_table() if page_multi else
+               table("model", "By model", "Cost per call is the honest comparison between models: "
+                     "a cheap model called often is not a cheap model.", 10, "claude-"))
+            + harness_table()
+            + (trust_panel() if page_multi else "")
+            + table("project", "By project", "Which folders the spend actually went into.", 10,
+                    name_of=project_name,
+                    extra=(lambda k: chips(projects_by[k])) if several_here else None)
+            + rhythm
+            + sessions_html
+
+            + '<footer>'
+            f'<p>{html.escape(covered)}</p>'
+            f'<p>Average {money(avg_call)} per call, {money(avg_day)} per active day'
+            + (f', busiest was {dt.datetime.strptime(busiest[0], "%Y-%m-%d").strftime("%d %b")} at '
+               f'{money(busiest[1]["total"])}' if busiest else '') + '. '
+            f'Of {toks(t["output"])} output tokens, {toks(t["thinking"])} were thinking.</p>'
+            '<p>Every call is priced at the rate in force on the day it was made. Fraunces and '
+            'Inter Tight are embedded under the SIL Open Font License. Tokenmeter is not '
+            'affiliated with any provider it prices.</p>'
+            + warn + '</footer>')
+        chart = {"days": day_rows}
+        if series:
+            chart["series"] = [{"name": n, "label": lab, "color": c} for n, lab, c in series]
+        return numbered(body), chart
+
+    # Colours and project links for the whole run, shared by every page so a
+    # harness wears the same colour wherever it appears.
+    colour = {}
+    for kind in ("source", "provider"):
+        for n, _, c in chart_series(groups, kind):
+            colour[(kind, n)] = c
+    projects_by = defaultdict(list)
+    for (source, project), v in sorted(groups["source_project"].items(), key=lambda kv: -kv[1]["total"]):
+        projects_by[project].append(display_name("source", source))
+
+    pages = [("all", page(overall, groups, meta, unknown, covered))]
+    if several:
+        axis = sorted(groups["day"])
+        for r in hrows:
+            tally, cov = views[r["name"]]
+            pages.append((r["name"], page(*tally.result(), cov, fetched=tally.fetched,
+                                          only=r["name"], axis=axis)))
 
     pills = "".join(
         f'<button data-cur="{c}" class="pill{" on" if c == DISPLAY["code"] else ""}" '
         f'style="animation-delay:{.58 + i * .045:.3f}s">{CURRENCIES[c][0]} {c}</button>'
         for i, c in enumerate(CURRENCIES))
-
-    warn = "".join(
-        f'<p class="{"warn" if level == "warn" else ""}">{html.escape(text[:1].upper() + text[1:])}.</p>'
-        for level, text in report_notes(groups, unknown))
+    # With several harnesses, one of them can be shown on its own. A choice to
+    # make, not the page's first word: all of them together is the default.
+    picker = ""
+    if several:
+        options = '<option value="all">All harnesses</option>' + "".join(
+            f'<option value="{r["name"]}">{html.escape(r["label"])}'
+            f'{"" if r["status"] == "verified" else " (" + r["status_word"] + ")"}</option>'
+            for r in hrows)
+        picker = f'<label class="hpick">Harness <select class="hsel">{options}</select></label>'
 
     payload = json.dumps({
         "rates": rates, "symbols": {c: CURRENCIES[c][0] for c in CURRENCIES},
         "current": DISPLAY["code"], "rateWhen": ("live, " + when) if live else when,
-        "days": day_rows,
+        "first": "all", "views": {key: chart for key, (_, chart) in pages},
     })
-
-    avg_call = total / overall["calls"] if overall["calls"] else 0
-    avg_day = total / len(days) if days else 0
-    busiest = max(days, key=lambda kv: kv[1]["total"]) if days else None
 
     doc = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -2134,79 +2719,20 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered=""):
         f'<p class="sub">{html.escape(label)} \u00b7 The same work, priced at '
         'each provider\u2019s published API rates.</p>'
         f'<p class="sub"><code>{html.escape(covered)}</code></p>'
-        f'<div class="pills">{pills}</div>'
+        f'<div class="pills">{pills}{picker}</div>'
         '</div></div>'
 
         '<div class="wrap">'
-        '<div class="hero">'
-        f'<div class="card lift"><span class="big m" id="headline" data-usd="{total:.8f}" '
-        f'data-shown="{total:.8f}">{money(total)}</span>'
-        '<div class="big-sub" id="rate-note"></div>'
-        '<div class="hero-foot">'
-        f'<div class="kpi"><b>{overall["calls"]:,}</b><span>API calls</span></div>'
-        f'<div class="kpi"><b>{toks(prompt_tokens)}</b><span>Prompt tokens</span></div>'
-        f'<div class="kpi"><b>{toks(t["output"])}</b><span>Output tokens</span></div>'
-        f'<div class="kpi"><b>{hit:.1f}%</b><span>From cache</span></div>'
-        '</div></div>'
-        f'<div class="card lift wins reveal-on">{win_html}</div>'
-        '</div>'
-
-        '<section class="fade"><div class="chart-head"><div>'
-        + head("Spend over time", "Bars are each day. The line is the running total.")
-        + '</div><div class="toggles">'
-        '<button class="tg on" data-mode="cost">Cost</button>'
-        '<button class="tg" data-mode="tokens">Tokens</button>'
-        '</div></div>'
-        '<div class="chart" id="chart"><div class="tip" id="tip"></div>'
-        '<svg viewBox="0 0 900 268" height="268"></svg></div></section>'
-
-        '<section class="fade">'
-        + head("Where the money goes", "Cache reads are the great majority of the tokens and "
-               "a minority of the cost, which is the whole argument for caching.")
-        + f'<div class="stack">{stack}</div><div class="legend">{legend}</div></section>'
-
-        '<section class="fade">'
-        + head("What caching is worth",
-               "The same tokens, priced as if none of them had ever been cached.")
-        + '<div class="cmp">'
-        f'<div class="card"><h3>With cache reads</h3><div class="v">{m(total)}</div>'
-        f'<small>What you actually ran. {toks(t["cache_read"])} of those prompt tokens were '
-        f'cache hits, at {unit_money(per_m)} per million against full input rates.</small></div>'
-        f'<div class="card"><h3>Without cache reads</h3><div class="v">{m(no_cache)}</div>'
-        f'<small>The same {toks(prompt_tokens)} prompt tokens billed fresh on every call, at '
-        'each model\u2019s own rate.</small></div>'
-        f'<div class="card good"><h3>Saved</h3><div class="v">{m_sub(no_cache, total)}</div>'
-        f'<small>{saved_pct:.1f}% cheaper. Caching made it {multiple:.1f}x less expensive.'
-        '</small></div></div></section>'
-
-        + table("model", "By model", "Cost per call is the honest comparison between models: "
-                "a cheap model called often is not a cheap model.", 10, "claude-")
-        + table("project", "By project", "Which folders the spend actually went into.", 10,
-                name_of=project_name)
-        + (table("source", "By harness", "Which tool made the calls. Only shown when more "
-                 "than one did.", 10, name_of=lambda k: display_name("source", k))
-           if len(groups.get("source", {})) > 1 else "")
-        + rhythm
-        + sessions_html
-
-        + '<footer>'
-        f'<p>{html.escape(covered)}</p>'
-        f'<p>Average {money(avg_call)} per call, {money(avg_day)} per active day'
-        + (f', busiest was {dt.datetime.strptime(busiest[0], "%Y-%m-%d").strftime("%d %b")} at '
-           f'{money(busiest[1]["total"])}' if busiest else '') + '. '
-        f'Of {toks(t["output"])} output tokens, {toks(t["thinking"])} were thinking.</p>'
-        '<p>Every call is priced at the rate in force on the day it was made. Fraunces and '
-        'Inter Tight are embedded under the SIL Open Font License. Tokenmeter is not '
-        'affiliated with any provider it prices.</p>'
-        + warn + '</footer></div>'
+        + "".join(f'<div class="view" data-view="{key}"{"" if key == "all" else " hidden"}>{body}</div>'
+                  for key, (body, _) in pages)
+        + '</div>'
 
         '<script>' + DASH_JS.replace("__PAYLOAD__", payload) + '</script>'
         '</body></html>')
 
-    parts = doc.split("\u00a7NO\u00a7")
-    doc = parts[0] + "".join(f"{i:02d}" + p for i, p in enumerate(parts[1:], 1))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(doc)
+
 
 def rebuild_ledger(paths) -> None:
     """Rewrite the ledger from the transcripts still on disk.
@@ -2272,6 +2798,11 @@ def summary() -> dict:
 
     t = overall["tokens"]
     prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
+    # Which table priced each model, for grouping; the dearest if two did.
+    priced_by = {}
+    for (provider, model), v in groups["provider_model"].items():
+        if model not in priced_by or v["total"] > priced_by[model][1]:
+            priced_by[model] = (provider, v["total"])
 
     return {
         "today": window(today),
@@ -2279,7 +2810,8 @@ def summary() -> dict:
         "month": window(month_start),
         "all": {**{c: overall[c] for c in COMPONENTS},
                 "total": overall["total"], "calls": overall["calls"]},
-        "models": [{"name": k, "total": v["total"], "calls": v["calls"]}
+        "models": [{"name": k, "total": v["total"], "calls": v["calls"],
+                    "provider": priced_by.get(k, (DEFAULT_PROVIDER,))[0]}
                    for k, v in sorted(groups["model"].items(), key=lambda kv: -kv[1]["total"])],
         "days": [{"day": k, "total": v["total"]} for k, v in sorted(groups["day"].items())][-30:],
         "tokens": t,
@@ -2302,6 +2834,17 @@ def summary() -> dict:
         "sources": [{"name": k, "label": display_name("source", k),
                      "status": getattr(ALL_SOURCES.get(k), "STATUS", ""), "calls": v["calls"]}
                     for k, v in sorted(groups["source"].items(), key=lambda kv: -kv[1]["total"])],
+        # Only true when harnesses or providers are mixed; then the menu shows
+        # them side by side and groups the models under their providers.
+        "multi": is_multi(groups),
+        "harnesses": [{k: r[k] for k in ("name", "label", "status", "total", "calls", "cache_hit_pct")}
+                      for r in harness_rows(groups)],
+        "providers": [{"name": p["name"], "label": p["label"], "measured": p["measured"],
+                       "total": p["total"], "calls": p["calls"],
+                       "models": [{"name": m["model"], "total": m["total"], "calls": m["calls"]}
+                                  for m in p["models"]]}
+                      for p in models_by_provider(groups, unknown)],
+        "unverified_share": trust_summary(groups, unknown)["unverified_share"],
         "generated": dt.datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -2666,8 +3209,11 @@ def main() -> None:
     else:
         since = parse_since(args.since)
         until = parse_since(args.until) if args.until else None
-    overall, groups, meta, unknown = collect(paths, since, ledger=not args.no_ledger,
-                                             until=until)
+    # The dashboard gives each harness a page of its own when there are
+    # several, so it has the run split by harness in the same single pass.
+    whole, parts = collect_views(paths, since, ledger=not args.no_ledger, until=until,
+                                 split=bool(args.html))
+    overall, groups, meta, unknown = whole.result()
     if not overall["calls"] and not paths and not (args.since or args.until or args.period):
         sys.exit(nothing_found())
 
@@ -2703,7 +3249,7 @@ def main() -> None:
         if out == "auto":
             out = os.path.expanduser("~/Downloads/Tokenmeter.html")
         render_html(overall, groups, meta, unknown, label, out,
-                    covered=covered_span(groups, paths))
+                    covered=covered_span(groups, paths), views=harness_pages(parts, paths))
         print(f"wrote {out}")
         # macOS. The one line a Linux port would change, to xdg-open.
         subprocess.run(["open", out], check=False)

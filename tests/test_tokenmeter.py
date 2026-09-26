@@ -1182,23 +1182,27 @@ class TestNamesAndNotes(Base):
         self.assertEqual(called, [])
 
 
+def lay_out_three_harnesses(test):
+    """Claude Code, Codex and Gemini CLI side by side, from the repo's fixtures."""
+    test.write("a.jsonl", record("msg_1", out=1000, read=5000))
+    day = os.path.join(test.tmp, "codex-home", "sessions", "2026", "09", "24")
+    os.makedirs(day)
+    shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"),
+                os.path.join(day, "rollout-2026-09-24T14-07-33-"
+                                  "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl"))
+    tm.ADAPTER_ROOTS["codex"] = [os.path.join(test.tmp, "codex-home", "sessions")]
+    gemini = os.path.join(test.tmp, "gemini-home")
+    shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home"), gemini)
+    tm.ADAPTER_ROOTS["gemini-cli"] = [os.path.join(gemini, ".gemini", "tmp")]
+    return tm.transcripts()
+
+
 class TestReportsSayItOnce(Base):
     """How reports read with several harnesses: found by a clean-room run of
     1.0.0 on a home with four of them."""
 
     def several_harnesses(self):
-        """Claude Code, Codex and Gemini CLI together, from the repo's fixtures."""
-        self.write("a.jsonl", record("msg_1", out=1000, read=5000))
-        day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
-        os.makedirs(day)
-        shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"),
-                    os.path.join(day, "rollout-2026-09-24T14-07-33-"
-                                      "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl"))
-        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.tmp, "codex-home", "sessions")]
-        gemini = os.path.join(self.tmp, "gemini-home")
-        shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home"), gemini)
-        tm.ADAPTER_ROOTS["gemini-cli"] = [os.path.join(gemini, ".gemini", "tmp")]
-        paths = tm.transcripts()
+        paths = lay_out_three_harnesses(self)
         return paths, tm.collect(paths, ledger=False)
 
     def test_unverified_harnesses_share_one_note(self):
@@ -1262,6 +1266,151 @@ class TestReportsSayItOnce(Base):
         self.assertEqual(len(notes), 1, notes)
         self.assertIn("no price on file for claude-nothing-1, and none published online either",
                       notes[0])
+
+
+def payload_of(page):
+    """The dashboard's data block, as the browser receives it."""
+    start = page.index("const D = ") + len("const D = ")
+    return json.JSONDecoder().raw_decode(page[start:])[0]
+
+
+def terminal(*args, **kw):
+    import contextlib, io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        tm.print_report(*args, **kw)
+    return re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+
+
+class TestOneHarnessSeesNoChange(Base):
+    """One harness on one provider must see exactly what it always did: the
+    views for mixing tools appear only when tools are mixed."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a.jsonl", record("msg_1", out=1000, read=5000),
+                   record("msg_2", ts="2026-09-02T09:00:00.000Z", out=200))
+        self.paths = tm.transcripts()
+        whole, self.parts = tm.collect_views(self.paths, ledger=False)
+        self.result = whole.result()
+
+    def test_the_dashboard_has_none_of_the_new_sections(self):
+        out = os.path.join(self.tmp, "d.html")
+        tm.render_html(*self.result, "all time", out,
+                       views=tm.harness_pages(self.parts, self.paths))
+        page = slurp(out, encoding="utf-8")
+        for mark in ('class="hsel"', "How far to trust this", 'class="slegend"',
+                     'class="grp"', "By harness", 'data-view="claude-code"', 'class="chip"'):
+            self.assertNotIn(mark, page)
+        self.assertEqual(list(payload_of(page)["views"]), ["all"])
+        self.assertNotIn("series", payload_of(page)["views"]["all"])
+
+    def test_the_terminal_adds_nothing(self):
+        out = terminal(*self.result, "", "all time")
+        self.assertNotIn("by harness", out)
+        self.assertNotIn("by provider", out)
+
+    def test_the_menu_bar_is_told_not_to_change(self):
+        s = tm.summary()
+        self.assertFalse(s["multi"])
+        self.assertEqual(len(s["harnesses"]), 1)
+
+
+class TestSeveralHarnesses(Base):
+    """Harnesses mixed: every figure still comes from the one engine."""
+
+    def setUp(self):
+        super().setUp()
+        self.paths = lay_out_three_harnesses(self)
+        self.whole, self.parts = tm.collect_views(self.paths, ledger=False)
+        self.overall, self.groups, self.meta, self.unknown = self.whole.result()
+
+    def test_each_harness_page_is_exactly_its_share(self):
+        """A harness's page is built from its own part of the same pass, so it
+        must match the whole run's figure for that harness to the last bit."""
+        self.assertEqual(set(self.parts), {"claude-code", "codex", "gemini-cli"})
+        for source, part in self.parts.items():
+            self.assertEqual(part.overall["total"], self.groups["source"][source]["total"])
+            self.assertEqual(part.overall["calls"], self.groups["source"][source]["calls"])
+        self.assertAlmostEqual(sum(p.overall["total"] for p in self.parts.values()),
+                               self.overall["total"], places=12)
+
+    def test_split_bars_add_up_to_each_day(self):
+        out = os.path.join(self.tmp, "d.html")
+        tm.render_html(self.overall, self.groups, self.meta, self.unknown, "all time", out,
+                       views=tm.harness_pages(self.parts, self.paths))
+        page = slurp(out, encoding="utf-8")
+        data = payload_of(page)
+        self.assertEqual(set(data["views"]), {"all", "claude-code", "codex", "gemini-cli"})
+        allv = data["views"]["all"]
+        self.assertEqual([s["name"] for s in allv["series"]], ["claude-code", "codex", "gemini-cli"])
+        for d in allv["days"]:
+            self.assertAlmostEqual(sum(d["by"].values()), d["total"], places=9)
+            self.assertEqual(sum(d["byCalls"].values()), d["calls"])
+        # Every harness page draws over the whole run's days.
+        for key in ("claude-code", "codex", "gemini-cli"):
+            self.assertEqual([d["full"] for d in data["views"][key]["days"]],
+                             [d["full"] for d in allv["days"]])
+        for mark in ('class="hsel"', "How far to trust this", "By harness", 'class="grp"'):
+            self.assertIn(mark, page)
+        self.assertNotIn("..</p>", page)
+
+    def test_trust_shares_add_up_and_name_the_unverified(self):
+        ts = tm.trust_summary(self.groups, self.unknown)
+        self.assertAlmostEqual(sum(ts["read"].values()), 1.0, places=12)
+        self.assertAlmostEqual(sum(ts["price"].values()), 1.0, places=12)
+        self.assertEqual(ts["unverified"], ["codex", "gemini-cli"])
+        want = (self.groups["source"]["codex"]["total"]
+                + self.groups["source"]["gemini-cli"]["total"]) / self.overall["total"]
+        self.assertAlmostEqual(ts["unverified_share"], want, places=12)
+
+    def test_models_are_grouped_under_their_provider(self):
+        provs = {p["name"]: p for p in tm.models_by_provider(self.groups, self.unknown)}
+        self.assertEqual(set(provs), {"anthropic", "openai", "google"})
+        for p in provs.values():
+            self.assertAlmostEqual(p["total"], self.groups["provider"][p["name"]]["total"], places=12)
+        opus = [x for x in provs["anthropic"]["models"] if x["model"] == "claude-opus-5"][0]
+        self.assertEqual(opus["harnesses"], ["Claude Code"])
+
+    def test_the_terminal_compares_harnesses_only_when_asked(self):
+        plain = terminal(self.overall, self.groups, self.meta, self.unknown, "", "all time")
+        self.assertNotIn("by harness", plain)
+        asked = terminal(self.overall, self.groups, self.meta, self.unknown, "source", "all time")
+        self.assertIn("by harness", asked)
+        self.assertIn("from cache", asked)
+        self.assertIn("unverified", asked)
+
+    def test_the_menu_bar_is_sent_what_mixing_needs(self):
+        s = tm.summary()
+        self.assertTrue(s["multi"])
+        totals = [h["total"] for h in s["harnesses"]]
+        self.assertEqual(len(totals), 3)
+        self.assertEqual(totals, sorted(totals, reverse=True))   # dearest first
+        self.assertEqual({p["name"] for p in s["providers"]}, {"anthropic", "openai", "google"})
+        self.assertTrue(all("provider" in m for m in s["models"]))
+        self.assertGreater(s["unverified_share"], 0)
+
+    def test_your_own_imports_are_not_called_unverified(self):
+        """An import is the user's own data: neither a verified reader nor an
+        unverified one, and never counted as the second."""
+        path = os.path.join(self.tmp, "events.jsonl")
+        with open(path, "w") as f:
+            f.write(json.dumps({"id": "e1", "timestamp": "2026-09-20T10:00:00Z", "provider": "openai",
+                                "model": "gpt-6-sol", "input": 1000, "output": 500}) + "\n")
+        tm._IMPORTS[:] = [path]
+        tm._ONLY[:] = ["claude-code", "import"]
+        _, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        ts = tm.trust_summary(groups, unknown)
+        self.assertEqual(ts["unverified"], [])
+        self.assertEqual(ts["read"]["unverified"], 0.0)
+        self.assertGreater(ts["read"]["imported"], 0.0)
+        self.assertAlmostEqual(ts["read"]["imported"] + ts["read"]["verified"], 1.0, places=12)
+
+    def test_shares_never_read_as_none_or_all_when_they_are_not(self):
+        self.assertEqual(tm.share_text(0.0000004), "under 0.1%")
+        self.assertEqual(tm.share_text(0.9999996), "over 99.9%")
+        self.assertEqual(tm.share_text(1.0), "100.0%")
+        self.assertEqual(tm.share_text(0.1234), "12.3%")
 
 
 class TestMenuBarCurrencies(Base):

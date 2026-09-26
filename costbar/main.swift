@@ -43,6 +43,12 @@ struct Snapshot {
     var rateLive = true
     var covered = ""
     var tokens: [String: Int] = [:]
+    // Only filled when harnesses or providers are mixed. One harness on one
+    // provider sees the menu it always had.
+    var multi = false
+    var harnesses: [(label: String, status: String, total: Double, calls: Int)] = []
+    var providers: [(label: String, measured: Bool, total: Double, calls: Int,
+                     models: [(String, Double, Int)])] = []
     // What the engine says must be shown beside the figures: when each price
     // table was checked, and any warning about how far to trust a number.
     var notes: [(level: String, text: String)] = []
@@ -197,6 +203,20 @@ func loadSnapshot() -> Snapshot {
     if let ds = root["days"] as? [[String: Any]] {
         snap.days = ds.map { ($0["total"] as? Double) ?? 0 }
     }
+    snap.multi = root["multi"] as? Bool ?? false
+    if let hs = root["harnesses"] as? [[String: Any]] {
+        snap.harnesses = hs.map { (($0["label"] as? String) ?? "?", ($0["status"] as? String) ?? "",
+                                   ($0["total"] as? Double) ?? 0, ($0["calls"] as? Int) ?? 0) }
+    }
+    if let ps = root["providers"] as? [[String: Any]] {
+        snap.providers = ps.map { p in
+            let ms = (p["models"] as? [[String: Any]] ?? []).map {
+                (($0["name"] as? String) ?? "?", ($0["total"] as? Double) ?? 0, ($0["calls"] as? Int) ?? 0)
+            }
+            return ((p["label"] as? String) ?? "?", (p["measured"] as? Bool) ?? false,
+                    (p["total"] as? Double) ?? 0, (p["calls"] as? Int) ?? 0, ms)
+        }
+    }
     if let ns = root["notes"] as? [[String: Any]] {
         snap.notes = ns.map { (($0["level"] as? String) ?? "info", ($0["text"] as? String) ?? "") }
     }
@@ -212,6 +232,13 @@ final class Controller: NSObject, NSApplicationDelegate {
     var mode: String {
         get { UserDefaults.standard.string(forKey: "mode") ?? "today" }
         set { UserDefaults.standard.set(newValue, forKey: "mode") }
+    }
+
+    // What the breakdown section shows when tools are mixed: model, harness
+    // or provider. Model unless changed.
+    var breakdown: String {
+        get { UserDefaults.standard.string(forKey: "breakdown") ?? "model" }
+        set { UserDefaults.standard.set(newValue, forKey: "breakdown") }
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -341,14 +368,62 @@ final class Controller: NSObject, NSApplicationDelegate {
                 indent: 1, mono: true)
         }
 
-        if !snap.models.isEmpty {
+        func callsText(_ n: Int) -> String { padLeft("\(n)", 7) + (n == 1 ? " call" : " calls") }
+
+        // By model is the breakdown that matters most and always the default.
+        // Only when harnesses or providers are mixed can the menu be switched
+        // to show those instead, from the "Break down by" submenu.
+        let choice = snap.multi ? breakdown : "model"
+        if choice == "harness" && snap.harnesses.count > 1 {
+            menu.addItem(.separator())
+            add(menu, "By harness, all time")
+            let width = max(snap.harnesses.map { $0.label.count }.max() ?? 0, 10)
+            for h in snap.harnesses {
+                let mark = h.status == "verified" ? "\u{2713}" : "\u{25CB}"
+                add(menu, mark + " " + padRight(h.label, width) + padLeft(money(h.total), 11)
+                        + callsText(h.calls), indent: 1, mono: true).toolTip =
+                    h.status == "verified" ? "Verified: checked against real logs"
+                    : h.status == "yours" ? "Imported by you"
+                    : "Unverified: built from the published log format"
+            }
+        } else if choice == "provider" && snap.providers.count > 1 {
+            menu.addItem(.separator())
+            add(menu, "By provider, all time")
+            for p in snap.providers {
+                add(menu, padRight(p.label, 26) + padLeft(money(p.total), 11) + callsText(p.calls),
+                    indent: 1, mono: true).toolTip = p.measured
+                    ? "Rates checked against real usage" : "Published rates"
+                for (name, total, calls) in p.models.prefix(4) {
+                    let short = name.replacingOccurrences(of: "claude-", with: "")
+                    add(menu, padRight("  " + short, 26) + padLeft(money(total), 11) + callsText(calls),
+                        indent: 1, mono: true)
+                }
+            }
+        } else if !snap.models.isEmpty {
             menu.addItem(.separator())
             add(menu, "By model, all time")
             for (name, total, calls) in snap.models.prefix(6) {
                 let short = name.replacingOccurrences(of: "claude-", with: "")
-                add(menu, padRight(short, 26) + padLeft(money(total), 11) + padLeft("\(calls)", 7) + (calls == 1 ? " call" : " calls"),
+                add(menu, padRight(short, 26) + padLeft(money(total), 11) + callsText(calls),
                     indent: 1, mono: true)
             }
+        }
+        if snap.multi {
+            let names = [("model", "Model"), ("harness", "Harness"), ("provider", "Provider")]
+            let offered = names.filter { key, _ in
+                key == "model" || (key == "harness" && snap.harnesses.count > 1)
+                    || (key == "provider" && snap.providers.count > 1)
+            }
+            let current = offered.first { $0.0 == choice }?.1 ?? "Model"
+            let byItem = NSMenuItem(title: "Break down by: \(current)", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            for (key, label) in offered {
+                let mi = add(sub, label, #selector(setBreakdown(_:)), enabled: true, state: key == choice)
+                mi.representedObject = key
+            }
+            byItem.submenu = sub
+            menu.addItem(byItem)
         }
 
         menu.addItem(.separator())
@@ -425,6 +500,11 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     @objc func setMode(_ sender: NSMenuItem) {
         if let key = sender.representedObject as? String { mode = key }
+        render()
+    }
+
+    @objc func setBreakdown(_ sender: NSMenuItem) {
+        if let key = sender.representedObject as? String { breakdown = key }
         render()
     }
 

@@ -76,6 +76,22 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 
 ![Adapters and price tables](docs/screenshots/terminal-adapters.png)
 
+### Several at once
+
+Use more than one harness, or one harness with models from several providers,
+and every face adds what comparing them needs. With one of each, nothing
+changes.
+
+- **Dashboard:** a Harness menu beside the currencies shows any one harness on
+  its own page. The spend chart splits each day by harness, models are grouped
+  under the provider that priced them with the harnesses that used each, a
+  By harness table compares cost per call and cache use, and "How far to
+  trust this" shows how much of the total came from verified readers and
+  from checked prices.
+- **Menu bar:** By model stays the default; "Break down by" switches it to
+  harnesses or providers.
+- **Terminal:** `tokenmeter --by source` compares harnesses side by side.
+
 ### Any other harness
 
 Cursor, Aider, Cline, a script of your own: if you can get at per-call token counts, write one JSON object per call and pass the file with `--import`:
