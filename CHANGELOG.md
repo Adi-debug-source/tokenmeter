@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0, unreleased
+## 1.1.0, 26 September 2026
 
 ### Several harnesses
 
@@ -58,6 +58,15 @@ each with a test.
 - Dashboard notes that already ended in a full stop printed two.
 - The spend chart's axis read $0.0 on every line when a page's figures were
   pennies. Small figures now get the decimals they need.
+
+### Project
+
+- Homebrew: `brew install adi-debug-source/tokenmeter/tokenmeter`, then
+  `tokenmeter-setup`, which runs the same installer a clone does. The
+  `tokenmeter` command runs the one installed engine, so the terminal, the
+  menu bar and the status line cannot drift apart after an upgrade.
+- `install.sh` says so when the menu bar app fails to build, rather than
+  saying nothing.
 
 ## 1.0.0, 26 September 2026
 

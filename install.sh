@@ -132,7 +132,11 @@ fi
 if [ "$APP_WANTED" = 0 ]; then
     say "menu bar app skipped (--no-app)"
 elif command -v swiftc >/dev/null 2>&1; then
-    "$SRC/costbar/build.sh" >/dev/null 2>&1 && say "menu bar app built: $APP"
+    if "$SRC/costbar/build.sh" >/dev/null 2>&1; then
+        say "menu bar app built: $APP"
+    else
+        say "the menu bar app did not build; run $SRC/costbar/build.sh to see why"
+    fi
     if ! launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
         "$SRC/costbar/install-login-item.sh" >/dev/null 2>&1 && say "menu bar app starts at login"
     fi

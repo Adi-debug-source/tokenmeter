@@ -1,3 +1,5 @@
+<img src="docs/screenshots/icon.png" alt="" width="96" align="right">
+
 # Tokenmeter
 
 What your AI coding would have cost at API rates.
@@ -21,9 +23,20 @@ It has four faces over one engine:
 
 - macOS 12 or later
 - Python 3.9 or later (the one macOS ships is fine), no packages to install
-- The Xcode command line tools, for the menu bar app only: `xcode-select --install`
+- The Xcode command line tools, for the menu bar app: `xcode-select --install` (Homebrew installs them for you)
 
 ## Install
+
+With [Homebrew](https://brew.sh):
+
+```bash
+brew install adi-debug-source/tokenmeter/tokenmeter
+tokenmeter-setup
+```
+
+The first line fetches Tokenmeter and adds the `tokenmeter` command. The second installs the menu bar app and, if you use Claude Code, the status line and the `/tokenmeter` command; Homebrew cannot write to your home folder itself, which is why it is a separate step. After `brew upgrade tokenmeter`, run `tokenmeter-setup` again.
+
+Or from a clone:
 
 ```bash
 git clone https://github.com/Adi-debug-source/tokenmeter.git
@@ -31,15 +44,19 @@ cd tokenmeter
 ./install.sh
 ```
 
-The installer copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; `./install.sh --statusline` replaces it. `./install.sh --no-app` skips the menu bar app. Run it again after `git pull` to update.
+Either way the same installer runs. It copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; add `--statusline` to replace it, or `--no-app` to skip the menu bar app. From a clone, run `./install.sh` again after `git pull` to update.
 
-To remove everything except your usage history: `./install.sh --uninstall`. It moves files to the Bin rather than deleting them.
+To remove everything except your usage history: `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`, or `./install.sh --uninstall` from a clone. Files are moved to the Bin rather than deleted.
 
 ## Usage
 
+With Homebrew the `tokenmeter` command is already there. From a clone, make it with:
+
 ```bash
 alias tokenmeter="python3 ~/.claude/tools/tokenmeter/tokenmeter.py"
+```
 
+```bash
 tokenmeter                      # everything found, all time
 tokenmeter --by model           # or project, day, session, hour, weekday, source, provider
 tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
@@ -91,6 +108,8 @@ changes.
 - **Menu bar:** By model stays the default; "Break down by" switches it to
   harnesses or providers.
 - **Terminal:** `tokenmeter --by source` compares harnesses side by side.
+
+![Harnesses compared, and how far to trust the total](docs/screenshots/dashboard-harnesses.jpg)
 
 ### Any other harness
 
