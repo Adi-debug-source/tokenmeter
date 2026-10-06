@@ -79,7 +79,7 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 6 Oct 20
 
 ## Google
 
-Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 26 Sep 2026, checked against the published page; not yet against a real bill.
+Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 6 Oct 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
@@ -97,7 +97,7 @@ Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 26 Sep 20
 | `gemini-2.5-pro` | $1.25 | $0.125 | - | $10 | over 200K prompt tokens: input x2, output x1.5 |
 | `gemini-2.5-flash` | $0.30 | $0.03 | - | $2.50 |  |
 | `gemini-2.5-flash-lite` | $0.10 | $0.01 | - | $0.40 |  |
-| `gemini-2.5-computer-use-preview-10-2025` | $1.25 | - | - | $10 | over 200K prompt tokens: input x2, output x1.5 |
+| `gemini-2.5-computer-use-preview-10-2025` | $1.25 | - | - | $10 | over 200K prompt tokens: input x2, output x1.5; retirement 2026-07-28, kept at the last published price |
 
 ## xAI
 
@@ -125,7 +125,7 @@ Source: <https://api-docs.deepseek.com/quick_start/pricing>. Last verified 26 Se
 
 ## Mistral
 
-Source: <https://docs.mistral.ai/inference/pricing>. Last verified 26 Sep 2026, checked against the published page; not yet against a real bill.
+Source: <https://docs.mistral.ai/inference/pricing>. Last verified 6 Oct 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
@@ -137,7 +137,7 @@ Source: <https://docs.mistral.ai/inference/pricing>. Last verified 26 Sep 2026, 
 | `ministral-3b-2512` | $0.10 | $0.01 | - | $0.10 |  |
 | `codestral-2508` | $0.30 | $0.03 | - | $0.90 |  |
 | `zai-glm-5-3` | $1.40 | $0.14 | - | $4.40 |  |
-| `zai-glm-5-2` | $1.40 | $0.14 | - | $4.40 |  |
+| `zai-glm-5-2` | $1.40 | $0.14 | - | $4.40 | retirement 2026-10-31, kept at the last published price |
 
 ## Moonshot
 

@@ -36,7 +36,7 @@ import re
 PROVIDER = "google"
 NAME = "Google"
 SOURCE = "https://ai.google.dev/gemini-api/docs/pricing"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-10-06"
 MEASURED = False
 
 # Gemini has no per-token cache write fee; creating a cache bills as input.
@@ -74,6 +74,12 @@ PRICES = {
     # No caching row on the page, so no cache discount.
     "gemini-2.5-computer-use-preview-10-2025": [_row(1.25, 10.00, 1.0, long=_LONG)],
 }
+
+# Kept for older usage, at the last published price, though the page no
+# longer lists them. Model id: retirement date. Shut down 28 July 2026 per
+# https://ai.google.dev/gemini-api/docs/deprecations; the pricing page
+# dropped it on 6 October 2026.
+RETIRED = {"gemini-2.5-computer-use-preview-10-2025": "2026-07-28"}
 
 # Other names for the same model, as the page gives them.
 ALIASES = {"gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview"}

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `--check-prices` no longer names a retired model as missing from its page.
+  A table can list models the provider has retired in `RETIRED`, with the
+  date from the provider's own notice; they keep their last published price,
+  so older usage is still priced, and the price list marks them. Two so far:
+  `gemini-2.5-computer-use-preview-10-2025` (shut down 28 July 2026) and
+  `zai-glm-5-2` on Mistral (retires 31 October 2026, replaced by GLM 5.3 at
+  the same price). Google's and Mistral's tables re-read in full and marked
+  verified on 6 October 2026.
+
 ## 1.1.2, 6 October 2026
 
 - Prices: Claude Sonnet 5.5 ($2 in, $10 out, cache hits $0.20, no fast mode)

@@ -1143,6 +1143,31 @@ class TestCheckPrices(Base):
         self.assertEqual(code, 1)
         self.assertIn("claude-sonnet-5 out: table has $10, page says $15", out)
 
+    def test_a_model_missing_from_the_page_is_named(self):
+        page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
+        code, out = self.run_check(lambda url: page)
+        self.assertIn("not found on the page: claude-haiku-3-5", out)
+
+    def test_a_retired_model_missing_from_the_page_is_expected(self):
+        page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
+        tm._anthropic.RETIRED = {"claude-haiku-3-5": "2026-01-01"}
+        try:
+            code, out = self.run_check(lambda url: page)
+        finally:
+            del tm._anthropic.RETIRED
+        self.assertEqual(code, 0)
+        self.assertNotIn("not found", out)
+        self.assertIn("18 of 18", out)
+        self.assertIn("1 retired, kept at the last published price", out)
+
+    def test_every_retired_model_is_still_priced(self):
+        """Retiring a model never removes its row; older usage needs it."""
+        for table in tm.TABLES.values():
+            for model, date in getattr(table, "RETIRED", {}).items():
+                with self.subTest(model=model):
+                    self.assertIn(model, table.PRICES)
+                    self.assertRegex(date, r"^\d{4}-\d{2}-\d{2}$")
+
     def test_an_unreachable_page_says_so(self):
         def down(url):
             raise OSError("no network")

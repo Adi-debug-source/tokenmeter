@@ -22,6 +22,7 @@ recorded, and pinned by a test. Never from memory, a blog, or an aggregator.
 | `PRICES` | `{model id: [rows]}`, dollars per million tokens. |
 | `FALLBACK_MODEL` | The row an unknown id is priced at, flagged in every report. |
 | `ALIASES` *(optional)* | Other published names for the same model. |
+| `RETIRED` *(optional)* | `{model id: "YYYY-MM-DD"}`: models the page no longer lists, kept at their last published price so older usage is still priced, with the retirement date from the provider's own deprecation notice. |
 | `page_rates(fetch, tables, want=None)` *(optional)* | Reads the live page, for `--check-prices` and the startup lookup. |
 
 A row:
@@ -71,6 +72,14 @@ what it was.
 ```
 
 Then update `VERIFIED_ON` and the pinned test.
+
+## When a model leaves the page
+
+`--check-prices` names a model the page no longer lists. Find out why from
+the provider's own deprecation notice or changelog. If it was retired at its
+existing price, keep its row, so older usage is still priced, and add it to
+`RETIRED` with the retirement date and a comment naming the source. If it was
+renamed, add the new name instead. Never delete a row that history still uses.
 
 ## Checking a table is still right
 

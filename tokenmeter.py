@@ -2921,10 +2921,14 @@ def check_prices(fetch=None) -> int:
             worst = max(worst, 2)
             continue
         matched, diffs, absent = 0, [], []
+        # Retired models stay in the table so older usage keeps its price;
+        # the page is not expected to list them any more.
+        retired = [m for m in getattr(table, "RETIRED", {}) if m not in page]
         for model, rows in table.PRICES.items():
             got = page.get(model)
             if not got:
-                absent.append(model)
+                if model not in retired:
+                    absent.append(model)
                 continue
             # A page that states dated prices (one rate through a date, a
             # higher one after) is checked entry by entry against the table's
@@ -2948,8 +2952,10 @@ def check_prices(fetch=None) -> int:
                         diffs.append((model + label, field, want, value))
                         bad = True
             matched += not bad
-        print(f"    {GREEN}{matched} of {len(table.PRICES)} models match{RESET} "
-              f"the page in every column it lists")
+        kept = (f" {DIM}({len(retired)} retired, kept at the last published price){RESET}"
+                if retired else "")
+        print(f"    {GREEN}{matched} of {len(table.PRICES) - len(retired)} models match{RESET} "
+              f"the page in every column it lists{kept}")
         for model, field, want, value in diffs:
             have = "nothing" if want is None else f"${want:g}"
             print(f"    {YELLOW}differs{RESET}  {model} {field}: table has {have}, "
@@ -3021,6 +3027,8 @@ def price_listing(markdown: bool = False) -> str:
                     also.append(f"over {over // 1000}K prompt tokens: input x{lg['in']:g}, output x{lg['out']:g}")
                 if row["fast"]:
                     also.append(f"fast {fmt(row['fast'][0])} / {fmt(row['fast'][1])}")
+                if model in getattr(table, "RETIRED", {}):
+                    also.append(f"retirement {table.RETIRED[model]}, kept at the last published price")
                 if row.get("off_peak"):
                     also.append("half price off-peak")
                 aliases = sorted(a for a, m in getattr(table, "ALIASES", {}).items() if m == model)

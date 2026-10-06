@@ -19,7 +19,7 @@ import re
 PROVIDER = "mistral"
 NAME = "Mistral"
 SOURCE = "https://docs.mistral.ai/inference/pricing"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-10-06"
 MEASURED = False
 
 CACHE_WRITE_5M_MULT = 1.0
@@ -44,6 +44,12 @@ PRICES = {
     "zai-glm-5-3":        _row(1.40, 4.40),
     "zai-glm-5-2":        _row(1.40, 4.40),
 }
+
+# Kept for older usage, at the last published price, though the pricing page
+# no longer lists them. Model id: retirement date. Mistral's changelog, read
+# 6 October 2026: GLM 5.2 deprecated 29 September, retires 31 October 2026,
+# "Use Z.ai GLM 5.3 (zai-glm-5-3) instead, at the same price".
+RETIRED = {"zai-glm-5-2": "2026-10-31"}
 
 # How the page names each model.
 PAGE_NAMES = {
