@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1, 6 October 2026
 
 - Homebrew: the formula now lives in this repository, at
   `Formula/tokenmeter.rb`, and the separate `homebrew-tokenmeter` tap is
