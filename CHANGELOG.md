@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.2, 6 October 2026
 
 - Prices: Claude Sonnet 5.5 ($2 in, $10 out, cache hits $0.20, no fast mode)
   and gpt-6.1-sol ($2 in, $10 out, cached input $0.10, which is 5% of input

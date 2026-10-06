@@ -42,7 +42,7 @@ from adapters.common import parse_time
 from pricing import TABLES
 from pricing import anthropic as _anthropic
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 PROJECTS_DIR = claude_code.default_roots()[0]
 
