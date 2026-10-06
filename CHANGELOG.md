@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Homebrew: the formula now lives in this repository, at
+  `Formula/tokenmeter.rb`, and the separate `homebrew-tokenmeter` tap is
+  retired. Install with
+  `brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter`,
+  then `brew install adi-debug-source/tokenmeter/tokenmeter`. Anyone who
+  tapped the old repository runs `brew untap adi-debug-source/tokenmeter`
+  first.
+- `fonts/` now carries the SIL Open Font License texts for Fraunces and Inter
+  Tight, as Google Fonts publishes them, which the licence asks for.
+
 ## 1.1.0, 26 September 2026
 
 ### Several harnesses

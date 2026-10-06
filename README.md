@@ -30,11 +30,12 @@ It has four faces over one engine:
 With [Homebrew](https://brew.sh):
 
 ```bash
+brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
 brew install adi-debug-source/tokenmeter/tokenmeter
 tokenmeter-setup
 ```
 
-The first line fetches Tokenmeter and adds the `tokenmeter` command. The second installs the menu bar app and, if you use Claude Code, the status line and the `/tokenmeter` command; Homebrew cannot write to your home folder itself, which is why it is a separate step. After `brew upgrade tokenmeter`, run `tokenmeter-setup` again.
+The formula lives in this repository, so the first line points Homebrew at it once. The second fetches Tokenmeter and adds the `tokenmeter` command. The third installs the menu bar app and, if you use Claude Code, the status line and the `/tokenmeter` command; Homebrew cannot write to your home folder itself, which is why it is a separate step. After `brew upgrade tokenmeter`, run `tokenmeter-setup` again.
 
 Or from a clone:
 

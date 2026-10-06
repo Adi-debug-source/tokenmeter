@@ -156,8 +156,10 @@ To refresh or change them, take the URL out of the `/* latin */` block, not
 
 The axes matter: the headline animates `opsz` and `SOFT` on hover, so a build
 requesting only `wght` will load but sit still. Both families are SIL Open
-Font License, which permits embedding; keep `fonts/README.md` with them so the
-attribution travels.
+Font License, which permits embedding as long as the licence travels with
+them: keep `fonts/README.md`, `OFL-Fraunces.txt` and `OFL-InterTight.txt`
+beside the fonts. The licence files are Google Fonts' own, unchanged. If a
+font's licence or copyright changes, replace its file too.
 
 ## Three things the chart gets wrong if you touch it
 
@@ -242,6 +244,57 @@ In order, because each step rules out the one below:
    `pgrep -f Tokenmeter.app/Contents/MacOS/Tokenmeter`.
 5. The headline figure has not moved unless you meant it to.
 6. Update `CHANGELOG.md`, commit with what changed and why.
+
+A public release is that, plus a tag and the formula pointed at it:
+
+1. Push `main` and the tag `vX.Y.Z`. Never move or re-push a published tag:
+   the formula pins the checksum of the tag's tarball, so a moved tag breaks
+   every install until the formula is updated.
+2. Point the formula at the new tag, below.
+
+## Homebrew
+
+The formula lives in this repository, at `Formula/tokenmeter.rb`. There is no
+separate tap repository: Homebrew is pointed at this one once, by its address.
+
+    brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
+    brew install adi-debug-source/tokenmeter/tokenmeter
+    tokenmeter-setup
+
+The short form, without the address, only works for a repository named
+`homebrew-something`, which is why the address is given. The formula puts
+everything from the tag's tarball except `Formula/` in `libexec` and writes
+two wrappers: `tokenmeter`, which runs the one engine in
+`~/.claude/tools/tokenmeter`, and `tokenmeter-setup`, which runs `install.sh`.
+Homebrew cannot write to the home folder itself, which is why setup is a
+second step.
+
+Until 6 October 2026 the formula lived in a separate tap,
+`Adi-debug-source/homebrew-tokenmeter`, now archived. Anyone who tapped it
+keeps the last version it named. To move across:
+
+    brew untap adi-debug-source/tokenmeter
+    brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
+
+After each release:
+
+1. Take the checksum of the new tag's tarball, as GitHub serves it:
+
+        curl -sL https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/v1.1.1.tar.gz | shasum -a 256
+
+2. In `Formula/tokenmeter.rb`, set `url` to the new tag and `sha256` to that
+   checksum. Commit it to `main` and push. This commit comes after the tag, so
+   the tagged tarball always carries the previous checksum; that is expected,
+   because Homebrew reads the formula from `main`, never from the tarball.
+3. Check it as a user would:
+
+        brew update
+        brew upgrade tokenmeter
+        brew test tokenmeter
+        tokenmeter-setup
+        tokenmeter --version
+
+4. `brew audit --strict adi-debug-source/tokenmeter/tokenmeter` should be clean.
 
 ## What a Linux port would need
 
