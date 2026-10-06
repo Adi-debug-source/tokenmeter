@@ -197,6 +197,7 @@ class TestPricing(Base):
 
 class TestPublishedRates(Base):
     """The whole table against platform.claude.com, checked 11 September 2026.
+    Sonnet 5.5 added from the same page on 6 October 2026.
 
     Every figure here was read off Anthropic's pricing page, not recalled. If
     one of these fails, either a rate moved (add a dated entry, do not edit the
@@ -212,6 +213,7 @@ class TestPublishedRates(Base):
         "claude-opus-4-7": (5, 25, 0.50), "claude-opus-4-6": (5, 25, 0.50),
         "claude-opus-4-5": (5, 25, 0.50), "claude-opus-4-1": (15, 75, 1.50),
         "claude-opus-4": (15, 75, 1.50), "claude-sonnet-5": (2, 10, 0.20),
+        "claude-sonnet-5-5": (2, 10, 0.20),
         "claude-sonnet-4-6": (3, 15, 0.30), "claude-sonnet-4-5": (3, 15, 0.30),
         "claude-sonnet-4": (3, 15, 0.30), "claude-haiku-4-5": (1, 5, 0.10),
         "claude-haiku-3-5": (0.8, 4, 0.08),
@@ -241,6 +243,7 @@ class TestPublishedRates(Base):
         self.assertEqual(tm.lookup("claude-opus-4-8")[0]["fast"], (10.0, 50.0))
         self.assertIsNone(tm.lookup("claude-opus-4-7")[0]["fast"])
         self.assertIsNone(tm.lookup("claude-sonnet-5")[0]["fast"])
+        self.assertIsNone(tm.lookup("claude-sonnet-5-5")[0]["fast"])
 
     def test_a_newer_model_is_never_priced_as_the_older_one(self):
         """The bug the menu bar exposed on 26 September 2026.
@@ -250,7 +253,7 @@ class TestPublishedRates(Base):
         model was billed at the old one's rates and reported as recognised, so
         no warning fired. Only a trailing date means "the same model".
         """
-        for unknown in ("claude-opus-6", "claude-sonnet-5-5", "claude-haiku-9"):
+        for unknown in ("claude-opus-6", "claude-sonnet-5-7", "claude-haiku-9"):
             with self.subTest(model=unknown):
                 _, known = tm.lookup(unknown)
                 self.assertFalse(known, f"{unknown} was silently prefix-matched")
@@ -501,13 +504,14 @@ class TestOtherProvidersPublishedRates(Base):
 
     Read on 26 September 2026 from developers.openai.com/api/docs/pricing and
     its model pages, ai.google.dev/gemini-api/docs/pricing and
-    docs.x.ai/developers/pricing. Typed here separately from the tables, so a
+    docs.x.ai/developers/pricing. gpt-6.1-sol added from the OpenAI pages on
+    6 October 2026. Typed here separately from the tables, so a
     slip in either one fails. A model with no cached rate is listed with its
     input rate: no discount.
     """
 
     OPENAI = {
-        "gpt-6-astra": (10, 50, 1.00), "gpt-6-sol": (2, 10, 0.20), "gpt-6-luna": (0.10, 0.50, 0.01),
+        "gpt-6-astra": (10, 50, 1.00), "gpt-6.1-sol": (2, 10, 0.10), "gpt-6-sol": (2, 10, 0.20), "gpt-6-luna": (0.10, 0.50, 0.01),
         "gpt-5.6-sol": (4, 20, 0.40), "gpt-5.6-terra": (2, 12, 0.20), "gpt-5.6-luna": (0.20, 1.20, 0.02),
         "gpt-5.5": (5, 30, 0.50), "gpt-5.5-pro": (30, 180, 30), "gpt-5.4": (2.50, 15, 0.25),
         "gpt-5.4-pro": (30, 180, 30), "gpt-5.4-mini": (0.75, 4.50, 0.075), "gpt-5.4-nano": (0.20, 1.25, 0.02),
@@ -559,7 +563,7 @@ class TestOtherProvidersPublishedRates(Base):
 
     def test_openai_cache_writes_are_billed_only_on_gpt6_and_gpt56(self):
         """1.25x input on GPT-6 and GPT-5.6; ordinary input on everything older."""
-        for model, write in (("gpt-6-astra", 12.50), ("gpt-6-sol", 2.50), ("gpt-6-luna", 0.125),
+        for model, write in (("gpt-6-astra", 12.50), ("gpt-6.1-sol", 2.50), ("gpt-6-sol", 2.50), ("gpt-6-luna", 0.125),
                              ("gpt-5.6-sol", 5.00), ("gpt-5.6-terra", 2.50), ("gpt-5.6-luna", 0.25),
                              ("gpt-5", 1.25), ("gpt-5.4", 2.50)):
             with self.subTest(model=model):
@@ -659,6 +663,22 @@ class TestLongContextAndSpeed(Base):
         self.assertAlmostEqual(long["output"], 75.0, places=9)
         self.assertAlmostEqual(long["input"], short["input"] * 2, places=9)
         self.assertAlmostEqual(long["cache_read"], short["cache_read"] * 2 * 172_001 / 172_000, places=9)
+
+    def test_gpt61_sol_long_context_and_fast_rates(self):
+        """Typed from the page's Standard and Fast tables, 6 October 2026:
+        long context $4.00 in, $0.20 cached, $5.00 writes, $15.00 out; fast
+        $4.00 in, $0.20 cached, $20.00 out."""
+        c = tm.price_record("gpt-6.1-sol", usage(inp=1_000_000, read=1_000_000, w5=1_000_000,
+                                                 out=1_000_000), provider="openai")
+        self.assertAlmostEqual(c["input"], 4.00, places=9)
+        self.assertAlmostEqual(c["cache_read"], 0.20, places=9)
+        self.assertAlmostEqual(c["cache_write"], 5.00, places=9)
+        self.assertAlmostEqual(c["output"], 15.00, places=9)
+        f = tm.price_record("gpt-6.1-sol", usage(inp=100_000, read=100_000, out=1_000_000,
+                                                 speed="fast"), "fast", provider="openai")
+        self.assertAlmostEqual(f["input"], 0.40, places=9)
+        self.assertAlmostEqual(f["cache_read"], 0.02, places=9)
+        self.assertAlmostEqual(f["output"], 20.00, places=9)
 
     def test_xai_long_context_starts_at_exactly_200k(self):
         """xAI's rule is "reaches 200k", so 200,000 itself is long."""
@@ -1115,7 +1135,7 @@ class TestCheckPrices(Base):
         before = json.dumps(tm.PRICES, sort_keys=True, default=str)
         code, out = self.run_check(lambda url: self.anthropic_page())
         self.assertEqual(code, 0)
-        self.assertIn("18 of 18", out)
+        self.assertIn("19 of 19", out)
         self.assertEqual(before, json.dumps(tm.PRICES, sort_keys=True, default=str))
 
     def test_a_moved_rate_is_reported(self):

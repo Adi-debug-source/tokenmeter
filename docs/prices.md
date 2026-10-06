@@ -7,7 +7,7 @@ online lookup at startup, and labelled as looked up rather than checked.
 
 ## Anthropic
 
-Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 26 Sep 2026, checked against the published page and against real usage.
+Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 6 Oct 2026, checked against the published page and against real usage.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
@@ -21,6 +21,7 @@ Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verifie
 | `claude-opus-4-7` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
 | `claude-opus-4-6` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
 | `claude-sonnet-5` | $2 | $0.20 | $2.50 | $10 | 1-hour cache write $4 |
+| `claude-sonnet-5-5` | $2 | $0.20 | $2.50 | $10 | 1-hour cache write $4 |
 | `claude-sonnet-4-6` | $3 | $0.30 | $3.75 | $15 | 1-hour cache write $6 |
 | `claude-haiku-4-5` | $1 | $0.10 | $1.25 | $5 | 1-hour cache write $2 |
 | `claude-opus-4-5` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
@@ -32,11 +33,12 @@ Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verifie
 
 ## OpenAI
 
-Source: <https://developers.openai.com/api/docs/pricing>. Last verified 26 Sep 2026, checked against the published page; not yet against a real bill.
+Source: <https://developers.openai.com/api/docs/pricing>. Last verified 6 Oct 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
 | `gpt-6-astra` | $10 | $1 | $12.50 | $50 | over 272K prompt tokens: input x2, output x1.5; fast $20 / $100 |
+| `gpt-6.1-sol` | $2 | $0.10 | $2.50 | $10 | over 272K prompt tokens: input x2, output x1.5; fast $4 / $20 |
 | `gpt-6-sol` | $2 | $0.20 | $2.50 | $10 | over 272K prompt tokens: input x2, output x1.5; fast $4 / $20 |
 | `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 | over 272K prompt tokens: input x2, output x1.5; fast $0.20 / $1 |
 | `gpt-5.6-sol` | $4 | $0.40 | $5 | $20 | over 272K prompt tokens: input x2, output x1.5; fast $8 / $40 |

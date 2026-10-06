@@ -1,6 +1,6 @@
 """Anthropic's first-party API rates, in dollars per million tokens.
 
-Verified three ways, most recently on 26 September 2026.
+Verified three ways, most recently on 6 October 2026.
 
 1. By measurement, 10 September 2026, against Claude Code's own
    `total_cost_usd`: controlled calls through `claude -p --output-format json`,
@@ -14,11 +14,14 @@ Verified three ways, most recently on 26 September 2026.
    cache read at 0.025x (the Fable exception) and the 1-hour cache write at 2x
    on three separate models. Opus 5.5 was later matched to the cent against
    the per-model `costUSD` summaries Claude Code writes into transcripts.
+   Sonnet 5.5 was added on 6 October 2026 and measured the same way:
+   $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
    write multipliers, the three cache read multipliers, both fast-mode rates
-   and web search. Every figure matched.
+   and web search. Every figure matched. On 6 October 2026 --check-prices
+   read all nineteen rows, Sonnet 5.5 included, and every column matched.
 
 3. By the test suite. TestPublishedRates holds the published figure for every
    model and fails if this table drifts from it.
@@ -56,7 +59,7 @@ NAME = "Anthropic"
 SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
 # The markdown form of the same page, which --check-prices reads.
 SOURCE_MD = "https://platform.claude.com/docs/en/about-claude/pricing.md"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-10-06"
 # "measured" means checked against real bills or the harness's own cost
 # figures, not only against the pricing page.
 MEASURED = True
@@ -84,6 +87,9 @@ PRICES = {
     # announced for 1 September 2026. The rise was cancelled and $2/$10 is now
     # the standard price, per the page's own footnote. One entry, not two.
     "claude-sonnet-5":   [{"from": "", "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,   "fast": None}],
+    # Added 6 October 2026: the same rates as Sonnet 5, no fast mode. Matched
+    # Claude Code's own cost to ten decimal places the same day.
+    "claude-sonnet-5-5": [{"from": "", "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,   "fast": None}],
     "claude-sonnet-4-6": [{"from": "", "in":  3.0, "out": 15.0, "cache_read_mult": 0.1,   "fast": None}],
     "claude-haiku-4-5":  [{"from": "", "in":  1.0, "out":  5.0, "cache_read_mult": 0.1,   "fast": None}],
     # Older and retired models. Cheap to carry, and the alternative is the
@@ -116,6 +122,7 @@ PAGE_NAMES = {
     "Claude Opus 4.5": "claude-opus-4-5",
     "Claude Opus 4.1": "claude-opus-4-1",
     "Claude Opus 4": "claude-opus-4",
+    "Claude Sonnet 5.5": "claude-sonnet-5-5",
     "Claude Sonnet 5": "claude-sonnet-5",
     "Claude Sonnet 4.6": "claude-sonnet-4-6",
     "Claude Sonnet 4.5": "claude-sonnet-4-5",

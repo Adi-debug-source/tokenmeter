@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Prices: Claude Sonnet 5.5 ($2 in, $10 out, cache hits $0.20, no fast mode)
+  and gpt-6.1-sol ($2 in, $10 out, cached input $0.10, which is 5% of input
+  rather than the usual 10%; cache writes $2.50; long context and fast mode as
+  on the page). Both were read off the providers' pages on 6 October 2026 and
+  pinned in the tests. Sonnet 5.5 also matched Claude Code's own cost to ten
+  decimal places. Until now both were priced by the online lookup and labelled
+  as such.
+- `--check-prices` reads every row of the Anthropic and OpenAI tables as
+  matching, so both are marked verified on 6 October 2026.
+
 ## 1.1.1, 6 October 2026
 
 - Homebrew: the formula now lives in this repository, at

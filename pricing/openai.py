@@ -1,6 +1,7 @@
 """OpenAI's API rates, in dollars per million tokens. Standard tier.
 
-Read off OpenAI's published pages on 26 September 2026, row by row:
+Read off OpenAI's published pages on 26 September 2026, row by row, and
+checked again in full on 6 October 2026, when gpt-6.1-sol was added:
 
   https://developers.openai.com/api/docs/pricing            the main table
   https://developers.openai.com/api/docs/models/<model-id>  one page per model
@@ -18,9 +19,9 @@ please compare a month against your bill and open an issue either way.
 Rules taken from the model pages and modelled here:
 
   - Cached input is a fixed fraction of input: 0.1x on the GPT-5 and GPT-6
-    families, 0.25x or 0.5x on older models, and no discount at all on the pro
+    families except GPT-6.1 Sol at 0.05x, 0.25x or 0.5x on older models, and no discount at all on the pro
     models, which offer no cached rate.
-  - Cache writes are billed at 1.25x input on GPT-6 and GPT-5.6. Older models
+  - Cache writes are billed at 1.25x input on GPT-6, GPT-6.1 and GPT-5.6. Older models
     have no write charge; the tokens are ordinary input.
   - Long context: on the 1.05M-window models, a prompt of more than 272K input
     tokens is priced at 2x input and cache rates and 1.5x output for the whole
@@ -47,7 +48,7 @@ NAME = "OpenAI"
 SOURCE = "https://developers.openai.com/api/docs/pricing"
 SOURCE_MD = "https://developers.openai.com/api/docs/pricing.md"
 MODEL_PAGE_MD = "https://developers.openai.com/api/docs/models/{model}.md"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-10-06"
 MEASURED = False
 
 # OpenAI has one kind of cache write; both columns take the same multiple, and
@@ -73,6 +74,9 @@ def _row(inp, out, cached_mult, fast=None, write_mult=1.0, long=None):
 PRICES = {
     # GPT-6. Cache writes billed at 1.25x; long context above 272K.
     "gpt-6-astra":        [_row(10.00, 50.00, 0.1, (20.00, 100.00), 1.25, _LONG)],
+    # Added 6 October 2026. The same base rates as gpt-6-sol, but cached input
+    # is 5% of input, not 10%, per its model page.
+    "gpt-6.1-sol":        [_row( 2.00, 10.00, 0.05, ( 4.00,  20.00), 1.25, _LONG)],
     "gpt-6-sol":          [_row( 2.00, 10.00, 0.1, ( 4.00,  20.00), 1.25, _LONG)],
     "gpt-6-luna":         [_row( 0.10,  0.50, 0.1, ( 0.20,   1.00), 1.25, _LONG)],
     # GPT-5.6. Sol is on promotional pricing "at least through November 21,
