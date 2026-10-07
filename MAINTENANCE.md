@@ -270,8 +270,8 @@ Homebrew cannot write to the home folder itself, which is why setup is a
 second step.
 
 Until 6 October 2026 the formula lived in a separate tap,
-`Adi-debug-source/homebrew-tokenmeter`, now archived. Anyone who tapped it
-keeps the last version it named. To move across:
+`Adi-debug-source/homebrew-tokenmeter`, now archived and private. Anyone who
+tapped it keeps the version they have but gets no updates. To move across:
 
     brew untap adi-debug-source/tokenmeter
     brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
