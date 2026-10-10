@@ -398,6 +398,79 @@ class TestFiltersReachTheLedger(Base):
         self.assertEqual(overall["calls"], 0)
 
 
+class TestRebuildLedger(Base):
+    """--rebuild-ledger --project alpha rebuilt a five-call ledger from the two
+    calls that project could see, and the same command again overwrote .old,
+    the only copy left of the other three."""
+
+    def setUp(self):
+        super().setUp()
+        other = os.path.join(self.tmp, "projects", "-other")
+        os.makedirs(other)
+        self.write("sess-a.jsonl", record("msg_a", out=1000))
+        with open(os.path.join(other, "sess-b.jsonl"), "w") as f:
+            f.write(record("msg_b", out=5000) + "\n")
+        tm.collect(tm.transcripts(), ledger=True)          # both now in the ledger
+
+    def leftovers(self):
+        """Every file a rebuild leaves beside the ledger, the ledger aside."""
+        return sorted(f for f in os.listdir(self.tmp) if f.startswith("ledger.jsonl."))
+
+    def test_a_filtered_rebuild_is_refused_and_touches_nothing(self):
+        """A rebuild from a filtered run replaced the whole ledger with the
+        part of it that run could see."""
+        before = slurp(self.ledger, mode="rb")
+        for flags in (["--project", "proj"], ["--session", "sess-a"],
+                      ["--adapter", "claude-code"], ["--since", "7d"],
+                      ["--until", "2026-10-01"], ["--period", "today"], ["--no-ledger"]):
+            with self.subTest(flags=flags):
+                with self.assertRaises(SystemExit) as e:
+                    cli("--rebuild-ledger", *flags)
+                self.assertIn(f"run it without {flags[0]}", str(e.exception.code))
+                self.assertEqual(slurp(self.ledger, mode="rb"), before)
+                self.assertEqual(self.leftovers(), [])
+
+    def test_every_backup_is_kept(self):
+        """A second rebuild overwrote the first one's .old."""
+        first = slurp(self.ledger)
+        cli("--rebuild-ledger")
+        self.assertEqual(self.leftovers(), ["ledger.jsonl.old"])
+        self.assertEqual(slurp(self.ledger + ".old"), first)
+        self.write("sess-c.jsonl", record("msg_c", out=200))
+        tm.collect(tm.transcripts(), ledger=True)
+        second = slurp(self.ledger)
+        self.assertNotEqual(second, first)
+        cli("--rebuild-ledger")
+        cli("--rebuild-ledger")                            # often within the same second
+        names = self.leftovers()
+        self.assertEqual(len(names), 3, names)
+        self.assertEqual(names[0], "ledger.jsonl.old")
+        self.assertEqual(slurp(self.ledger + ".old"), first)
+        self.assertEqual(slurp(os.path.join(self.tmp, names[1])), second)
+        for name in names[1:]:
+            self.assertRegex(name, r"^ledger\.jsonl\.old-\d{8}-\d{6}(-\d+)?$")
+        self.assertEqual(len(tm.read_ledger(self.ledger)), 3)
+
+    def test_the_message_counts_and_names_what_was_lost(self):
+        """It said "1 calls from 1 transcripts", printed the backup's full path
+        with the username in it, and never said that lost imported calls come
+        back by passing the same --import files again."""
+        from unittest import mock
+        trial = os.path.join(self.tmp, "trial.jsonl")
+        with open(trial, "w") as f:
+            f.write(json.dumps(TestImport.GOOD) + "\n")
+        cli("--import", trial)                             # now in the ledger too
+        tm._IMPORTS.clear()                                # a later run without it
+        os.remove(os.path.join(self.projects, "sess-a.jsonl"))
+        with mock.patch.dict(os.environ, {"HOME": self.tmp}):
+            out = cli("--rebuild-ledger")
+        self.assertIn("ledger rebuilt: 1 call from 1 transcript\n", out)
+        self.assertIn("previous ledger held 3 calls, kept at ~/ledger.jsonl.old\n", out)
+        self.assertIn("2 calls were in the old ledger and in no transcript.", out)
+        self.assertIn("Restore from ~/ledger.jsonl.old to get them back.", out)
+        self.assertIn("1 of them was imported: rebuild with the same --import files", out)
+
+
 class TestDashboard(Base):
     """The dashboard has to be one self-contained file that works offline."""
 

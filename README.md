@@ -185,7 +185,7 @@ Claude Code deletes transcripts after 30 days by default, and Codex compresses t
 ```bash
 tokenmeter --no-ledger          # price only what the logs hold
 tokenmeter --ledger FILE        # use a different ledger
-tokenmeter --rebuild-ledger     # rewrite it from the logs on disk (keeps the old one as .old)
+tokenmeter --rebuild-ledger     # rewrite it from every log on disk (takes no filters; every old copy is kept)
 ```
 
 ### What "all time" means

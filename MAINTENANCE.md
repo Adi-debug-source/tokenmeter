@@ -230,8 +230,13 @@ In order, because each step rules out the one below:
   and Claude Code, so rows written before other providers existed are still
   read correctly, and Claude Code rows keep their original shape.
 - `--rebuild-ledger` is the only destructive operation. It can only rebuild
-  from logs that still exist, so anything already swept is lost. It prints
-  the count and keeps the old file as `.old`. Not routine maintenance.
+  from logs that still exist, so anything already swept is lost, and imported
+  calls are kept only when the same `--import` files are passed again. It
+  reads every log, so it refuses `--project`, `--session`, `--adapter`, a
+  window and `--no-ledger`. It prints the count of calls lost and keeps every
+  backup: the old file goes to `.old`, or to `.old-YYYYMMDD-HHMMSS` when that
+  exists, so a second rebuild never overwrites the first one's. Not routine
+  maintenance.
 
 ## Releasing a change
 

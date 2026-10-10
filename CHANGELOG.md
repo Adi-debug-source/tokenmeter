@@ -11,6 +11,18 @@
   the same price). Google's and Mistral's tables re-read in full and marked
   verified on 6 October 2026.
 
+### Fixes
+
+- `--rebuild-ledger` refuses `--project`, `--session`, `--adapter`, a window
+  (`--since`, `--until`, `--period`) and `--no-ledger`, and touches nothing
+  when it does. A rebuild from a filtered run replaced the whole ledger with
+  the part of it that run could see.
+- `--rebuild-ledger` never overwrites a backup. The old ledger goes to `.old`,
+  or, when that exists, to `.old` stamped with the date and time; a second
+  rebuild used to overwrite the first one's `.old`. Its message counts in
+  correct plurals, prints paths with `~`, and says how many of the calls it
+  could not keep were imported, which passing the same `--import` files keeps.
+
 ## 1.1.2, 6 October 2026
 
 - Prices: Claude Sonnet 5.5 ($2 in, $10 out, cache hits $0.20, no fast mode)

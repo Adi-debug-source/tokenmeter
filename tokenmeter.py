@@ -2734,14 +2734,40 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         f.write(doc)
 
 
+def backup_path(path: str) -> str:
+    """Where a rebuild keeps the ledger it replaces: .old, or, when that is
+    taken, .old stamped with the local date and time, so no backup is ever
+    overwritten. A second rebuild once replaced the first one's .old, and with
+    it the only copy of the original history."""
+    first = path + ".old"
+    if not os.path.lexists(first):
+        return first
+    stamped = path + ".old-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate, n = stamped, 1
+    while os.path.lexists(candidate):
+        n += 1
+        candidate = f"{stamped}-{n}"
+    return candidate
+
+
+def plural(n: int, word: str) -> str:
+    """'1 call', '2 calls'."""
+    return f"{n:,} {word}{'' if n == 1 else 's'}"
+
+
 def rebuild_ledger(paths) -> None:
     """Rewrite the ledger from the transcripts still on disk.
 
     The only operation here that can lose history, because anything Claude Code
     has already swept is not in the transcripts to rebuild from. It exists for
     a ledger that has been corrupted, where starting again from what survives
-    beats carrying rows nobody trusts. The previous file is kept as .old rather
-    than deleted, and the count of unrecoverable rows is printed before it goes.
+    beats carrying rows nobody trusts. The previous file is kept rather than
+    deleted (see backup_path), and the count of unrecoverable rows is printed
+    before it goes, with how many of them were imported.
+
+    paths must be every log: main() refuses --project, --session, --adapter,
+    a window and --no-ledger here, since a rebuild from a filtered run once
+    replaced the whole ledger with the part of it that run could see.
     """
     path = ledger_path()
     had = read_ledger(path)
@@ -2757,17 +2783,32 @@ def rebuild_ledger(paths) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         f.write("".join(json.dumps(r, separators=(",", ":"), sort_keys=True) + "\n"
                         for r in rows))
+    backup = ""
     if os.path.exists(path):
-        os.replace(path, path + ".old")
+        backup = backup_path(path)
+        os.replace(path, backup)
     os.replace(tmp, path)
 
     print()
-    print(f"  ledger rebuilt: {len(rows):,} calls from {len(paths):,} transcripts")
-    if had:
-        print(f"  previous ledger held {len(had):,}, kept at {path}.old")
+    print(f"  ledger rebuilt: {plural(len(rows), 'call')} from {plural(len(paths), 'transcript')}")
+    if backup:
+        print(f"  previous ledger held {plural(len(had), 'call')}, kept at {tilde(backup)}")
     if lost:
-        print(f"  {YELLOW}{len(lost):,} calls were in the old ledger and in no transcript.{RESET}")
-        print(f"  {DIM}They are not in the new one. Restore from .old to get them back.{RESET}")
+        n = len(lost)
+        print(f"  {YELLOW}{plural(n, 'call')} {'was' if n == 1 else 'were'} in the old ledger "
+              f"and in no transcript.{RESET}")
+        print(f"  {DIM}{'It is' if n == 1 else 'They are'} not in the new one. Restore from "
+              f"{tilde(backup)} to get {'it' if n == 1 else 'them'} back.{RESET}")
+        # Imported calls have no transcript of their own: they are only in the
+        # rebuild when their files are passed with --import again.
+        imported = sum(1 for mid in lost if had[mid].get("a") == importer.NAME)
+        if imported:
+            if imported == n:
+                which = "It was" if n == 1 else "All of them were"
+            else:
+                which = f"{imported:,} of them {'was' if imported == 1 else 'were'}"
+            print(f"  {DIM}{which} imported: rebuild with the same --import files "
+                  f"to keep {'it' if imported == 1 else 'them'}.{RESET}")
     print()
 
 
@@ -3103,6 +3144,11 @@ def list_adapters() -> None:
     print()
 
 
+def flags_given(args, *flags) -> list:
+    """Which of these options the command line set, written as typed."""
+    return [f for f in flags if getattr(args, f.lstrip("-").replace("-", "_"))]
+
+
 def main(argv=None) -> None:
     """The command line. argv defaults to sys.argv[1:]; tests pass their own."""
     ap = argparse.ArgumentParser(
@@ -3124,7 +3170,8 @@ def main(argv=None) -> None:
     ap.add_argument("--no-ledger", action="store_true",
                     help="price only the transcripts; do not read or write the ledger")
     ap.add_argument("--rebuild-ledger", action="store_true",
-                    help="rewrite the ledger from the transcripts on disk")
+                    help="rewrite the ledger from every log on disk, keeping the "
+                         "old file as a backup; takes no filters")
     ap.add_argument("--projects-dir", action="append", default=[], metavar="DIR",
                     help="a Claude Code projects folder to read; repeat to combine "
                          f"machines (or set {PROJECTS_ENV}, colon separated)")
@@ -3157,6 +3204,13 @@ def main(argv=None) -> None:
     ap.add_argument("--summary-json", action="store_true",
                     help="today, week and all time plus a model split, in one scan")
     args = ap.parse_args(argv)
+    # Refused before anything is read or written.
+    if args.rebuild_ledger:
+        clash = flags_given(args, "--project", "--session", "--adapter", "--since",
+                            "--until", "--period", "--no-ledger")
+        if clash:
+            sys.exit("--rebuild-ledger rewrites the whole ledger, so it reads every log; "
+                     f"run it without {join_words(clash)}")
     if args.current_rates:
         CURRENT_RATES.append(True)
     if args.ledger:
