@@ -18,7 +18,7 @@ nothing twice.
 | Field | Required | Meaning |
 |---|---|---|
 | `id` | yes | Unique per API call. The provider's own response id is ideal. |
-| `timestamp` | yes | ISO 8601, such as `2026-09-20T14:03:11Z`. No offset means UTC. |
+| `timestamp` | yes | ISO 8601, such as `2026-09-20T14:03:11Z`. The basic form (`20260920T140311Z`), a comma before the fraction of a second and an offset written `+0100` or `+01` read the same on every Python version. No offset means UTC. |
 | `provider` | yes | Whose price table to use: `anthropic`, `openai`, `google`, `xai`, `deepseek`, `mistral`, `moonshot`, `zai`, or another name, which is looked up online. |
 | `model` | yes | The provider's model id, exactly as the API calls it. |
 | `input` | | Input tokens **not** served from cache and not written to it. |

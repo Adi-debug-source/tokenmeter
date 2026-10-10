@@ -104,6 +104,11 @@
   large to price, or with a byte that is not UTF-8, is skipped and explained
   like any other bad line. One such line ended the whole run in a traceback,
   from a file or from standard input.
+- Import timestamps in the basic form (`20260920T100211Z`), with a comma
+  before the fraction of a second, or with an offset written `+0100` or `+01`
+  are read on every Python version. Python 3.9, which the menu bar runs,
+  skipped them as unreadable while a newer Python in the terminal counted
+  them, so the two disagreed.
 
 ## 1.1.2, 6 October 2026
 

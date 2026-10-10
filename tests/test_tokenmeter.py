@@ -1073,6 +1073,52 @@ class TestImport(Base):
         self.assertEqual(overall["calls"], 2)
         self.assertEqual(tm.importer.PROBLEMS["-"]["examples"], ["line 2: not valid UTF-8"])
 
+    def test_a_timestamp_reads_the_same_on_every_python(self):
+        """Python 3.9's fromisoformat refuses a short offset, the basic format
+        and a comma before the fraction, which 3.11 and later read, so the same
+        import line was counted under Homebrew's python3 and skipped as an
+        unreadable timestamp under /usr/bin/python3, the menu bar's."""
+        utc = dt.timezone.utc
+        plus1, minus530 = dt.timezone(dt.timedelta(hours=1)), dt.timezone(-dt.timedelta(hours=5.5))
+        cases = {
+            "2026-09-20T10:02:11+0100": dt.datetime(2026, 9, 20, 10, 2, 11, tzinfo=plus1),
+            "20260920T100211Z": dt.datetime(2026, 9, 20, 10, 2, 11, tzinfo=utc),
+            "2026-09-20T10:02:11,5Z": dt.datetime(2026, 9, 20, 10, 2, 11, 500000, tzinfo=utc),
+            "2026-09-20 10:02:11+01": dt.datetime(2026, 9, 20, 10, 2, 11, tzinfo=plus1),
+            "20260920T100211,25-0530": dt.datetime(2026, 9, 20, 10, 2, 11, 250000, tzinfo=minus530),
+            "2026-09-20T1002Z": dt.datetime(2026, 9, 20, 10, 2, tzinfo=utc),
+        }
+        for text, want in cases.items():
+            with self.subTest(text):
+                got = tm.parse_time(text)
+                self.assertEqual(got, want)
+                self.assertEqual(got.utcoffset(), want.utcoffset())
+        p = self.events(dict(self.GOOD, timestamp="20260920T100211Z"),
+                        dict(self.GOOD, id="e2", timestamp="2026-09-20T10:02:11+0100"))
+        overall, *_ = self.run_import(p)
+        self.assertEqual(overall["calls"], 2)
+        self.assertNotIn(p, tm.importer.PROBLEMS)
+
+    def test_the_forms_read_before_still_read_the_same(self):
+        utc = dt.timezone.utc
+        cases = {
+            "2026-09-20T10:02:11Z": dt.datetime(2026, 9, 20, 10, 2, 11, tzinfo=utc),
+            "2026-09-20T10:02:11.123Z": dt.datetime(2026, 9, 20, 10, 2, 11, 123000, tzinfo=utc),
+            "2026-09-20T10:02:11.1234567z": dt.datetime(2026, 9, 20, 10, 2, 11, 123456, tzinfo=utc),
+            "2026-09-20T10:02:11.5-05:30": dt.datetime(2026, 9, 20, 10, 2, 11, 500000,
+                                                       tzinfo=dt.timezone(-dt.timedelta(hours=5.5))),
+            " 2026-09-20T10:02:11 ": dt.datetime(2026, 9, 20, 10, 2, 11, tzinfo=utc),
+            "2026-09-20": dt.datetime(2026, 9, 20, tzinfo=utc),
+        }
+        for text, want in cases.items():
+            with self.subTest(text):
+                got = tm.parse_time(text)
+                self.assertEqual(got, want)
+                self.assertEqual(got.utcoffset(), want.utcoffset())
+        for text in (None, "", "yesterday", 1726826531, "2026-13-01T00:00:00Z", "20260920T25"):
+            with self.subTest(text):
+                self.assertIsNone(tm.parse_time(text))
+
     def test_a_time_with_no_offset_is_utc(self):
         ev = dict(self.GOOD, timestamp="2026-09-20T10:00:00")
         key, parsed = tm.importer.parse(ev)
