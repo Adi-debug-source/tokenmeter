@@ -13,6 +13,7 @@ are de-duplicated by `id` exactly as transcripts are.
 from __future__ import annotations
 
 import json
+import math
 import sys
 
 from .common import parse_time, usage
@@ -46,6 +47,22 @@ def _problem(path, lineno, why):
         entry["examples"].append(f"line {lineno}: {why}")
 
 
+def _is_count(v) -> bool:
+    """Whether v is a count of tokens: a whole number, finite, not negative.
+
+    json.loads reads 1e999 and Infinity as an infinite float, on which int()
+    raises OverflowError rather than ValueError, and NaN, on which it raises
+    ValueError with its own wording; an integer too large for a float would
+    overflow later, when it is priced.
+    """
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        return math.isfinite(v) and v >= 0 and v == int(v)
+    except OverflowError:  # an integer too large for a float
+        return False
+
+
 def parse(obj: dict):
     """One import object as (key, event), or raise ValueError saying why."""
     if not isinstance(obj, dict):
@@ -61,7 +78,7 @@ def parse(obj: dict):
         v = obj.get(k, 0)
         if v is None:
             v = 0
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0 or v != int(v):
+        if not _is_count(v):
             raise ValueError(f"{k} must be a whole number of tokens, not {v!r}")
         counts[k] = int(v)
     if not any(counts[k] for k in TOKEN_FIELDS if k != "thinking"):
@@ -91,24 +108,31 @@ def records(path: str):
     """Yield (key, event) for every valid line; count and explain the rest."""
     PROBLEMS.pop(path, None)
     try:
-        fh = sys.stdin if path == "-" else open(path, "r", encoding="utf-8")
+        if path == "-":
+            data = sys.stdin.buffer.read()
+        else:
+            with open(path, "rb") as fh:
+                data = fh.read()
     except OSError as e:
         _problem(path, 0, f"could not open: {e.strerror}")
         return
-    try:
-        for n, line in enumerate(fh, 1):
-            line = line.strip()
-            if not line or line.startswith("//"):
-                continue
-            try:
-                obj = json.loads(line)
-            except ValueError:
-                _problem(path, n, "not valid JSON")
-                continue
-            try:
-                yield parse(obj)
-            except ValueError as e:
-                _problem(path, n, str(e))
-    finally:
-        if fh is not sys.stdin:
-            fh.close()
+    # Read as bytes and decoded a line at a time, so a line that is not UTF-8
+    # is skipped like any other bad line. bytes.splitlines() splits where a
+    # text file would: at \n, \r and \r\n.
+    for n, raw in enumerate(data.splitlines(), 1):
+        try:
+            line = raw.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            _problem(path, n, "not valid UTF-8")
+            continue
+        if not line or line.startswith("//"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            _problem(path, n, "not valid JSON")
+            continue
+        try:
+            yield parse(obj)
+        except ValueError as e:
+            _problem(path, n, str(e))

@@ -1032,6 +1032,47 @@ class TestImport(Base):
         notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
         self.assertIn("4 lines skipped", notes)
 
+    def test_an_infinite_count_skips_its_line(self):
+        """json.loads reads 1e999 and Infinity as an infinite float, on which
+        int() raises OverflowError, which parse() did not catch, so one such
+        line ended the whole run in a traceback."""
+        head = '{"id": "e%d", "timestamp": "2026-09-20T10:00:00Z", "provider": "openai", ' \
+               '"model": "gpt-5", '
+        p = self.events(self.GOOD, head % 2 + '"input": 1e999}', head % 3 + '"output": Infinity}',
+                        head % 4 + '"cache_read": NaN}')
+        overall, *_ = self.run_import(p)
+        self.assertEqual(overall["calls"], 1)
+        self.assertEqual(tm.importer.PROBLEMS[p], {"skipped": 3, "examples": [
+            "line 2: input must be a whole number of tokens, not inf",
+            "line 3: output must be a whole number of tokens, not inf",
+            "line 4: cache_read must be a whole number of tokens, not nan"]})
+        # An integer too large for a float overflowed when it was priced.
+        with self.assertRaisesRegex(ValueError, "whole number"):
+            tm.importer.parse(dict(self.GOOD, input=10 ** 400))
+
+    def test_a_line_that_is_not_utf8_skips_that_line(self):
+        """The file was decoded as strict UTF-8 outside the per-line check, so
+        one Latin-1 byte (0xE9, an accented e) anywhere in a file or in
+        standard input ended the whole run with UnicodeDecodeError."""
+        import io
+        bad = json.dumps(dict(self.GOOD, id="e2", project="café")).encode()
+        data = b"\r\n".join([json.dumps(self.GOOD).encode(), bad.replace(b"\\u00e9", b"\xe9"),
+                             json.dumps(dict(self.GOOD, id="e3")).encode()]) + b"\r\n"
+        p = os.path.join(self.tmp, "latin1.jsonl")
+        with open(p, "wb") as f:
+            f.write(data)
+        overall, *_ = self.run_import(p)
+        self.assertEqual(overall["calls"], 2)
+        self.assertEqual(tm.importer.PROBLEMS[p], {"skipped": 1, "examples": ["line 2: not valid UTF-8"]})
+        stdin = sys.stdin
+        sys.stdin = io.TextIOWrapper(io.BytesIO(data), encoding="utf-8")
+        try:
+            overall, *_ = self.run_import("-")
+        finally:
+            sys.stdin = stdin
+        self.assertEqual(overall["calls"], 2)
+        self.assertEqual(tm.importer.PROBLEMS["-"]["examples"], ["line 2: not valid UTF-8"])
+
     def test_a_time_with_no_offset_is_utc(self):
         ev = dict(self.GOOD, timestamp="2026-09-20T10:00:00")
         key, parsed = tm.importer.parse(ev)

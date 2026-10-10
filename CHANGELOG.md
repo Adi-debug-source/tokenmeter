@@ -100,6 +100,10 @@
 - The note on Codex calls priced as gpt-5 counts each call once. A session
   from before Codex 0.36 in both `sessions` and `archived_sessions` was
   counted twice in the note, though once in the figures.
+- An import line with a count of `1e999`, `Infinity`, `NaN` or a number too
+  large to price, or with a byte that is not UTF-8, is skipped and explained
+  like any other bad line. One such line ended the whole run in a traceback,
+  from a file or from standard input.
 
 ## 1.1.2, 6 October 2026
 

@@ -33,9 +33,10 @@ nothing twice.
 | `session` | | Any grouping key you like, for `--by session`. |
 | `project` | | Any grouping key you like, for `--by project`. |
 
-Every token field is a whole number and defaults to 0. A line with no tokens
-at all, a missing required field, or an unreadable timestamp is skipped, and
-the report says how many lines were skipped and why.
+Every token field is a whole number and defaults to 0, and the file is UTF-8.
+A line that is not UTF-8 or not JSON, has no tokens at all, lacks a required
+field, or has a count that is not a whole number or a timestamp that cannot be
+read is skipped, and the report says how many lines were skipped and why.
 
 ## The one thing to get right: what `input` means
 
