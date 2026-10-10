@@ -1041,6 +1041,16 @@ def month_first(d: dt.date) -> dt.date:
     return d.replace(day=1)
 
 
+def local_midnight(day: dt.date) -> dt.datetime:
+    """The start of a calendar day in local time, at that day's own UTC offset.
+
+    now().astimezone().replace(hour=0) keeps the offset in force now, which is
+    an hour out on the days the clocks change: in London on 25 October 2026
+    the day starts at 23:00 UTC the evening before, not at 00:00 UTC.
+    """
+    return dt.datetime.combine(day, dt.time.min).astimezone()
+
+
 def period_range(name: str) -> tuple:
     """(since, until) for a named calendar period, in local time.
 
@@ -1053,9 +1063,7 @@ def period_range(name: str) -> tuple:
     """
     name = (name or "").strip().lower()
     today = dt.date.today()
-
-    def at(d):
-        return dt.datetime.combine(d, dt.time.min).astimezone()
+    at = local_midnight
 
     if name == "today":
         return at(today), None

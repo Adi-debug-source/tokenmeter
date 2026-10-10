@@ -22,6 +22,7 @@ bar last saved, at any age; with no saved exchange rate it uses the built-in
 estimate.
 """
 
+import datetime as dt
 import json
 import os
 import sys
@@ -66,23 +67,29 @@ def session_cost(transcript_path):
 
 
 def today_cost():
-    """Every project, since local midnight. Cached so this stays cheap."""
+    """Every project, since local midnight. Cached so this stays cheap: for
+    CACHE_TTL seconds, and only on the day it was worked out."""
     if session_totals is None:
         return None
+    today = dt.date.today()
     try:
         st = os.stat(CACHE)
         if time.time() - st.st_mtime < CACHE_TTL:
             with open(CACHE) as f:
-                return json.load(f).get("total")
+                saved = json.load(f)
+            # The cache once held no day, so for a minute and a half after
+            # midnight yesterday's total was shown as today's.
+            if saved.get("day") == today.isoformat():
+                return saved.get("total")
     except Exception:
         pass
 
     try:
-        import datetime as dt
-        from tokenmeter import iter_events, transcripts
+        from tokenmeter import iter_events, local_midnight, transcripts
 
-        midnight = dt.datetime.now().astimezone().replace(
-            hour=0, minute=0, second=0, microsecond=0)
+        # At the day's own UTC offset. now().replace(hour=0) kept the offset
+        # in force now, an hour out on the days the clocks change.
+        midnight = local_midnight(today)
         # transcripts() recurses, so subagent tokens are included here too.
         paths = [p for p in transcripts()
                  if os.path.getmtime(p) >= midnight.timestamp()]
@@ -93,7 +100,7 @@ def today_cost():
             total += sum(ev["cost"][k] for k in COMPONENTS)
         try:
             with open(CACHE, "w") as f:
-                json.dump({"total": total}, f)
+                json.dump({"day": today.isoformat(), "total": total}, f)
         except Exception:
             pass
         return total

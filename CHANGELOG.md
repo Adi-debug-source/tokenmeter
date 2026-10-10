@@ -72,6 +72,12 @@
   workflow agents. It priced the session's own transcript alone, which left
   out every call its agents made for it. The context figure is still the main
   conversation's.
+- The status line's "today" starts at local midnight at that day's own UTC
+  offset. It used the offset in force when it ran, so on the days the clocks
+  change it started an hour late or early: in London it would have left out
+  the first hour of 25 October 2026. Its saved total now carries its date, so
+  for the first 90 seconds after midnight it no longer shows yesterday's total
+  as today's.
 
 ## 1.1.2, 6 October 2026
 

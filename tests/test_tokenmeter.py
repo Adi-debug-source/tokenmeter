@@ -664,6 +664,35 @@ class TestPeriods(Base):
         self.assertEqual(len(evs), 1)
 
 
+class TestLocalMidnight(Base):
+    @unittest.skipUnless(hasattr(time, "tzset"), "needs time.tzset to change the zone")
+    def test_the_days_the_clocks_change_start_at_their_own_offset(self):
+        """The status line took midnight as now().replace(hour=0), which keeps
+        the offset in force now: in London its "today" started an hour late
+        on 25 October 2026 and an hour early on 29 March."""
+        old = os.environ.get("TZ")
+        os.environ["TZ"] = "Europe/London"
+        time.tzset()
+        try:
+            utc = dt.timezone.utc
+            autumn = tm.local_midnight(dt.date(2026, 10, 25))
+            self.assertEqual(autumn, dt.datetime(2026, 10, 24, 23, 0, tzinfo=utc))
+            self.assertEqual(autumn.utcoffset(), dt.timedelta(hours=1))
+            spring = tm.local_midnight(dt.date(2026, 3, 29))
+            self.assertEqual(spring, dt.datetime(2026, 3, 29, 0, 0, tzinfo=utc))
+            self.assertEqual(spring.utcoffset(), dt.timedelta(0))
+            # The old rule, at ten in the morning, after the clocks went back.
+            late = dt.datetime(2026, 10, 25, 10, 0).astimezone().replace(hour=0, minute=0)
+            self.assertNotEqual(late, autumn)
+            self.assertEqual(tm.period_range("today")[0], tm.local_midnight(dt.date.today()))
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+
+
 class TestParseSince(Base):
     def test_relative_forms(self):
         for s in ("24h", "7d", "2w"):
@@ -2058,15 +2087,19 @@ class TestSessionTotals(Base):
 
 
 class TestStatusLine(Base):
-    def run_statusline(self, payload, counted=False, **env):
+    def run_statusline(self, payload, counted=False, day_cache=None, **env):
         """statusline.py as Claude Code runs it, sealed: a copy in the temp
         folder (so its day cache lands there), the engine from this checkout,
-        a temp home, ledger and price cache, and no network."""
+        a temp home, ledger and price cache, and no network. day_cache, when
+        given, is written as a fresh .today_cost.json first."""
         import subprocess
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         here = os.path.join(self.tmp, "statusline")
         os.makedirs(here)
         shutil.copy(os.path.join(repo, "statusline.py"), here)
+        if day_cache is not None:
+            with open(os.path.join(here, ".today_cost.json"), "w") as f:
+                json.dump(day_cache, f)
         sealed = {k: v for k, v in os.environ.items()
                   if not k.startswith("TOKENMETER_")
                   and k not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "OPENCODE_DB")}
@@ -2125,6 +2158,27 @@ class TestStatusLine(Base):
         out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
         self.assertEqual(len(out.splitlines()), 2, out)
         self.assertIn("£", out)
+
+    def test_yesterdays_total_is_not_shown_as_todays(self):
+        """.today_cost.json held no day and was trusted for 90 seconds on its
+        age alone, so just after midnight yesterday's total read as today's."""
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        path = self.write("sess.jsonl", record("msg_1", ts=now, out=1000))
+        worked_out = tm.money(tm.session_totals(path)[0])
+        today = dt.date.today().isoformat()
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        for cache, want in (({"day": yesterday, "total": 999.0}, worked_out),
+                            ({"total": 999.0}, worked_out),  # written before the day was kept
+                            ({"day": today, "total": 999.0}, tm.money(999.0))):
+            with self.subTest(cache=cache):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline({"model": {"display_name": "Opus"},
+                                            "transcript_path": path}, day_cache=cache)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
+                self.assertIn(f"{want} today", out)
+                saved = json.loads(slurp(os.path.join(self.tmp, "statusline", ".today_cost.json")))
+                self.assertEqual(saved["day"], today)
 
     def test_the_command_line_names_where_a_bad_code_came_from(self):
         """A typo in TOKENMETER_CURRENCY read as if it had been typed on the
