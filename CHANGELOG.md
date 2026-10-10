@@ -33,6 +33,10 @@
   never read the other logs, so it cannot know. It still says how many calls
   the ledger holds. Unfiltered and windowed reports, which read every log,
   count them as before.
+- A mistyped `TOKENMETER_CURRENCY`, such as `GPB`, no longer stops the status
+  line: it shows dollars instead of printing nothing. The command line still
+  refuses an unknown code, and now says when it came from
+  `TOKENMETER_CURRENCY` rather than from `--currency`.
 
 ## 1.1.2, 6 October 2026
 

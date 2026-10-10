@@ -1660,6 +1660,60 @@ class TestMenuBarCurrencies(Base):
         self.assertIn('root["currency_order"]', swift)
 
 
+class TestStatusLine(Base):
+    def run_statusline(self, payload, **env):
+        """statusline.py as Claude Code runs it, sealed: a copy in the temp
+        folder (so its day cache lands there), the engine from this checkout,
+        a temp home, ledger and price cache, and no network."""
+        import subprocess
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        here = os.path.join(self.tmp, "statusline")
+        os.makedirs(here)
+        shutil.copy(os.path.join(repo, "statusline.py"), here)
+        sealed = {k: v for k, v in os.environ.items()
+                  if not k.startswith("TOKENMETER_")
+                  and k not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "OPENCODE_DB")}
+        sealed.update(HOME=self.tmp, PYTHONPATH=repo,
+                      TOKENMETER_CLAUDE_PROJECTS=os.path.join(self.tmp, "projects"),
+                      TOKENMETER_LEDGER=self.ledger,
+                      TOKENMETER_PRICE_CACHE=os.path.join(self.tmp, "prices.json"),
+                      TOKENMETER_OFFLINE="1", TOKENMETER_CURRENCY="USD")
+        sealed.update(env)
+        return subprocess.run([sys.executable, os.path.join(here, "statusline.py")],
+                              input=json.dumps(payload), capture_output=True, text=True,
+                              env=sealed, timeout=60)
+
+    def test_a_mistyped_currency_still_prints_both_lines(self):
+        """TOKENMETER_CURRENCY=GPB made set_currency() exit, which "except
+        Exception" does not catch: no status line at all, exit 1."""
+        path = self.write("sess.jsonl", record("msg_1", out=1000))
+        cost, _ = tm.session_totals(path)
+        for code in ("USD", "GPB"):
+            with self.subTest(code=code):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline({"model": {"display_name": "Opus"},
+                                            "transcript_path": path},
+                                           TOKENMETER_CURRENCY=code)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
+                self.assertEqual(len(out.splitlines()), 2, out)
+                self.assertIn(f"{tm.money(cost)} session", out)
+
+    def test_the_command_line_names_where_a_bad_code_came_from(self):
+        """A typo in TOKENMETER_CURRENCY read as if it had been typed on the
+        command line, which had no --currency on it."""
+        from unittest import mock
+        self.write("a.jsonl", record("msg_1", out=10))
+        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"):
+            with self.assertRaises(SystemExit) as e:
+                tm.main(["--json"])
+        self.assertIn("unknown currency 'GPB' in TOKENMETER_CURRENCY; try one of",
+                      str(e.exception.code))
+        with self.assertRaises(SystemExit) as e:
+            cli("--json", "--currency", "GPB")
+        self.assertIn("unknown currency 'GPB'; try one of", str(e.exception.code))
+
+
 class TestCommandLine(Base):
     def test_main_takes_its_arguments(self):
         """main() read only sys.argv, so no test could drive the command line,

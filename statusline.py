@@ -9,7 +9,8 @@ what the same tokens would have cost through the raw API. All pricing lives in
 tokenmeter.py beside this file, so there is one table, not two.
 
 Receives session JSON on stdin (see Claude Code's statusLine documentation).
-Set TOKENMETER_CURRENCY to show another currency (USD by default).
+Set TOKENMETER_CURRENCY to show another currency (USD by default); a code it
+does not know falls back to dollars rather than blanking the line.
 """
 
 import json
@@ -25,10 +26,17 @@ sys.path.insert(0, HERE)
 try:
     from tokenmeter import (COMPONENTS, DEFAULT_CURRENCY, money, session_totals,
                             set_currency)
-    set_currency(DEFAULT_CURRENCY)
 except Exception:  # the status line must never be the thing that breaks
     session_totals = None
     money = None
+else:
+    try:
+        set_currency(DEFAULT_CURRENCY)
+    except (SystemExit, Exception):
+        # An unknown TOKENMETER_CURRENCY makes set_currency() exit, which
+        # "except Exception" does not catch: a typo such as GPB printed no
+        # status line at all. Dollars beat a blank line.
+        set_currency("USD")
 
 
 def session_cost(transcript_path):

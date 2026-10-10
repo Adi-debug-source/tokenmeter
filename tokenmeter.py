@@ -3208,7 +3208,7 @@ def main(argv=None) -> None:
     ap.add_argument("--sessions", action="store_true", help="list the dearest sessions")
     ap.add_argument("--html", nargs="?", const="auto", default="",
                     help="write the dashboard and open it")
-    ap.add_argument("--currency", default=DEFAULT_CURRENCY,
+    ap.add_argument("--currency", default=None,
                     help=f"display currency: {', '.join(CURRENCIES)} (default {DEFAULT_CURRENCY})")
     ap.add_argument("--json", action="store_true", help="machine readable")
     ap.add_argument("--summary-json", action="store_true",
@@ -3260,6 +3260,11 @@ def main(argv=None) -> None:
         print(json.dumps(summary(ledger=not args.no_ledger)))
         return
 
+    # A code that came from the environment is named as such, so a typo there
+    # is not mistaken for one on this command line.
+    if not args.currency and DEFAULT_CURRENCY not in CURRENCIES:
+        sys.exit(f"unknown currency {DEFAULT_CURRENCY!r} in {CURRENCY_ENV}; "
+                 f"try one of {', '.join(CURRENCIES)}")
     set_currency(args.currency)
 
     if args.session:
