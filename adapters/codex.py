@@ -31,8 +31,11 @@ What Codex writes, and what this reader does with it:
   - Codex compresses sessions older than seven days to .jsonl.zst. Python has
     no zstd reader before 3.14, so those are read with the `zstd` command or
     the `zstandard` package when either is installed, and counted and reported
-    when neither is. The ledger keeps every call it has already seen, so a
-    session read before it was compressed is never lost.
+    when neither is. A compressed file that will not decode, because it is cut
+    short or corrupt (Codex may still be compressing it), is skipped and
+    reported as possibly damaged rather than ending the run. The ledger keeps
+    every call it has already seen, so a session read before it was compressed
+    is never lost.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ LEGACY_MODEL = "gpt-5"
 # lookup knows it; a local model (ollama, lmstudio) is not a billed API call.
 PROVIDERS = {"openai": "openai"}
 
-_STATE = {"guessed": 0, "compressed_unread": 0}
+_STATE = {"guessed": 0, "compressed_unread": 0, "compressed_damaged": 0}
 
 
 def default_roots() -> list:
@@ -109,45 +112,76 @@ def notes() -> list:
         n = _STATE["compressed_unread"]
         out.append(f"{n:,} compressed Codex session{'' if n == 1 else 's'} (.jsonl.zst) could "
                    "not be read. Install zstd (brew install zstd) to include them")
+    if _STATE["compressed_damaged"]:
+        n = _STATE["compressed_damaged"]
+        out.append(f"{n:,} compressed Codex session{'' if n == 1 else 's'} (.jsonl.zst) could "
+                   f"not be read; the file{'' if n == 1 else 's'} may be damaged or still "
+                   "being compressed")
     return out
 
 
 def reset() -> None:
-    _STATE.update(guessed=0, compressed_unread=0)
+    _STATE.update(guessed=0, compressed_unread=0, compressed_damaged=0)
+
+
+class _Damaged(Exception):
+    """A .jsonl.zst that a zstd decoder could not read: cut short, corrupt, or
+    still being written."""
+
+
+def _decoder():
+    """A function from a .zst file's path to its bytes, or None when this
+    machine has no zstd decoder: Python's own (3.14 and later), the zstandard
+    package, or the zstd command, in that order."""
+    try:
+        from compression import zstd  # Python 3.14 and later
+    except ImportError:
+        pass
+    else:
+        def read(path):
+            with zstd.open(path, "rb") as f:
+                return f.read()
+        return read
+    try:
+        import zstandard
+    except ImportError:
+        pass
+    else:
+        def read(path):
+            with open(path, "rb") as f:
+                return zstandard.ZstdDecompressor().stream_reader(f).read()
+        return read
+    tool = shutil.which("zstd")
+    if tool:
+        def read(path):
+            return subprocess.run([tool, "-dc", path], capture_output=True, timeout=30,
+                                  check=True).stdout
+        return read
+    return None
 
 
 def _decompress(path: str):
-    """The text of a .jsonl.zst file, or None when nothing here can read it."""
-    try:
-        from compression import zstd  # Python 3.14 and later
-        with zstd.open(path, "rt", encoding="utf-8", errors="ignore") as f:
-            return f.read()
-    except ImportError:
-        pass
-    except OSError:
+    """The text of a .jsonl.zst file, or None when nothing here can read it.
+
+    Raises _Damaged when a decoder exists but the file will not decode, which
+    is not the same problem: installing zstd would not help.
+    """
+    read = _decoder()
+    if read is None:
         return None
     try:
-        import zstandard
-        with open(path, "rb") as f:
-            return zstandard.ZstdDecompressor().stream_reader(f).read().decode("utf-8", "ignore")
-    except ImportError:
-        pass
-    except Exception:
-        return None
-    tool = shutil.which("zstd")
-    if tool:
-        try:
-            out = subprocess.run([tool, "-dc", path], capture_output=True, timeout=30, check=True)
-            return out.stdout.decode("utf-8", "ignore")
-        except (subprocess.SubprocessError, OSError):
-            return None
-    return None
+        return read(path).decode("utf-8", "ignore")
+    except Exception as e:  # EOFError, ZstdError, OSError, a failed zstd command
+        raise _Damaged(path) from e
 
 
 def _lines(path: str, limit: int = 0):
     """Parsed JSON objects from a session file, compressed or not."""
     if path.endswith(".zst"):
-        text = _decompress(path)
+        try:
+            text = _decompress(path)
+        except _Damaged:
+            return
         if text is None:
             return
         source = text.splitlines()
@@ -189,9 +223,14 @@ def _minus(a: tuple, b: tuple) -> tuple:
 
 def records(path: str):
     """Yield (key, event) for every response in one session file."""
-    if path.endswith(".zst") and _decompress(path) is None:
-        _STATE["compressed_unread"] += 1
-        return
+    if path.endswith(".zst"):
+        try:
+            if _decompress(path) is None:
+                _STATE["compressed_unread"] += 1
+                return
+        except _Damaged:
+            _STATE["compressed_damaged"] += 1
+            return
     name = os.path.basename(path)
     thread = name.split(".")[0][len("rollout-") + 20:] if name.startswith("rollout-") else name
     session = root = thread

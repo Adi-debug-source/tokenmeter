@@ -714,6 +714,28 @@ def cost_of(c):
     return sum(c[k] for k in tm.COMPONENTS)
 
 
+def zstd_compress(data):
+    """data compressed with whichever zstd encoder this machine has: Python's
+    own (3.14 and later), the zstandard package or the zstd command. None when
+    it has none, and the test that needs one is skipped."""
+    try:
+        from compression import zstd
+        return zstd.compress(data)
+    except ImportError:
+        pass
+    try:
+        import zstandard
+        return zstandard.ZstdCompressor().compress(data)
+    except ImportError:
+        pass
+    tool = shutil.which("zstd")
+    if tool:
+        import subprocess
+        return subprocess.run([tool, "-q", "-c"], input=data, capture_output=True,
+                              check=True).stdout
+    return None
+
+
 class TestOtherProvidersPublishedRates(Base):
     """Every rate in the OpenAI, Google and xAI tables, typed from the pages.
 
@@ -1112,6 +1134,32 @@ class TestCodexAdapter(Base):
         self.assertEqual(overall["calls"], 0)
         notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
         self.assertIn("could not be read", notes)
+
+    def place_compressed(self, data, uuid):
+        """Bytes placed as Codex leaves a week-old session, compressed."""
+        p = self.place("gen3_turn_context.jsonl", uuid=uuid) + ".zst"
+        os.remove(p[:-len(".zst")])
+        with open(p, "wb") as f:
+            f.write(data)
+        return p
+
+    def test_a_damaged_compressed_session_is_reported_not_fatal(self):
+        """A .jsonl.zst cut short (Codex compressing it while a run reads it)
+        or corrupt raised EOFError or ZstdError on Python 3.14 and ended every
+        run in a traceback; on 3.9 it was blamed on zstd not being installed."""
+        whole = zstd_compress(slurp(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"),
+                                    mode="rb"))
+        if whole is None:
+            self.skipTest("no zstd encoder on this machine")
+        self.place_compressed(whole, "0198f3c1-0000-7000-8000-000000000001")
+        self.place_compressed(whole[:len(whole) // 2], "0198f3c1-0000-7000-8000-000000000002")
+        self.place_compressed(b"not zstd at all\n", "0198f3c1-0000-7000-8000-000000000003")
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 3)   # the whole file is still read
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("2 compressed Codex sessions (.jsonl.zst) could not be read; the files may "
+                      "be damaged or still being compressed", notes)
+        self.assertNotIn("Install zstd", notes)
 
     def test_claude_code_alone_is_unchanged_by_codex_existing(self):
         """Adding an adapter must not move a Claude Code figure."""

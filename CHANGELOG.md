@@ -84,6 +84,10 @@
   its real percentage, and a Haiku with a 1M window read full at 200k. Claude
   Code builds that send neither still get the guess. A window other than 200k
   or 1M is shown at its size, for example 400.0k.
+- A compressed Codex session (`.jsonl.zst`) that is cut short or corrupt, as
+  one is while Codex is still compressing it, is skipped and reported as
+  possibly damaged. On Python 3.14 it ended every run in a traceback, and on
+  older versions the report said to install zstd when zstd was installed.
 
 ## 1.1.2, 6 October 2026
 
