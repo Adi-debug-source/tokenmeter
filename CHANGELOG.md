@@ -97,6 +97,9 @@
   text is now split into lines as a plain session's is: a raw U+2028
   character inside a line split it in two, and when that line named the model
   its calls were priced as gpt-5.
+- The note on Codex calls priced as gpt-5 counts each call once. A session
+  from before Codex 0.36 in both `sessions` and `archived_sessions` was
+  counted twice in the note, though once in the figures.
 
 ## 1.1.2, 6 October 2026
 

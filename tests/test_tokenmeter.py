@@ -1108,6 +1108,17 @@ class TestCodexAdapter(Base):
         notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
         self.assertIn("priced as gpt-5", notes)
 
+    def test_an_archived_copy_is_not_counted_twice_in_the_gpt_5_note(self):
+        """The note counted every record read, before de-duplication, so a
+        pre-0.36 session in both sessions/ and archived_sessions/ said 6
+        calls were priced as gpt-5 in a report of 3."""
+        self.place("gen2_envelope_no_turn_context.jsonl")
+        self.place("gen2_envelope_no_turn_context.jsonl", where="archived_sessions")
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 3)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("3 Codex calls came from sessions older than Codex 0.36", notes)
+
     def test_found_automatically_and_labelled_unverified(self):
         self.place("gen4_current_paginated.jsonl")
         self.assertIn("codex", tm.active_adapters())

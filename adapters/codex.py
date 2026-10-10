@@ -70,7 +70,9 @@ PROVIDERS = {"openai": "openai"}
 # bar runs under launchd, whose PATH has neither, so PATH alone is not enough.
 ZSTD_PATHS = ("/opt/homebrew/bin/zstd", "/usr/local/bin/zstd")
 
-_STATE = {"guessed": 0, "compressed_unread": 0, "compressed_damaged": 0}
+# Per run. "guessed" holds the keys of calls priced as LEGACY_MODEL, so a
+# call read from both sessions/ and archived_sessions/ is counted once.
+_STATE = {"guessed": set(), "compressed_unread": 0, "compressed_damaged": 0}
 
 
 def default_roots() -> list:
@@ -111,7 +113,7 @@ def notes() -> list:
     """What the report must say about this run's Codex figures."""
     out = []
     if _STATE["guessed"]:
-        n = _STATE["guessed"]
+        n = len(_STATE["guessed"])
         out.append(f"{n:,} Codex call{'' if n == 1 else 's'} came from sessions older than "
                    f"Codex 0.36, which record no model, and {'was' if n == 1 else 'were'} "
                    f"priced as {LEGACY_MODEL}, Codex's default at the time")
@@ -128,7 +130,7 @@ def notes() -> list:
 
 
 def reset() -> None:
-    _STATE.update(guessed=0, compressed_unread=0, compressed_damaged=0)
+    _STATE.update(guessed=set(), compressed_unread=0, compressed_damaged=0)
 
 
 def _zstd_tool():
@@ -314,14 +316,14 @@ def records(path: str):
                     continue
                 cached = min(cached, inp)
                 written = min(written, inp - cached)
-                use_model = model
-                if not use_model:
-                    use_model = LEGACY_MODEL
-                    _STATE["guessed"] += 1
                 # Keyed on the thread's root and the running total, so a
                 # forked thread that replays its parent's totals, or a copy of
                 # the same file in archived_sessions, counts once.
                 key = f"codex:{root}:{':'.join(str(x) for x in (total_c or got))}"
+                use_model = model
+                if not use_model:
+                    use_model = LEGACY_MODEL
+                    _STATE["guessed"].add(key)
                 yield key, {
                     "when": parse_time(obj.get("timestamp")),
                     "model": use_model,
