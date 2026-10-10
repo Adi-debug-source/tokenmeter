@@ -3103,7 +3103,8 @@ def list_adapters() -> None:
     print()
 
 
-def main() -> None:
+def main(argv=None) -> None:
+    """The command line. argv defaults to sys.argv[1:]; tests pass their own."""
     ap = argparse.ArgumentParser(
         prog="tokenmeter",
         description="What your AI coding would have cost at API rates.")
@@ -3155,7 +3156,7 @@ def main() -> None:
     ap.add_argument("--json", action="store_true", help="machine readable")
     ap.add_argument("--summary-json", action="store_true",
                     help="today, week and all time plus a model split, in one scan")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     if args.current_rates:
         CURRENT_RATES.append(True)
     if args.ledger:

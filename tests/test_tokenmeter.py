@@ -1327,6 +1327,20 @@ def terminal(*args, **kw):
     return re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
 
 
+def cli(*argv):
+    """The command line with these arguments: what it prints, without colour.
+    In dollars unless a test names a currency, because the environment running
+    the tests may set TOKENMETER_CURRENCY to another one."""
+    import contextlib, io
+    argv = list(argv)
+    if "--currency" not in argv:
+        argv += ["--currency", "USD"]
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        tm.main(argv)
+    return re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+
+
 class TestOneHarnessSeesNoChange(Base):
     """One harness on one provider must see exactly what it always did: the
     views for mixing tools appear only when tools are mixed."""
@@ -1471,6 +1485,19 @@ class TestMenuBarCurrencies(Base):
     def test_the_menu_takes_its_list_from_the_engine(self):
         swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"))
         self.assertIn('root["currency_order"]', swift)
+
+
+class TestCommandLine(Base):
+    def test_main_takes_its_arguments(self):
+        """main() read only sys.argv, so no test could drive the command line,
+        and every mode it chooses between went untested."""
+        self.write("a.jsonl", record("msg_1", out=1000), record("msg_2", out=500))
+        got = json.loads(cli("--json", "--no-ledger"))
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(got["calls"], 2)
+        self.assertEqual(got["currency"], "USD")
+        self.assertAlmostEqual(got["total_usd"], round(overall["total"], 6), places=9)
+        self.assertFalse(os.path.exists(self.ledger))
 
 
 if __name__ == "__main__":
