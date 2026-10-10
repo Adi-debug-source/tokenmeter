@@ -607,6 +607,19 @@ class TestDashboard(Base):
         self.assertEqual(numbers, [f"{i:02d}" for i in range(1, len(numbers) + 1)])
         self.assertNotIn("\u00a7NO\u00a7", page)
 
+    def test_a_session_with_no_time_is_a_question_mark(self):
+        """The empty "Last seen" cell was an em dash, the only dash character
+        the engine printed; the terminal's sessions list has always said "?"."""
+        self.write("a.jsonl", record("msg_1", out=900))
+        out = os.path.join(self.tmp, "d.html")
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=False)
+        for info in meta.values():
+            info["last"] = None
+        tm.render_html(overall, groups, meta, unknown, "all time", out)
+        page = slurp(out, encoding="utf-8")
+        self.assertIn('<td class="dim">?</td>', page)
+        self.assertNotIn(chr(0x2014), page)                 # the em dash
+
     def test_renders_with_no_history_at_all(self):
         """A fresh install opens the dashboard before it has priced anything."""
         out = os.path.join(self.tmp, "empty.html")

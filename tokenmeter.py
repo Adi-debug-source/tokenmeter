@@ -2513,7 +2513,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         for sid, v in sess:
             info = meta.get(sid, {})
             stamp = info.get("last")
-            pretty = stamp.astimezone().strftime("%d %b, %H:%M") if stamp else "\u2014"
+            pretty = stamp.astimezone().strftime("%d %b, %H:%M") if stamp else "?"
             proj = html.escape(project_name(info.get("project") or "")[-34:])
             srows += (f'<tr><td class="bar-cell mono">{html.escape(sid[:8])}'
                       f'<i style="width:calc({v["total"] / speak * 100:.1f}% - 20px)"></i></td>'

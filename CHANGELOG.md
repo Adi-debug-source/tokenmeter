@@ -37,6 +37,8 @@
   line: it shows dollars instead of printing nothing. The command line still
   refuses an unknown code, and now says when it came from
   `TOKENMETER_CURRENCY` rather than from `--currency`.
+- The dashboard's "Last seen" cell for a session with no time reads "?", as
+  the terminal's sessions list does, instead of a dash.
 
 ## 1.1.2, 6 October 2026
 
