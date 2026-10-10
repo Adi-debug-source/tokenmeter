@@ -471,6 +471,64 @@ class TestRebuildLedger(Base):
         self.assertIn("1 of them was imported: rebuild with the same --import files", out)
 
 
+class TestSummaryJson(Base):
+    """--summary-json was answered before any option was applied, from a
+    summary() that always used the ledger: a trial import with --no-ledger was
+    written to the ledger for good, and --since 1h --project zzz returned the
+    whole history without saying so."""
+
+    def trial(self):
+        p = os.path.join(self.tmp, "trial.jsonl")
+        with open(p, "w") as f:
+            f.write(json.dumps(TestImport.GOOD) + "\n")
+        return p
+
+    def test_no_ledger_leaves_an_absent_ledger_absent(self):
+        self.write("a.jsonl", record("msg_1", out=10))
+        got = json.loads(cli("--import", self.trial(), "--no-ledger", "--summary-json"))
+        self.assertEqual(got["all"]["calls"], 2)
+        self.assertFalse(os.path.exists(self.ledger))
+
+    def test_no_ledger_leaves_the_ledger_as_it_was(self):
+        """The trial import was still counted by every later run."""
+        self.write("a.jsonl", record("msg_1", out=10))
+        tm.collect(tm.transcripts(), ledger=True)
+        before = slurp(self.ledger, mode="rb")
+        cli("--import", self.trial(), "--no-ledger", "--summary-json")
+        self.assertEqual(slurp(self.ledger, mode="rb"), before)
+        tm._IMPORTS.clear()                                # a later run without it
+        self.assertEqual(json.loads(cli("--summary-json"))["all"]["calls"], 1)
+
+    def test_a_window_or_a_filter_is_refused(self):
+        for flags in (["--since", "1h"], ["--until", "2026-10-01"], ["--period", "today"],
+                      ["--project", "zzz"], ["--session", "abc"]):
+            with self.subTest(flags=flags):
+                with self.assertRaises(SystemExit) as e:
+                    cli("--summary-json", *flags)
+                message = str(e.exception.code)
+                self.assertIn("always covers today, the last 7 and 30 days and all time", message)
+                self.assertIn(f"run it without {flags[0]}", message)
+        self.assertFalse(os.path.exists(self.ledger))
+
+    def test_adapter_and_import_are_honoured(self):
+        self.write("a.jsonl", record("msg_1", out=10))
+        got = json.loads(cli("--adapter", "import", "--import", self.trial(),
+                             "--no-ledger", "--summary-json"))
+        self.assertEqual(got["all"]["calls"], 1)
+        self.assertEqual([s["name"] for s in got["sources"]], ["import"])
+
+    def test_a_mistyped_currency_cannot_blank_the_menu_bar(self):
+        """The menu bar passes no --currency, so TOKENMETER_CURRENCY=GPB made
+        every refresh exit with an error and the menu read "no readable output"."""
+        import contextlib, io
+        from unittest import mock
+        self.write("a.jsonl", record("msg_1", out=10))
+        buf = io.StringIO()
+        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"), contextlib.redirect_stdout(buf):
+            tm.main(["--summary-json"])
+        self.assertEqual(json.loads(buf.getvalue())["all"]["calls"], 1)
+
+
 class TestDashboard(Base):
     """The dashboard has to be one self-contained file that works offline."""
 

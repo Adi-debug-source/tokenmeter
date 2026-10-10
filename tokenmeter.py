@@ -2812,10 +2812,16 @@ def rebuild_ledger(paths) -> None:
     print()
 
 
-def summary() -> dict:
-    """Everything the menu bar needs, from a single pass over the logs."""
+def summary(ledger: bool = True) -> dict:
+    """Everything the menu bar needs, from a single pass over the logs.
+
+    Always today, the last 7 and 30 days and all time, in dollars with the
+    rates beside them, so main() refuses a window, --project and --session
+    here. --adapter and --import narrow or add to what is read; with
+    ledger=False (--no-ledger) the ledger is neither read nor written.
+    """
     paths = transcripts()
-    overall, groups, _meta, unknown = collect(paths)
+    overall, groups, _meta, unknown = collect(paths, ledger=ledger)
 
     today = dt.date.today()
     week_start = today - dt.timedelta(days=6)
@@ -3211,6 +3217,11 @@ def main(argv=None) -> None:
         if clash:
             sys.exit("--rebuild-ledger rewrites the whole ledger, so it reads every log; "
                      f"run it without {join_words(clash)}")
+    if args.summary_json:
+        clash = flags_given(args, "--since", "--until", "--period", "--project", "--session")
+        if clash:
+            sys.exit("--summary-json always covers today, the last 7 and 30 days and "
+                     f"all time; run it without {join_words(clash)}")
     if args.current_rates:
         CURRENT_RATES.append(True)
     if args.ledger:
@@ -3238,11 +3249,14 @@ def main(argv=None) -> None:
     if args.check_prices:
         sys.exit(check_prices())
 
-    set_currency(args.currency)
-
+    # Before set_currency(): the menu bar is sent dollars and the rates, and
+    # converts for itself, so the display currency plays no part here and a
+    # mistyped TOKENMETER_CURRENCY cannot blank it.
     if args.summary_json:
-        print(json.dumps(summary()))
+        print(json.dumps(summary(ledger=not args.no_ledger)))
         return
+
+    set_currency(args.currency)
 
     if args.session:
         if os.path.isfile(args.session):

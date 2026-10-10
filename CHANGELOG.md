@@ -22,6 +22,12 @@
   rebuild used to overwrite the first one's `.old`. Its message counts in
   correct plurals, prints paths with `~`, and says how many of the calls it
   could not keep were imported, which passing the same `--import` files keeps.
+- `--summary-json` honours `--no-ledger`, so a trial import with it is no
+  longer written to the ledger for good. It always covers today, the last 7
+  and 30 days and all time, so it refuses `--since`, `--until`, `--period`,
+  `--project` and `--session` instead of ignoring them; `--adapter` and
+  `--import` still narrow or add to what it reads. A mistyped
+  `TOKENMETER_CURRENCY` no longer stops it, so it cannot blank the menu bar.
 
 ## 1.1.2, 6 October 2026
 
