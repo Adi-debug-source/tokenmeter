@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import functools
 import html
 import json
 import os
@@ -399,6 +400,11 @@ def verification(provider: str) -> dict:
 # no totals and nothing identifying leaves the machine. Set TOKENMETER_OFFLINE=1
 # or pass --offline to switch this off, and the old behaviour returns: an
 # unknown model is priced at a stand-in rate and flagged.
+#
+# A source that cannot be reached is not evidence that a model has no price,
+# so it is never remembered as "found nowhere": the lookup is tried again
+# after FAIL_RETRY_MINUTES, and a saved rate whose recheck fails is kept and
+# rechecked no more than daily.
 
 LITELLM_URL = ("https://raw.githubusercontent.com/BerriAI/litellm/main/"
                "model_prices_and_context_window.json")
@@ -408,7 +414,8 @@ PRICE_CACHE = os.environ.get("TOKENMETER_PRICE_CACHE") or os.path.join(
 OFFLINE_ENV = "TOKENMETER_OFFLINE"
 ONLINE_LOOKUP = [os.environ.get(OFFLINE_ENV, "").strip() in ("", "0")]
 RECHECK_DAYS = 7          # how long a fetched rate is trusted before a recheck
-MISS_RETRY_HOURS = 24     # how long "found nowhere" is remembered
+MISS_RETRY_HOURS = 24     # how long "found nowhere", or a failed recheck, is remembered
+FAIL_RETRY_MINUTES = 10   # how long "could not reach the price lists" is remembered
 
 # How each provider's models are keyed in LiteLLM's list, and which of its
 # provider labels count as the same first-party API.
@@ -521,10 +528,17 @@ def _from_provider_page(provider: str, model: str, fetch):
     return _row_from_page(r, table), f"{table.NAME}'s pricing page", table.SOURCE
 
 
-def _from_litellm(provider: str, model: str, fetch, cache: dict):
-    if "litellm" not in cache:
-        cache["litellm"] = json.loads(fetch(LITELLM_URL))
-    data = cache["litellm"]
+@functools.lru_cache(maxsize=1)
+def _litellm_list(text: str) -> dict:
+    """LiteLLM's list, parsed. A run's fetcher hands every model the same
+    text, so its few megabytes are parsed once, not once per model."""
+    return json.loads(text)
+
+
+def _from_litellm(provider: str, model: str, fetch):
+    """LiteLLM's rate for a model, or None when its list does not have it.
+    Raises when the list cannot be read, which is not the same answer."""
+    data = _litellm_list(fetch(LITELLM_URL))
     prefixes, labels = LITELLM_KEYS.get(provider, ([f"{provider}/"], {provider}))
     base = model
     table = TABLES.get(provider)
@@ -540,46 +554,84 @@ def _from_litellm(provider: str, model: str, fetch, cache: dict):
     return None
 
 
+def _fetch_once(fetch):
+    """fetch, remembering each address's text, or its failure, for the rest of
+    the run: each page is downloaded at most once, and a source that cannot be
+    reached costs one timeout, not one per model."""
+    got = {}
+
+    def once(url):
+        if url not in got:
+            try:
+                got[url] = (True, fetch(url))
+            except Exception as e:
+                got[url] = (False, e)
+        ok, value = got[url]
+        if not ok:
+            raise value
+        return value
+    return once
+
+
 def resolve_prices(pairs, fetch=None) -> list:
     """The startup check: make sure every (provider, model) seen has a price.
 
     Anything in a checked table is skipped at once. Anything else is taken
     from the saved lookups if they are fresh, or looked up online and saved.
-    Returns what was looked up this run, for the report to say.
+    Each page is downloaded at most once a run. Returns what was looked up
+    this run, for the report to say.
+
+    "Found nowhere" is recorded only when LiteLLM's list, the catch-all, was
+    read and lacks the model. When it could not be read, the model is
+    recorded as failed and tried again after FAIL_RETRY_MINUTES. A saved rate
+    whose weekly recheck finds nothing or fails keeps its rows and is not
+    rechecked again for MISS_RETRY_HOURS.
     """
     if not ONLINE_LOOKUP[0]:
         return []
-    fetch = fetch or (lambda url: fetch_text(url, timeout=8))
+    pages = _fetch_once(fetch or (lambda url: fetch_text(url, timeout=8)))
     cache = _price_cache()
+    failed = cache.setdefault("failed", {})
     today = dt.date.today()
+    stamp = today.isoformat()
     now = time.time()
-    session, done, changed = {}, [], False
+    done, changed = [], False
     for provider, model in sorted(set(pairs)):
         table = TABLES.get(provider)
         if table is not None and table_name(table, model):
             continue
         key = f"{provider}:{model}"
         entry = cache["fetched"].get(key)
-        if entry and (today - dt.date.fromisoformat(entry["checked"])).days < RECHECK_DAYS:
+        if entry and ((today - dt.date.fromisoformat(entry["checked"])).days < RECHECK_DAYS
+                      or now - entry.get("tried", 0) < MISS_RETRY_HOURS * 3600):
             continue
-        if not entry and now - cache["misses"].get(key, 0) < MISS_RETRY_HOURS * 3600:
+        if not entry and (now - cache["misses"].get(key, 0) < MISS_RETRY_HOURS * 3600
+                          or now - failed.get(key, 0) < FAIL_RETRY_MINUTES * 60):
             continue
-        found = None
+        found, listed = None, False
         for source in (_from_provider_page, _from_litellm):
             try:
-                found = (source(provider, model, fetch) if source is _from_provider_page
-                         else source(provider, model, fetch, session))
+                found = source(provider, model, pages)
             except Exception:
-                found = None
+                continue
+            listed = listed or source is _from_litellm
             if found:
                 break
+        changed = True
         if not found:
-            cache["misses"][key] = now
-            done.append({"provider": provider, "model": model, "found": False})
-            changed = True
+            if entry:
+                # The saved rate stands; only the attempt is remembered.
+                # "checked" stays the date of the last check that worked.
+                entry["tried"] = now
+            elif listed:
+                cache["misses"][key] = now
+                failed.pop(key, None)
+            else:
+                failed[key] = now
+            done.append({"provider": provider, "model": model, "found": False,
+                         "error": not listed})
             continue
         row, via, url = found
-        stamp = today.isoformat()
         if entry:
             last = entry["rows"][-1]
             same = all(abs(float(last.get(k) or 0) - float(row.get(k) or 0)) < 1e-9
@@ -588,13 +640,14 @@ def resolve_prices(pairs, fetch=None) -> list:
                 row["from"] = stamp
                 entry["rows"].append(row)
             entry.update(checked=stamp, via=via, url=url)
+            entry.pop("tried", None)
         else:
             cache["fetched"][key] = {"rows": [row], "via": via, "url": url,
                                      "checked": stamp, "first": stamp}
         cache["misses"].pop(key, None)
+        failed.pop(key, None)
         done.append({"provider": provider, "model": model, "found": True, "via": via,
                      "in": row["in"], "out": row["out"]})
-        changed = True
     if changed:
         _save_price_cache()
     LOOKUPS[:] = done
@@ -1577,14 +1630,26 @@ def report_notes(groups, unknown, fetched=None, only=None) -> list:
                               f"from {via}, looked up online {when}, not checked by hand"))
     if unknown:
         # A model looked up online and found nowhere is the same problem as one
-        # with no price on file, so it is one note, which says both.
-        missed = sorted(set(unknown) & {unknown_label(i["model"], i["provider"])
-                                         for i in LOOKUPS if not i["found"]})
+        # with no price on file, so it is one note, which says both. A lookup
+        # that could not reach its sources found out nothing, and says that.
+        def tried(error):
+            return sorted(set(unknown) & {unknown_label(i["model"], i["provider"])
+                                          for i in LOOKUPS
+                                          if not i["found"] and bool(i.get("error")) == error})
+        missed, unreached = tried(False), tried(True)
+        said = []
+        if missed:
+            said.append(f"none published online for {join_words(missed)}")
+        if unreached:
+            said.append("the online lookup could not reach its price lists "
+                        f"for {join_words(unreached)}")
         online = ""
         if missed and len(missed) == len(unknown):
             online = ", and none published online either"
-        elif missed:
-            online = f" (and none published online for {join_words(missed)})"
+        elif unreached and len(unreached) == len(unknown):
+            online = ", and the online lookup could not reach its price lists (offline?)"
+        elif said:
+            online = f" (and {'; '.join(said)})"
         notes.append(("warn", f"no price on file for {join_words(sorted(unknown))}{online}. "
                               "Priced at that provider's flagship rate as a stand-in "
                               "(zero where there is no table at all). "

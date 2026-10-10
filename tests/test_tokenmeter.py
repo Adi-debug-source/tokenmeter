@@ -1290,6 +1290,68 @@ class TestOnlineLookup(Base):
         self.assertIn("claude-opus-9 is priced at $6 in and $30 out", notes)
         self.assertIn("not checked by hand", notes)
 
+    def down(self, url):
+        """A network that is not there."""
+        self.fetched.append(url)
+        raise OSError("offline in tests")
+
+    def test_each_page_is_downloaded_once_a_run(self):
+        """Every model looked up downloaded its provider's page again, and an
+        unreachable source cost one timeout per model."""
+        tm.resolve_prices([("anthropic", "claude-opus-9"), ("anthropic", "claude-nothing-1"),
+                           ("anthropic", "claude-nothing-2")], fetch=self.fetch)
+        self.assertEqual(sorted(self.fetched), sorted(set(self.fetched)))
+        self.fetched.clear()
+        tm.resolve_prices([("deepseek", "deepseek-x1"), ("deepseek", "deepseek-x2")],
+                          fetch=self.down)
+        self.assertEqual(len(self.fetched), 2, self.fetched)    # its page and LiteLLM's list
+        self.assertEqual(sorted(self.fetched), sorted(set(self.fetched)))
+
+    def test_an_unreachable_lookup_is_not_remembered_as_a_miss(self):
+        """A failed fetch was saved as "found nowhere", so the model went
+        unpriced for a day after the network came back."""
+        tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=self.down)
+        cache = tm._price_cache()
+        self.assertNotIn("deepseek:deepseek-chat", cache["misses"])
+        self.assertIn("deepseek:deepseek-chat", cache["failed"])
+        self.assertEqual(tm.LOOKUPS, [{"provider": "deepseek", "model": "deepseek-chat",
+                                       "found": False, "error": True}])
+        # Not tried again for ten minutes, by this run or the next.
+        for minutes, tries in ((0, 0), (9, 0), (11, 1)):
+            with self.subTest(minutes=minutes):
+                tm._PRICE_STATE.update(loaded=False)   # a fresh run reads the saved file
+                cache = tm._price_cache()
+                cache["failed"]["deepseek:deepseek-chat"] = time.time() - minutes * 60
+                tm._save_price_cache()
+                n = len(self.fetched)
+                tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=self.fetch)
+                self.assertEqual(len(self.fetched) - n, tries * 2)
+        self.assertTrue(tm.lookup("deepseek-chat", provider="deepseek")[1])
+        self.assertNotIn("deepseek:deepseek-chat", tm._price_cache()["failed"])
+
+    def test_a_failed_recheck_is_not_retried_on_every_run(self):
+        """A saved rate due for its weekly recheck, with the recheck failing,
+        was downloaded again on every run, because nothing recorded the try."""
+        tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=self.fetch)
+        entry = tm._price_cache()["fetched"]["deepseek:deepseek-chat"]
+        entry["checked"] = "2020-01-01"                     # due for a recheck
+        tm._save_price_cache()
+        self.fetched.clear()
+        for run in range(2):
+            tm._PRICE_STATE.update(loaded=False)
+            tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=self.down)
+        self.assertEqual(len(self.fetched), 2, self.fetched)    # one run's worth
+        entry = tm._price_cache()["fetched"]["deepseek:deepseek-chat"]
+        self.assertEqual(entry["checked"], "2020-01-01")       # the last check that worked
+        self.assertEqual([r["in"] for r in entry["rows"]], [0.28])
+        self.assertTrue(tm.lookup("deepseek-chat", provider="deepseek")[1])
+        # A day later it is rechecked, and a recheck that works moves the date.
+        entry["tried"] -= tm.MISS_RETRY_HOURS * 3600
+        tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=self.fetch)
+        entry = tm._price_cache()["fetched"]["deepseek:deepseek-chat"]
+        self.assertEqual(entry["checked"], dt.date.today().isoformat())
+        self.assertNotIn("tried", entry)
+
 
 class TestCheckPrices(Base):
     def anthropic_page(self, tweak=None):
@@ -1478,25 +1540,56 @@ class TestReportsSayItOnce(Base):
         _, groups, *_ = tm.collect(paths)
         self.assertIn("ledger holds 2", tm.covered_span(groups, paths))
 
-    def test_a_model_found_nowhere_gets_one_note(self):
-        """It had two: "looked up X online and found no published price" and
-        "no price on file for X", about the same model."""
-        self.write("a.jsonl", record("msg_1", model="claude-nothing-1", out=100))
+    def notes_for(self, model, fetch):
+        """The notes naming a model, after a run whose every fetch is `fetch`."""
+        self.write("a.jsonl", record("msg_1", model=model, out=100))
         tm.ONLINE_LOOKUP[0] = True
         real = tm.fetch_text
-
-        def offline(url, timeout=8):
-            raise OSError("offline in tests")
-        tm.fetch_text = offline
+        tm.fetch_text = lambda url, timeout=8: fetch(url)
         try:
             _, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
         finally:
             tm.fetch_text = real
             tm.ONLINE_LOOKUP[0] = False
-        notes = [t for _, t in tm.report_notes(groups, unknown) if "claude-nothing-1" in t]
+        return [t for _, t in tm.report_notes(groups, unknown) if model in t]
+
+    def test_a_model_found_nowhere_gets_one_note(self):
+        """It had two: "looked up X online and found no published price" and
+        "no price on file for X", about the same model."""
+        def fetch(url):
+            if url == tm.LITELLM_URL:
+                return json.dumps({"claude-something-else": {}})
+            return TestOnlineLookup.PAGE
+        notes = self.notes_for("claude-nothing-1", fetch)
         self.assertEqual(len(notes), 1, notes)
         self.assertIn("no price on file for claude-nothing-1, and none published online either",
                       notes[0])
+
+    def test_an_unreachable_lookup_says_so(self):
+        """With the network down, a model was reported as having no price
+        published anywhere, which nobody had found out."""
+        def fetch(url):
+            raise OSError("offline in tests")
+        notes = self.notes_for("claude-nothing-1", fetch)
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("no price on file for claude-nothing-1, and the online lookup could not "
+                      "reach its price lists (offline?)", notes[0])
+        self.assertNotIn("none published", notes[0])
+
+    def test_found_nowhere_and_unreachable_are_told_apart(self):
+        """Each model in one note says which of the two happened to it."""
+        self.write("a.jsonl", record("msg_1", model="claude-nothing-1", out=100),
+                   record("msg_2", model="claude-nothing-2", out=100),
+                   record("msg_3", model="claude-nothing-3", out=100))
+        _, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        tm.LOOKUPS[:] = [
+            {"provider": "anthropic", "model": "claude-nothing-1", "found": False, "error": False},
+            {"provider": "anthropic", "model": "claude-nothing-2", "found": False, "error": True}]
+        note = next(t for _, t in tm.report_notes(groups, unknown) if "no price on file" in t)
+        self.assertIn("no price on file for claude-nothing-1, claude-nothing-2 and "
+                      "claude-nothing-3 (and none published online for claude-nothing-1; "
+                      "the online lookup could not reach its price lists for "
+                      "claude-nothing-2). ", note)
 
 
 def payload_of(page):

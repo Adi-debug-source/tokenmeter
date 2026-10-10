@@ -81,10 +81,13 @@ thing to check.
 ### The online lookup
 
 A model no table has is looked up once at startup (`resolve_prices()`), saved
-to `.fetched_prices.json` beside the engine, and rechecked weekly. A model
-found nowhere is not asked about again for a day. Delete that file to forget
-every lookup. The status line never looks anything up; it only reads what a
-report or the menu bar already saved.
+to `.fetched_prices.json` beside the engine, and rechecked weekly. A run
+downloads each page at most once. A model found nowhere (LiteLLM's list was
+read and lacks it) is not asked about again for a day; a lookup that could
+not reach its sources is tried again after ten minutes; a saved rate whose
+recheck fails keeps its rows and is rechecked the next day. Delete that file
+to forget every lookup. The status line never looks anything up; it only
+reads what a report or the menu bar already saved.
 
 Exchange rates (`fx_rates()`) are asked for once per run and saved to
 `.fx_rates.json`, trusted for 12 hours. A failed fetch is recorded there and

@@ -55,6 +55,14 @@
   rate, marked stale, or the estimate stands in meanwhile.
 - The exchange-rate note says what it is once: it read
   "(OFFLINE ESTIMATE, offline estimate, no cached rate)".
+- The online price lookup downloads each page at most once a run, so an
+  unreachable source costs one timeout instead of one per model.
+- A lookup that could not reach its price lists is no longer remembered for a
+  day as found nowhere. It is tried again after ten minutes, and the report
+  says the price lists could not be reached instead of that no price is
+  published.
+- A looked-up rate whose weekly recheck fails is kept and rechecked the next
+  day. The recheck used to be downloaded again on every run.
 
 ## 1.1.2, 6 October 2026
 
