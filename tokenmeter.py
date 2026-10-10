@@ -1105,7 +1105,11 @@ def covered_span(groups, n_files) -> str:
     line = f"{window} · {files}"
     if LEDGER_STATE["used"]:
         line += f" · ledger holds {LEDGER_STATE['rows']:,}"
-        if LEDGER_STATE["restored"]:
+        # Only a run that read every log knows which rows no transcript holds.
+        # Under --project, --session or --adapter the other logs were never
+        # read, so their calls would be counted as gone. A time window still
+        # reads every log, so its count stands.
+        if LEDGER_STATE["restored"] and not (_PROJECT or _SESSION or _ONLY):
             line += f", {LEDGER_STATE['restored']:,} of them no longer in any transcript"
     return line
 

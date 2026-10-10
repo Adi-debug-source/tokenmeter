@@ -28,6 +28,11 @@
   `--project` and `--session` instead of ignoring them; `--adapter` and
   `--import` still narrow or add to what it reads. A mistyped
   `TOKENMETER_CURRENCY` no longer stops it, so it cannot blank the menu bar.
+- A report filtered with `--project`, `--session` or `--adapter` no longer
+  says the ledger's other calls are "no longer in any transcript": that run
+  never read the other logs, so it cannot know. It still says how many calls
+  the ledger holds. Unfiltered and windowed reports, which read every log,
+  count them as before.
 
 ## 1.1.2, 6 October 2026
 

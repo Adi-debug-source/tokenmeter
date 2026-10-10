@@ -398,6 +398,45 @@ class TestFiltersReachTheLedger(Base):
         self.assertEqual(overall["calls"], 0)
 
 
+class TestTheRestoredCount(Base):
+    """A --project alpha run said "ledger holds 5, 3 of them no longer in any
+    transcript", and all three were in the other project's transcript, on
+    disk: a filtered run never reads the other logs, so it cannot know."""
+
+    def setUp(self):
+        super().setUp()
+        for project, session, mids in (("-alpha", "sess-a", ("a1", "a2")),
+                                       ("-beta", "sess-b", ("b1", "b2", "b3"))):
+            folder = os.path.join(self.tmp, "projects", project)
+            os.makedirs(folder)
+            with open(os.path.join(folder, session + ".jsonl"), "w") as f:
+                f.write("".join(record(m, out=100) + "\n" for m in mids))
+        cli("--json")                                      # every call now in the ledger
+
+    def covered(self, *argv):
+        lines = [line for line in cli(*argv).splitlines() if "ledger holds" in line]
+        self.assertEqual(len(lines), 1, lines)
+        return lines[0]
+
+    def test_a_filtered_run_does_not_call_unread_logs_gone(self):
+        trial = os.path.join(self.tmp, "trial.jsonl")
+        with open(trial, "w") as f:
+            f.write(json.dumps(TestImport.GOOD) + "\n")
+        for flags in (["--project", "alpha"], ["--session", "sess-a"],
+                      ["--adapter", "import", "--import", trial]):
+            with self.subTest(flags=flags):
+                line = self.covered(*flags)
+                self.assertIn("ledger holds", line)
+                self.assertNotIn("no longer in any transcript", line)
+
+    def test_a_run_that_reads_every_log_still_counts_them(self):
+        os.remove(os.path.join(self.tmp, "projects", "-beta", "sess-b.jsonl"))
+        self.assertIn("ledger holds 5, 3 of them no longer in any transcript", self.covered())
+        # A time window still reads every log, so its count stands.
+        self.assertIn("ledger holds 5, 3 of them no longer in any transcript",
+                      self.covered("--since", "2026-08-01"))
+
+
 class TestRebuildLedger(Base):
     """--rebuild-ledger --project alpha rebuilt a five-call ledger from the two
     calls that project could see, and the same command again overwrote .old,
@@ -460,7 +499,6 @@ class TestRebuildLedger(Base):
         with open(trial, "w") as f:
             f.write(json.dumps(TestImport.GOOD) + "\n")
         cli("--import", trial)                             # now in the ledger too
-        tm._IMPORTS.clear()                                # a later run without it
         os.remove(os.path.join(self.projects, "sess-a.jsonl"))
         with mock.patch.dict(os.environ, {"HOME": self.tmp}):
             out = cli("--rebuild-ledger")
@@ -496,7 +534,6 @@ class TestSummaryJson(Base):
         before = slurp(self.ledger, mode="rb")
         cli("--import", self.trial(), "--no-ledger", "--summary-json")
         self.assertEqual(slurp(self.ledger, mode="rb"), before)
-        tm._IMPORTS.clear()                                # a later run without it
         self.assertEqual(json.loads(cli("--summary-json"))["all"]["calls"], 1)
 
     def test_a_window_or_a_filter_is_refused(self):
@@ -1466,6 +1503,11 @@ def cli(*argv):
     argv = list(argv)
     if "--currency" not in argv:
         argv += ["--currency", "USD"]
+    # Each run starts as a new process would: main() sets these only from the
+    # options it is given, so one run's --import or --session would leak on.
+    tm._IMPORTS.clear()
+    tm._PROJECT.clear()
+    tm._SESSION.clear()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         tm.main(argv)
