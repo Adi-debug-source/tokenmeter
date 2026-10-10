@@ -1352,6 +1352,96 @@ class TestOnlineLookup(Base):
         self.assertEqual(entry["checked"], dt.date.today().isoformat())
         self.assertNotIn("tried", entry)
 
+    GOOGLE_PAGE = (
+        '<h2 id="g">Gemini 9 Flash</h2><p><code>gemini-9-flash</code></p><table><tbody>'
+        '<tr><td>Input price</td><td>Free</td>'
+        '<td>$0.75 ; $1.50 starting January 1, 2027</td></tr>'
+        '<tr><td>Output price</td><td>Free</td>'
+        '<td>$3.75 ; $7.50 starting January 1, 2027</td></tr>'
+        '<tr><td>Context caching price</td><td>Free</td>'
+        '<td>$0.075 ; $0.15 starting January 1, 2027</td></tr>'
+        '</tbody></table>')
+
+    def test_a_looked_up_price_keeps_its_dates(self):
+        """A page with a launch price and a later one was saved as one row at
+        the later price, so every call was charged it from the first day."""
+        def fetch(url):
+            self.fetched.append(url)
+            if url == tm.TABLES["google"].SOURCE:
+                return self.GOOGLE_PAGE
+            raise OSError("offline in tests")
+        tm.resolve_prices([("google", "gemini-9-flash")], fetch=fetch)
+        rows = tm._price_cache()["fetched"]["google:gemini-9-flash"]["rows"]
+        self.assertEqual([(r["from"], r["in"], r["out"]) for r in rows],
+                         [("", 0.75, 3.75), ("2027-01-01", 1.50, 7.50)])
+        u = usage(inp=1_000_000, out=1_000_000)
+        before = dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc)
+        after = dt.datetime(2027, 1, 2, 12, tzinfo=dt.timezone.utc)
+        self.assertAlmostEqual(cost_of(tm.price_record("gemini-9-flash", u, when=before,
+                                                       provider="google")), 0.75 + 3.75)
+        self.assertAlmostEqual(cost_of(tm.price_record("gemini-9-flash", u, when=after,
+                                                       provider="google")), 1.50 + 7.50)
+
+    def test_a_recheck_keeps_history_and_adds_what_the_page_dates(self):
+        """Saved rows are history: a recheck adds the page's new prices after
+        them and never rewrites what calls were already charged."""
+        saved = [{"from": "", "in": 1.5, "out": 7.5, "cache_read_mult": 0.1}]
+        found = [{"from": "", "in": 0.75, "out": 3.75, "cache_read_mult": 0.1},
+                 {"from": "2027-01-01", "in": 1.5, "out": 7.5, "cache_read_mult": 0.1}]
+        merged = tm._merge_rows(saved, found, "2026-10-10")
+        self.assertEqual([(r["from"], r["in"]) for r in merged],
+                         [("", 1.5), ("2026-10-10", 0.75), ("2027-01-01", 1.5)])
+        self.assertIs(tm._merge_rows(merged, found, "2026-10-17"), merged)
+
+
+class TestPageRows(Base):
+    """A provider page's figures as price rows, for a model no table has."""
+
+    def test_dated_prices_give_dated_rows(self):
+        """Google's launch price and the one after it became one row at the
+        later price."""
+        r = {"in": 1.50, "out": 7.50, "cached": 0.15,
+             "_history": [{"from": "", "in": 0.75, "out": 3.75, "cached": 0.075},
+                          {"from": "2027-01-01", "in": 1.50, "out": 7.50, "cached": 0.15}]}
+        rows = tm.rows_from_page(r, tm.TABLES["google"])
+        self.assertEqual([(x["from"], x["in"], x["out"]) for x in rows],
+                         [("", 0.75, 3.75), ("2027-01-01", 1.50, 7.50)])
+        for x in rows:
+            self.assertAlmostEqual(x["cache_read_mult"], 0.1, places=9)
+        self.assertEqual(tm.rate_on(rows, dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc))["in"],
+                         0.75)
+
+    def test_long_context_keeps_its_providers_threshold(self):
+        """Every looked-up long-context rate started above 272,000 tokens,
+        OpenAI's figure, though Google's starts above 200,000."""
+        r = {"in": 2.00, "out": 12.00, "cached": 0.20, "long_in": 4.00, "long_out": 18.00}
+        row, = tm.rows_from_page(r, tm.TABLES["google"])
+        self.assertEqual(row["long"], {"over": 200_000, "in": 2.0, "out": 1.5})
+        row, = tm.rows_from_page(r, tm.TABLES["xai"])
+        self.assertEqual(row["long"]["over"], 199_999)
+        row, = tm.rows_from_page(dict(r, long_over=128_000), tm.TABLES["google"])
+        self.assertEqual(row["long"]["over"], 128_000)
+        # A table that states no threshold gets no long-context rule at all.
+        row, = tm.rows_from_page(r, tm.TABLES["anthropic"])
+        self.assertNotIn("long", row)
+        for name in ("openai", "google", "xai"):
+            table = tm.TABLES[name]
+            with self.subTest(table=name):
+                long = [x["long"] for rows in table.PRICES.values() for x in rows if x.get("long")]
+                self.assertTrue(long and all(x["over"] == table.LONG_OVER for x in long))
+
+    def test_a_one_hour_write_off_the_default_is_kept(self):
+        """The page's 1-hour cache write was read and then dropped."""
+        r = {"in": 1.00, "out": 4.00, "cached": 0.10, "write_5m": 1.00, "write_1h": 2.00}
+        row, = tm.rows_from_page(r, tm.TABLES["moonshot"])
+        self.assertEqual(row["write_1h_mult"], 2.0)
+        self.assertNotIn("write_mult", row)
+        # Anthropic charges 2x by default, so a page saying 2x adds nothing.
+        r = {"in": 5.00, "out": 25.00, "cached": 0.50, "write_5m": 6.25, "write_1h": 10.00}
+        row, = tm.rows_from_page(r, tm.TABLES["anthropic"])
+        self.assertNotIn("write_1h_mult", row)
+        self.assertNotIn("write_mult", row)
+
 
 class TestCheckPrices(Base):
     def anthropic_page(self, tweak=None):

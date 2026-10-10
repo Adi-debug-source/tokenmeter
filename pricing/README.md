@@ -23,6 +23,7 @@ recorded, and pinned by a test. Never from memory, a blog, or an aggregator.
 | `FALLBACK_MODEL` | The row an unknown id is priced at, flagged in every report. |
 | `ALIASES` *(optional)* | Other published names for the same model. |
 | `RETIRED` *(optional)* | `{model id: "YYYY-MM-DD"}`: models the page no longer lists, kept at their last published price so older usage is still priced, with the retirement date from the provider's own deprecation notice. |
+| `LONG_OVER` *(optional)* | The provider's long-context threshold in prompt tokens, as the engine tests it ("more than"). Its rows' `long` use it, and the startup lookup gives it to a looked-up model the page lists long-context rates for. |
 | `page_rates(fetch, tables, want=None)` *(optional)* | Reads the live page, for `--check-prices` and the startup lookup. |
 
 A row:
@@ -40,6 +41,15 @@ A row:
 | `write_mult`, `write_1h_mult` *(optional)* | Override the table's cache write multiples for this model. |
 | `long` *(optional)* | `{"over": tokens, "in": mult, "out": mult}`: above that many prompt tokens (cache included), the whole request is priced higher. |
 | `off_peak` *(optional)* | Time-of-day pricing: `{"mult": 0.5, "peak_utc_hours": [[1, 4]], "peak_weekdays": [0, 1, 2, 3, 4]}`. |
+
+`page_rates()` returns `({model id: figures}, [page ids the table lacks])`.
+The figures are dollars per million tokens, under whichever of these names
+the page gives: `in`, `out`, `cached`, `write` or `write_5m`, `write_1h`,
+`fast_in` and `fast_out`, `long_in` and `long_out`, and optionally
+`long_over` (the threshold, when the page states its own) and `_history`
+(dated prices, oldest first, each with `from`, `in`, `out` and `cached`).
+`--check-prices` compares every field it finds; the startup lookup turns
+them into rows, one per dated price.
 
 ## Adding a provider or a model
 

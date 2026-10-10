@@ -473,20 +473,44 @@ def fetched_row(provider: str, model: str, when=None):
     return row
 
 
-def _row_from_page(r: dict, table) -> dict:
-    """A provider page's figures (per million) as a price row."""
+def rows_from_page(r: dict, table) -> list:
+    """A provider page's figures (per million) as price rows, oldest first.
+
+    One row, or one per dated price when the page gives several (Google's
+    page lists a launch price and the one that follows it), so a looked-up
+    model keeps its history as a table entry does. The long-context threshold
+    is the page's own when its reader gives one (long_over), else the table's
+    LONG_OVER; with neither there is no long-context rule to apply. A 1-hour
+    cache write is kept when it is not what the row would charge anyway.
+    """
+    history = r.get("_history") or [r]
     inp = r["in"]
-    row = {"from": "", "in": inp, "out": r["out"],
-           "cache_read_mult": (r["cached"] / inp) if inp and r.get("cached") is not None else 1.0,
-           "fast": (r["fast_in"], r["fast_out"]) if r.get("fast_in") and r.get("fast_out") else None}
+    fast = (r["fast_in"], r["fast_out"]) if r.get("fast_in") and r.get("fast_out") else None
+    shared = {"fast": fast}
     write = r.get("write", r.get("write_5m"))
     if inp and write is not None and table is not None:
         mult = write / inp
         if abs(mult - table.CACHE_WRITE_5M_MULT) > 1e-9:
-            row["write_mult"] = mult
-    if inp and r.get("long_in") and r.get("long_out") and r["out"]:
-        row["long"] = {"over": 272_000, "in": r["long_in"] / inp, "out": r["long_out"] / r["out"]}
-    return row
+            shared["write_mult"] = mult
+    if inp and r.get("write_1h") is not None and table is not None:
+        mult = r["write_1h"] / inp
+        if abs(mult - shared.get("write_mult", table.CACHE_WRITE_1H_MULT)) > 1e-9:
+            shared["write_1h_mult"] = mult
+    # The long figures sit beside the first price in the page's cells, so
+    # they are read as multiples of that one.
+    base = history[0]
+    over = r.get("long_over") or getattr(table, "LONG_OVER", None)
+    if over and base["in"] and base["out"] and r.get("long_in") and r.get("long_out"):
+        shared["long"] = {"over": over, "in": r["long_in"] / base["in"],
+                          "out": r["long_out"] / base["out"]}
+    rows = []
+    for h in history:
+        cached = h.get("cached", r.get("cached"))
+        row = {"from": h.get("from", ""), "in": h["in"], "out": h["out"],
+               "cache_read_mult": (cached / h["in"]) if h["in"] and cached is not None else 1.0}
+        row.update(shared)
+        rows.append(row)
+    return rows
 
 
 def _row_from_litellm(e: dict) -> dict | None:
@@ -525,7 +549,7 @@ def _from_provider_page(provider: str, model: str, fetch):
     r = page.get(model) or page.get(base)
     if not r or r.get("in") is None or r.get("out") is None:
         return None
-    return _row_from_page(r, table), f"{table.NAME}'s pricing page", table.SOURCE
+    return rows_from_page(r, table), f"{table.NAME}'s pricing page", table.SOURCE
 
 
 @functools.lru_cache(maxsize=1)
@@ -550,7 +574,7 @@ def _from_litellm(provider: str, model: str, fetch):
             if isinstance(e, dict) and e.get("litellm_provider") in labels:
                 row = _row_from_litellm(e)
                 if row:
-                    return row, LITELLM_NAME, LITELLM_URL
+                    return [row], LITELLM_NAME, LITELLM_URL
     return None
 
 
@@ -571,6 +595,24 @@ def _fetch_once(fetch):
             raise value
         return value
     return once
+
+
+def _merge_rows(saved: list, found: list, stamp: str) -> list:
+    """A recheck's rows merged into the saved ones. The saved history up to
+    today stays as it was. A price in force today that differs from the last
+    saved one is added from today, and the page's later dated prices follow.
+    Returns saved itself when nothing differs."""
+    def figures(r):
+        return tuple(round(float(r.get(k) or 0), 9) for k in ("in", "out", "cache_read_mult"))
+
+    merged = [r for r in saved if not r["from"] or r["from"] <= stamp]
+    in_force = [r for r in found if not r["from"] or r["from"] <= stamp]
+    if in_force and (not merged or figures(in_force[-1]) != figures(merged[-1])):
+        merged.append(dict(in_force[-1], **{"from": stamp}))
+    merged += [r for r in found if r["from"] and r["from"] > stamp]
+    if [(r["from"], figures(r)) for r in merged] == [(r["from"], figures(r)) for r in saved]:
+        return saved
+    return merged
 
 
 def resolve_prices(pairs, fetch=None) -> list:
@@ -631,23 +673,18 @@ def resolve_prices(pairs, fetch=None) -> list:
             done.append({"provider": provider, "model": model, "found": False,
                          "error": not listed})
             continue
-        row, via, url = found
+        rows, via, url = found
         if entry:
-            last = entry["rows"][-1]
-            same = all(abs(float(last.get(k) or 0) - float(row.get(k) or 0)) < 1e-9
-                       for k in ("in", "out", "cache_read_mult"))
-            if not same:
-                row["from"] = stamp
-                entry["rows"].append(row)
+            entry["rows"] = _merge_rows(entry["rows"], rows, stamp)
             entry.update(checked=stamp, via=via, url=url)
             entry.pop("tried", None)
         else:
-            cache["fetched"][key] = {"rows": [row], "via": via, "url": url,
+            cache["fetched"][key] = {"rows": rows, "via": via, "url": url,
                                      "checked": stamp, "first": stamp}
         cache["misses"].pop(key, None)
         failed.pop(key, None)
         done.append({"provider": provider, "model": model, "found": True, "via": via,
-                     "in": row["in"], "out": row["out"]})
+                     "in": rows[-1]["in"], "out": rows[-1]["out"]})
     if changed:
         _save_price_cache()
     LOOKUPS[:] = done

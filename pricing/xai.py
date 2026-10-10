@@ -40,8 +40,10 @@ WEB_SEARCH_PER_1K = 5.0
 # so nothing is stripped.
 SNAPSHOT = r"(?!)"
 
-# "Reaches 200k" means 200,000 or more, and the engine tests "more than".
-_LONG = {"over": 199_999, "in": 2.0, "out": 2.0}
+# "Reaches 200k" means 200,000 or more, and the engine tests "more than". The
+# startup lookup applies it to a model the page gives long-context rates for.
+LONG_OVER = 199_999
+_LONG = {"over": LONG_OVER, "in": 2.0, "out": 2.0}
 
 
 def _row(inp, out, cached):

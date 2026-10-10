@@ -48,7 +48,10 @@ WEB_SEARCH_PER_1K = 0.0
 # Stable versions carry a three-digit suffix: gemini-2.0-flash-001.
 SNAPSHOT = r"-\d{3}$"
 
-_LONG = {"over": 200_000, "in": 2.0, "out": 1.5}
+# Long context: above this many prompt tokens ("> 200k" on the page). The
+# startup lookup applies it to a model the page gives long-context rates for.
+LONG_OVER = 200_000
+_LONG = {"over": LONG_OVER, "in": 2.0, "out": 1.5}
 
 
 def _row(inp, out, cached_mult=0.1, long=None, since=""):

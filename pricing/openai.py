@@ -60,7 +60,10 @@ WEB_SEARCH_PER_1K = 10.0
 # OpenAI snapshots carry a dashed date: gpt-5-2025-08-07.
 SNAPSHOT = r"-\d{4}-\d{2}-\d{2}$"
 
-_LONG = {"over": 272_000, "in": 2.0, "out": 1.5}
+# Long context: above this many prompt tokens. The startup lookup applies it
+# to a model the page gives long-context rates for.
+LONG_OVER = 272_000
+_LONG = {"over": LONG_OVER, "in": 2.0, "out": 1.5}
 
 
 def _row(inp, out, cached_mult, fast=None, write_mult=1.0, long=None):

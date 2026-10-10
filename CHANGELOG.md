@@ -63,6 +63,11 @@
   published.
 - A looked-up rate whose weekly recheck fails is kept and rechecked the next
   day. The recheck used to be downloaded again on every run.
+- A model priced from its provider's page keeps the page's dated prices
+  (Google's launch prices and the ones that follow them), its provider's
+  long-context threshold (above 200,000 tokens for Google and 199,999 for
+  xAI, where every looked-up model used OpenAI's 272,000) and a 1-hour cache
+  write that differs from the table's default.
 
 ## 1.1.2, 6 October 2026
 
