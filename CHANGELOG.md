@@ -78,6 +78,12 @@
   the first hour of 25 October 2026. Its saved total now carries its date, so
   for the first 90 seconds after midnight it no longer shows yesterday's total
   as today's.
+- The status line takes the context window's size and how full it is from
+  Claude Code, which sends both. It guessed them from the model's name (Haiku
+  200k, anything else 1M), so a 200k model other than Haiku showed a fifth of
+  its real percentage, and a Haiku with a 1M window read full at 200k. Claude
+  Code builds that send neither still get the guess. A window other than 200k
+  or 1M is shown at its size, for example 400.0k.
 
 ## 1.1.2, 6 October 2026
 

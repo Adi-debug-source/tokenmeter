@@ -2180,6 +2180,37 @@ class TestStatusLine(Base):
                 saved = json.loads(slurp(os.path.join(self.tmp, "statusline", ".today_cost.json")))
                 self.assertEqual(saved["day"], today)
 
+    def test_the_context_window_is_the_one_claude_code_sends(self):
+        """The window was guessed from the model's name, Haiku 200k and
+        anything else 1M, so a 200k model read at a fifth of its real
+        percentage and a 1M Haiku read full at 200k. Claude Code sends the
+        window and the percentage; the guess is only for builds that send
+        neither, and the count shown is always the transcript's own."""
+        path = self.write("sess.jsonl", record("msg_1", inp=100_000, out=10))
+        cases = (
+            ("Opus", {"context_window_size": 200000, "used_percentage": 75}, "75%", "/ 200k"),
+            ("Claude Haiku 5.5", {"context_window_size": 1000000, "used_percentage": 30},
+             "30%", "/ 1M"),
+            # A size alone: the percentage is worked out against it.
+            ("Opus", {"context_window_size": 400000, "used_percentage": None}, "25%", "/ 400.0k"),
+            # A size that is not positive is no size; the percentage is clamped.
+            ("Opus", {"context_window_size": 0, "used_percentage": 140}, "100%", "/ 1M"),
+            # Nulls fall back to the guess, as no object at all does.
+            ("Opus", {"context_window_size": None, "used_percentage": None}, "10%", "/ 1M"),
+            ("Claude Haiku 4.5", None, "50%", "/ 200k"),
+        )
+        for model, sent, pct, cap in cases:
+            with self.subTest(model=model, sent=sent):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                payload = {"model": {"display_name": model}, "transcript_path": path}
+                if sent is not None:
+                    payload["context_window"] = sent
+                done = self.run_statusline(payload)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                line1, line2 = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout).splitlines()
+                self.assertRegex(line1, r"ctx +" + re.escape(pct))
+                self.assertIn("100.0k " + cap + " ", line2)
+
     def test_the_command_line_names_where_a_bad_code_came_from(self):
         """A typo in TOKENMETER_CURRENCY read as if it had been typed on the
         command line, which had no --currency on it."""

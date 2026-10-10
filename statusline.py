@@ -6,7 +6,9 @@ Line 2: context window bar
 
 "This session" is the session's transcript and every subagent and workflow
 agent it started, because their calls were made for it. The context is the
-main conversation's.
+main conversation's: its token count from the transcript, its window's size
+and how full it is from Claude Code's own context_window. A build too old to
+send that gets the window guessed from the model's name, as before.
 
 On a subscription nothing here is billed. The money is the counterfactual:
 what the same tokens would have cost through the raw API. All pricing lives in
@@ -24,6 +26,7 @@ estimate.
 
 import datetime as dt
 import json
+import math
 import os
 import sys
 import time
@@ -35,10 +38,11 @@ CACHE_TTL = 90  # seconds; the daily figure need not be to the second
 sys.path.insert(0, HERE)
 try:
     from tokenmeter import (COMPONENTS, DEFAULT_CURRENCY, ONLINE_LOOKUP, money,
-                            session_totals, set_currency)
+                            session_totals, set_currency, toks)
 except Exception:  # the status line must never be the thing that breaks
     session_totals = None
     money = None
+    toks = None
 else:
     # Offline for everything this process does: set_currency() then reads the
     # exchange rate a report, the dashboard or the menu bar last saved instead
@@ -108,6 +112,36 @@ def today_cost():
         return None
 
 
+def context_window(sent, model, tokens):
+    """(the window's size in tokens, the percentage of it in use).
+
+    Claude Code sends both in context_window: context_window_size, and
+    used_percentage once the session has made a call (null before then).
+    Builds that send neither get the old guess from the model's name, Haiku
+    200k and anything else 1M, which showed a 200k model other than Haiku at a
+    fifth of its real percentage and a 1M Haiku as full at 200k.
+    """
+    def number(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        try:
+            v = float(v)
+        except OverflowError:
+            return None
+        return v if math.isfinite(v) else None
+
+    sent = sent if isinstance(sent, dict) else {}
+    size = number(sent.get("context_window_size"))
+    if size is not None and int(size) > 0:
+        limit = int(size)
+    else:
+        limit = 200_000 if "haiku" in model.lower() else 1_000_000
+    used = number(sent.get("used_percentage"))
+    if used is not None:
+        return limit, max(0, min(100, int(used)))
+    return limit, min(100, int(tokens * 100 / limit))
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -118,8 +152,9 @@ def main() -> None:
     sess_usd, tokens = session_cost(data.get("transcript_path") or "")
     day_usd = today_cost() if money is not None else None
 
-    limit = 200_000 if "haiku" in model.lower() else 1_000_000
-    pct = min(100, int(tokens * 100 / limit)) if limit else 0
+    # The count shown is the transcript's own; the window and percentage are
+    # Claude Code's when it sends them.
+    limit, pct = context_window(data.get("context_window"), model, tokens)
 
     RESET, DIM, BOLD = "\x1b[0m", "\x1b[2m", "\x1b[1m"
     BLUE, GREEN, YELLOW, RED = "\x1b[36m", "\x1b[32m", "\x1b[33m", "\x1b[31m"
@@ -151,7 +186,7 @@ def main() -> None:
     if day_usd is not None:
         parts.append(f"{fmt_usd(day_usd)}{DIM} today{RESET}")
     line1 = f" {sep} ".join(parts)
-    cap = "200k" if limit == 200_000 else "1M"
+    cap = {200_000: "200k", 1_000_000: "1M"}.get(limit) or (toks or fmt_tok)(limit)
     line2 = f"{colour}{bar}{RESET} {DIM}{fmt_tok(tokens)} / {cap} · would-be API spend{RESET}"
 
     sys.stdout.write(line1 + "\n" + line2)
