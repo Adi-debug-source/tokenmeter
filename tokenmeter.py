@@ -6,8 +6,10 @@ counterfactual: the same work, driven through the provider's raw API at its
 published rates.
 
 Everything comes from the logs your coding harness already writes on this Mac,
-read by one adapter per harness. Nothing leaves the machine except a request
-for exchange rates.
+read by one adapter per harness. Nothing about your usage leaves the machine.
+A run asks for exchange rates and, for a model no price table has, downloads
+published price lists (for OpenAI, that model's own page, by name); --offline
+stops both. --check-prices reads each provider's pricing page when asked.
 
 Usage:
     tokenmeter.py                      totals for everything found, all time
@@ -396,10 +398,11 @@ def verification(provider: str) -> dict:
 # fetched rate keeps its history exactly as a checked one does.
 #
 # Fetched rates are labelled in every report as fetched, not checked by hand.
-# They never replace a table entry. Only price lists are downloaded; no usage,
-# no totals and nothing identifying leaves the machine. Set TOKENMETER_OFFLINE=1
-# or pass --offline to switch this off, and the old behaviour returns: an
-# unknown model is priced at a stand-in rate and flagged.
+# They never replace a table entry. Only price lists are downloaded (for
+# OpenAI, a model's own page, whose address names the model); no usage, no
+# totals and nothing identifying leaves the machine. Set TOKENMETER_OFFLINE=1
+# or pass --offline to switch this off, with the exchange rates, and the old
+# behaviour returns: an unknown model is priced at a stand-in rate and flagged.
 #
 # A source that cannot be reached is not evidence that a model has no price,
 # so it is never remembered as "found nowhere": the lookup is tried again
@@ -3051,7 +3054,8 @@ def summary(ledger: bool = True) -> dict:
 
 
 def fetch_text(url: str, timeout: int = 20) -> str:
-    """One page, as text. Only --check-prices uses this."""
+    """One page, as text. Used by --check-prices and by the online lookup
+    (resolve_prices), which passes a shorter timeout."""
     import urllib.request
     req = urllib.request.Request(url, headers={"User-Agent": f"tokenmeter/{__version__}"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
