@@ -1214,6 +1214,45 @@ class TestCodexAdapter(Base):
                       "(brew install zstd) to include them", notes)
         self.assertNotIn("damaged", notes)
 
+    def test_a_compressed_session_is_decompressed_once(self):
+        """records() decompressed every .jsonl.zst twice, once to see whether
+        it could and again to read it: two zstd runs per file per refresh."""
+        from unittest import mock
+        for n, fx in enumerate(("gen3_turn_context.jsonl", "gen4_current_paginated.jsonl")):
+            p = self.place(fx, uuid=f"0198f3c1-0000-7000-8000-00000000000{n}")
+            os.rename(p, p + ".zst")
+        reads = []
+
+        def read(path):   # the files are not really compressed
+            reads.append(path)
+            return slurp(path, mode="rb")
+        with mock.patch.object(tm.codex, "_decoder", return_value=read):
+            overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 6)
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(len(set(reads)), 2)
+
+    def test_a_compressed_session_splits_into_lines_as_a_plain_one_does(self):
+        """Decompressed text was split with str.splitlines(), which also
+        splits at a raw U+2028 inside a JSON string, so a turn_context line
+        holding one was lost and its calls were priced as gpt-5."""
+        from unittest import mock
+        lines = slurp(os.path.join(FIXTURES, "codex", "gen3_turn_context.jsonl")).splitlines()
+        for i, line in enumerate(lines):
+            obj = json.loads(line)
+            if obj["type"] == "turn_context":
+                obj["payload"]["user_instructions"] = "first line second line"
+                lines[i] = json.dumps(obj, ensure_ascii=False)
+        plain = os.path.join(self.tmp, "rollout-2026-09-24T14-07-33-plain.jsonl")
+        with open(plain, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        compressed = plain.replace(".jsonl", "-zst.jsonl.zst")
+        shutil.copy(plain, compressed)
+        with mock.patch.object(tm.codex, "_decoder", return_value=lambda path: slurp(path, mode="rb")):
+            got = [ev["model"] for _, ev in tm.codex.records(compressed)]
+        self.assertEqual(got, [ev["model"] for _, ev in tm.codex.records(plain)])
+        self.assertEqual(got, ["gpt-5.2-codex", "gpt-5.2-codex", "gpt-5.3-codex"])
+
     def test_claude_code_alone_is_unchanged_by_codex_existing(self):
         """Adding an adapter must not move a Claude Code figure."""
         self.write("a.jsonl", record("msg_1", out=1000, read=5000))

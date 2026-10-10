@@ -93,6 +93,10 @@
   the command: it left out every Codex session older than a week until a
   terminal run had recorded it, and said to install zstd. The command is now
   also looked for in `/opt/homebrew/bin` and `/usr/local/bin`.
+- Each compressed Codex session is decompressed once a run, not twice. Its
+  text is now split into lines as a plain session's is: a raw U+2028
+  character inside a line split it in two, and when that line named the model
+  its calls were priced as gpt-5.
 
 ## 1.1.2, 6 October 2026
 

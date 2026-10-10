@@ -43,6 +43,7 @@ What Codex writes, and what this reader does with it:
 from __future__ import annotations
 
 import glob
+import io
 import json
 import os
 import shutil
@@ -193,16 +194,23 @@ def _decompress(path: str):
         raise _Damaged(path) from e
 
 
-def _lines(path: str, limit: int = 0):
-    """Parsed JSON objects from a session file, compressed or not."""
-    if path.endswith(".zst"):
+def _lines(path: str, limit: int = 0, text: str | None = None):
+    """Parsed JSON objects from a session file, compressed or not.
+
+    A caller that has already decompressed a .jsonl.zst passes its text, so it
+    is decompressed once. The text is split into lines exactly as a plain file
+    is read: str.splitlines() would also split at a raw U+2028 inside a JSON
+    string, which Codex writes unescaped.
+    """
+    if text is None and path.endswith(".zst"):
         try:
             text = _decompress(path)
         except _Damaged:
             return
         if text is None:
             return
-        source = text.splitlines()
+    if text is not None:
+        source = io.StringIO(text, newline=None)
     else:
         try:
             source = open(path, "r", encoding="utf-8", errors="ignore")
@@ -222,8 +230,7 @@ def _lines(path: str, limit: int = 0):
             if isinstance(obj, dict):
                 yield obj
     finally:
-        if hasattr(source, "close"):
-            source.close()
+        source.close()
 
 
 def _counts(u: dict) -> tuple:
@@ -241,13 +248,15 @@ def _minus(a: tuple, b: tuple) -> tuple:
 
 def records(path: str):
     """Yield (key, event) for every response in one session file."""
+    text = None
     if path.endswith(".zst"):
         try:
-            if _decompress(path) is None:
-                _STATE["compressed_unread"] += 1
-                return
+            text = _decompress(path)
         except _Damaged:
             _STATE["compressed_damaged"] += 1
+            return
+        if text is None:
+            _STATE["compressed_unread"] += 1
             return
     name = os.path.basename(path)
     thread = name.split(".")[0][len("rollout-") + 20:] if name.startswith("rollout-") else name
@@ -256,7 +265,7 @@ def records(path: str):
     previous = None       # the running total at the last counted token_count
     searches = 0          # web searches since the last counted response
 
-    for obj in _lines(path):
+    for obj in _lines(path, text=text):
         kind = obj.get("type")
         payload = obj.get("payload")
         if not isinstance(payload, dict):
