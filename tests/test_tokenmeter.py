@@ -289,6 +289,41 @@ class TestDeduplication(Base):
         self.assertEqual(len(evs), 1)
         self.assertEqual(evs[0]["cost"]["_tokens"]["output"], 1160)
 
+    def test_attribution_does_not_depend_on_the_order_files_are_read(self):
+        """merge() kept the first sighting's time, session and project, and
+        Claude Code's files arrive in whatever order the filesystem lists
+        them, so a call copied into a resumed session was filed under either
+        session depending on the machine. The earliest copy now keeps them."""
+        early = self.write("sess-a.jsonl", record("msg_1", ts="2026-09-01T12:00:00.000Z", out=4))
+        fork = os.path.join(self.tmp, "projects", "-fork")
+        os.makedirs(fork)
+        late = os.path.join(fork, "sess-b.jsonl")
+        with open(late, "w") as f:
+            f.write(record("msg_1", ts="2026-09-03T08:00:00.000Z", out=1160) + "\n")
+        for order in ([early, late], [late, early]):
+            with self.subTest(first=os.path.basename(order[0])):
+                ev = tm.scan_transcripts(order)["msg_1"]
+                self.assertEqual(ev["session"], "sess-a")
+                self.assertEqual(ev["project"], "-proj")
+                self.assertEqual(ev["when"], dt.datetime(2026, 9, 1, 12, tzinfo=dt.timezone.utc))
+                # The complete usage block still wins, wherever it was written.
+                self.assertEqual(ev["_usage"]["output_tokens"], 1160)
+                _, groups, *_ = tm.collect(order, ledger=False)
+                self.assertEqual(set(groups["session"]), {"sess-a"})
+
+    def test_a_tie_keeps_the_first_sighting_and_a_date_beats_none(self):
+        same = "2026-09-01T12:00:00.000Z"
+        a = self.write("sess-a.jsonl", record("msg_1", ts=same, out=10))
+        b = self.write("sess-b.jsonl", record("msg_1", ts=same, out=10))
+        self.assertEqual(tm.scan_transcripts([a, b])["msg_1"]["session"], "sess-a")
+        self.assertEqual(tm.scan_transcripts([b, a])["msg_1"]["session"], "sess-b")
+        line = json.loads(record("msg_1", out=10))
+        del line["timestamp"]
+        undated = self.write("sess-c.jsonl", json.dumps(line))
+        for order in ([undated, b], [b, undated]):
+            with self.subTest(first=os.path.basename(order[0])):
+                self.assertEqual(tm.scan_transcripts(order)["msg_1"]["session"], "sess-b")
+
     def test_synthetic_records_are_not_billed(self):
         self.write("a.jsonl", record("msg_1", model="<synthetic>", out=500))
         self.assertEqual(list(tm.iter_events(tm.transcripts(), ledger=False)), [])

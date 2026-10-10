@@ -763,19 +763,33 @@ def usage_size(usage: dict) -> int:
             + written)
 
 
+# What says where a call was made, as opposed to what it cost.
+ATTRIBUTION = ("when", "project", "session", "cwd", "sidechain")
+
+
 def merge(best: dict, key, ev: dict) -> None:
     """Fold one sighting of an API call into the running set.
 
-    The first sighting keeps the attribution: timestamp, session and project
-    stay those of the run that made the call. The largest usage block wins,
-    because a streamed reply is written once per content block and every copy
-    but the last carries an output count that is still climbing.
+    The earliest sighting keeps the attribution: timestamp, session, project,
+    working folder and sidechain flag stay those of the run that made the
+    call, not of a session resumed or forked from it later. A copy with an
+    earlier timestamp takes them over, as does any dated copy of a call so far
+    seen undated; on a tie the first sighting keeps them. Keeping the first
+    sighting alone made the answer depend on the order the filesystem listed
+    the files in, which differs from one machine to the next.
+
+    The largest usage block wins, because a streamed reply is written once per
+    content block and every copy but the last carries an output count that is
+    still climbing.
     """
     size = usage_size(ev["_usage"])
     prev = best.get(key)
     if prev is not None:
         if size > prev["_size"]:
             prev["_size"], prev["_usage"] = size, ev["_usage"]
+        if ev["when"] is not None and (prev["when"] is None or ev["when"] < prev["when"]):
+            for field in ATTRIBUTION:
+                prev[field] = ev[field]
         return
     ev["_size"] = size
     best[key] = ev
@@ -1118,8 +1132,9 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     the one kept: on one real three-month history, taking the first lost 212k
     output tokens, 7% of all output.
 
-    A response is attributed to where it was first seen, so the timestamp,
-    session and project stay those of the run that made the call.
+    A response is attributed to its earliest sighting (see merge()), so the
+    timestamp, session and project stay those of the run that made the call
+    whatever order the files are read in.
 
     With ledger=True this also reconciles against the ledger: anything the
     transcripts know and the ledger does not gets written there, and anything

@@ -109,6 +109,10 @@
   are read on every Python version. Python 3.9, which the menu bar runs,
   skipped them as unreadable while a newer Python in the terminal counted
   them, so the two disagreed.
+- A call written to several transcripts, as a resumed or forked session
+  copies its earlier calls, is filed under its earliest copy's time, session
+  and project, whichever file is read first. It went to the first copy read,
+  and the order files are listed in differs from one machine to the next.
 
 ## 1.1.2, 6 October 2026
 

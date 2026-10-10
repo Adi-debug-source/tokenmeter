@@ -86,7 +86,7 @@ def records(path: str):
     """Yield (key, event) for every line that carries an API response.
 
     The same key is yielded more than once when a response was written more
-    than once. The engine keeps the first sighting's attribution and the
+    than once. The engine keeps the earliest sighting's attribution and the
     largest usage block, because the early copies of a streamed reply carry an
     output count that is still climbing.
     """
