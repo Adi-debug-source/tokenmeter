@@ -55,6 +55,21 @@ def files(roots: list, project: str = "", session: str = "") -> list:
     return paths
 
 
+def session_files(path: str) -> list:
+    """One session's transcript followed by the transcripts of every agent it
+    started, at any depth below <folder>/<stem>/.
+
+    Subagents write to <stem>/subagents/agent-*.jsonl and workflow agents to
+    <stem>/subagents/workflows/<id>/agent-*.jsonl, beside the session's own
+    <stem>.jsonl. Their calls are made for that session, so its cost includes
+    them. A path with no such folder, an agent's own transcript among them,
+    is returned on its own.
+    """
+    stem = os.path.splitext(path)[0]
+    agents = glob.glob(os.path.join(glob.escape(stem), "**", "*.jsonl"), recursive=True)
+    return [path] + sorted(agents)
+
+
 def looks_like(line: str) -> bool:
     """Whether a line from an unknown file is a Claude Code transcript line."""
     return '"sessionId"' in line or ('"message"' in line and '"payload"' not in line)

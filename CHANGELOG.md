@@ -68,6 +68,10 @@
   long-context threshold (above 200,000 tokens for Google and 199,999 for
   xAI, where every looked-up model used OpenAI's 272,000) and a 1-hour cache
   write that differs from the table's default.
+- The status line's session cost includes the session's subagents and
+  workflow agents. It priced the session's own transcript alone, which left
+  out every call its agents made for it. The context figure is still the main
+  conversation's.
 
 ## 1.1.2, 6 October 2026
 

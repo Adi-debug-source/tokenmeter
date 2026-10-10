@@ -15,7 +15,7 @@ It has four faces over one engine:
 | Terminal report | The full breakdown, grouped however you like |
 | Dashboard | One offline HTML page with charts, tables and a currency switcher |
 | Menu bar app | The running figure, always visible, with four time windows |
-| Claude Code status line and `/tokenmeter` command | This session's cost and today's, inside Claude Code |
+| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, and today's, inside Claude Code |
 
 <img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="420">
 

@@ -4,6 +4,10 @@
 Line 1: model | context % | this session at API rates | today at API rates
 Line 2: context window bar
 
+"This session" is the session's transcript and every subagent and workflow
+agent it started, because their calls were made for it. The context is the
+main conversation's.
+
 On a subscription nothing here is billed. The money is the counterfactual:
 what the same tokens would have cost through the raw API. All pricing lives in
 tokenmeter.py beside this file, so there is one table, not two.

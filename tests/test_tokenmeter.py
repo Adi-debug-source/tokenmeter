@@ -2018,6 +2018,45 @@ class TestExchangeRates(Base):
                 self.assertEqual(payload_of(slurp(out, encoding="utf-8"))["rateWhen"], shown)
 
 
+class TestSessionTotals(Base):
+    def agent(self, rel, *lines):
+        p = os.path.join(self.projects, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        return p
+
+    def test_a_sessions_agents_are_in_its_cost(self):
+        """The status line priced the session's own transcript alone, so the
+        calls its subagents and workflow agents made for it were missing from
+        "session". The context stays the main transcript's."""
+        main = self.write("sess-1.jsonl", record("msg_main", inp=1000, read=500, out=100))
+        a = self.agent("sess-1/subagents/agent-a.jsonl", record("msg_a", inp=7000, out=200))
+        b = self.agent("sess-1/subagents/workflows/wf_1/agent-b.jsonl",
+                       record("msg_b", inp=9000, out=300),
+                       # A call the session's own transcript also holds counts once.
+                       record("msg_main", inp=1000, read=500, out=100))
+        # A neighbouring session whose name starts the same is not this one.
+        self.write("sess-10.jsonl", record("msg_x", out=5000))
+        self.agent("sess-10/subagents/agent-z.jsonl", record("msg_z", out=5000))
+        self.assertEqual(tm.claude_code.session_files(main), [main, a, b])
+        overall, *_ = tm.collect([main, a, b], ledger=False)
+        alone, *_ = tm.collect([main], ledger=False)
+        cost, ctx = tm.session_totals(main)
+        self.assertEqual(overall["calls"], 3)
+        self.assertAlmostEqual(cost, overall["total"], places=12)
+        self.assertGreater(cost, alone["total"])
+        self.assertEqual(ctx, 1500)
+
+    def test_a_path_with_no_agents_is_read_on_its_own(self):
+        """An agent's own transcript, or a session that started none, is one
+        file, so its cost is what it was."""
+        a = self.agent("sess-1/subagents/agent-a.jsonl", record("msg_a", inp=7000, out=200))
+        self.assertEqual(tm.claude_code.session_files(a), [a])
+        alone, *_ = tm.collect([a], ledger=False)
+        self.assertAlmostEqual(tm.session_totals(a)[0], alone["total"], places=12)
+
+
 class TestStatusLine(Base):
     def run_statusline(self, payload, counted=False, **env):
         """statusline.py as Claude Code runs it, sealed: a copy in the temp

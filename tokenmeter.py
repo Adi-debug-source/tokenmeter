@@ -715,18 +715,29 @@ def transcripts(project: str = "", session: str = "") -> list:
 
 
 def session_totals(path: str) -> tuple:
-    """Cost so far and live context size for one transcript. Used by the
-    status line, which must stay fast, so it reads a single file. Shares this
-    module's pricing and de-duplication rather than keeping its own copy."""
+    """Cost so far and live context size for one session. Used by the status
+    line, which must stay fast, so it reads only that session's files: for a
+    Claude Code transcript, the transcript and every agent it started
+    (claude_code.session_files()); for any other harness, the one file. Shares
+    this module's pricing and de-duplication rather than keeping its own copy.
+
+    The cost covers the agents, whose calls were made for the session: reading
+    the transcript alone left every one of them out. The context is the main
+    transcript's, because each agent has a context of its own."""
+    adapter = adapter_for(path)
+    paths = claude_code.session_files(path) if adapter is claude_code else [path]
     ctx, best = 0, {}
-    for key, ev in adapter_for(path).records(path):
-        usage = ev["_usage"]
-        # Synthetic records are already gone: no API call, and an empty
-        # usage block. Read before that check it reported the context as zero.
-        ctx = (int(usage.get("input_tokens") or 0)
-               + int(usage.get("cache_creation_input_tokens") or 0)
-               + int(usage.get("cache_read_input_tokens") or 0))
-        merge(best, key, ev)
+    for p in paths:
+        for key, ev in adapter.records(p):
+            if p == path:
+                usage = ev["_usage"]
+                # Synthetic records are already gone: no API call, and an empty
+                # usage block. Read before that check it reported the context
+                # as zero.
+                ctx = (int(usage.get("input_tokens") or 0)
+                       + int(usage.get("cache_creation_input_tokens") or 0)
+                       + int(usage.get("cache_read_input_tokens") or 0))
+            merge(best, key, ev)
     total = 0.0
     for ev in best.values():
         # Dated, like everywhere else: a session resumed from weeks ago is
