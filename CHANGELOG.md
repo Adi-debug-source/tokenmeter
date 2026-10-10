@@ -39,6 +39,22 @@
   `TOKENMETER_CURRENCY` rather than from `--currency`.
 - The dashboard's "Last seen" cell for a session with no time reads "?", as
   the terminal's sessions list does, instead of a dash.
+- `--offline` and `TOKENMETER_OFFLINE=1` now make no network requests at all.
+  They used to stop only the price lookup, and exchange rates were still
+  fetched. Offline, the last saved rate is used at any age and marked
+  "cached" with its date; with none saved, the built-in estimate is used and
+  labelled as one.
+- The status line never makes a network request. Showing another currency,
+  it fetched exchange rates once the saved rate was 12 hours old, and on
+  every prompt while the network was down, each time holding the prompt up
+  for as long as 8 seconds. It now uses the rate a report, the dashboard or
+  the menu bar last saved.
+- A run asks for exchange rates once. The menu bar asked three times per
+  refresh, and on a dead network each attempt sat through its timeout. A
+  failed fetch is now recorded and not retried for an hour; the last saved
+  rate, marked stale, or the estimate stands in meanwhile.
+- The exchange-rate note says what it is once: it read
+  "(OFFLINE ESTIMATE, offline estimate, no cached rate)".
 
 ## 1.1.2, 6 October 2026
 

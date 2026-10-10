@@ -19,6 +19,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -70,6 +71,10 @@ class Base(unittest.TestCase):
         tm.PRICE_CACHE = os.path.join(self.tmp, "prices.json")
         tm._PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
         tm.LOOKUPS.clear()
+        # The rate cache lives in the temp folder, never beside the engine, and
+        # each test starts as a new run would, with nothing remembered.
+        tm.FX_CACHE = os.path.join(self.tmp, "fx_rates.json")
+        tm._FX_MEMO.clear()
         self._fx = tm.fx_rates
         tm.fx_rates = lambda: (dict(tm.FALLBACK_RATES), "test", False)
 
@@ -1673,8 +1678,165 @@ class TestMenuBarCurrencies(Base):
         self.assertIn('root["currency_order"]', swift)
 
 
+class TestExchangeRates(Base):
+    """fx_rates() itself, against a network that counts every request and
+    answers none. With TOKENMETER_OFFLINE=1 it still fetched; with the network
+    down it fetched on every call, three times per menu bar refresh."""
+
+    WHEN = "Fri, 02 Oct 2026"
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        tm.fx_rates = self._fx
+        self.requests = []
+
+        def refuse(*args, **kw):
+            self.requests.append(args)
+            raise OSError("no network in tests")
+        patcher = mock.patch("urllib.request.urlopen", refuse)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def save(self, age_hours, **extra):
+        data = {"rates": {"USD": 1.0, "GBP": 0.5}, "when": self.WHEN, "live": True,
+                "fetched": time.time() - age_hours * 3600}
+        data.update(extra)
+        with open(tm.FX_CACHE, "w") as f:
+            json.dump(data, f)
+
+    def new_run(self):
+        tm._FX_MEMO.clear()
+        return tm.fx_rates()
+
+    def test_offline_with_nothing_saved_makes_no_request(self):
+        """Offline with no rate saved, it fetched one anyway."""
+        rates, when, live = tm.fx_rates()
+        self.assertEqual(self.requests, [])
+        self.assertEqual(rates, tm.FALLBACK_RATES)
+        self.assertFalse(live)
+        self.assertTrue(when.startswith("ESTIMATE"), when)
+        self.assertFalse(os.path.exists(tm.FX_CACHE))
+
+    def test_offline_uses_a_saved_rate_at_any_age(self):
+        """Offline, a rate saved more than 12 hours ago was fetched again."""
+        self.save(1)
+        self.assertEqual(self.new_run(), ({"USD": 1.0, "GBP": 0.5}, self.WHEN, True))
+        self.save(48)
+        self.assertEqual(self.new_run(), ({"USD": 1.0, "GBP": 0.5}, f"cached, {self.WHEN}", False))
+        self.assertEqual(self.requests, [])
+
+    def test_offline_set_currency_makes_no_request(self):
+        """A report in another currency fetched rates under --offline."""
+        tm.set_currency("GBP")
+        self.assertEqual(self.requests, [])
+        self.assertEqual(tm.DISPLAY["rate"], tm.FALLBACK_RATES["GBP"])
+        self.assertFalse(tm.DISPLAY["live"])
+
+    def test_online_a_fresh_saved_rate_needs_no_request(self):
+        """The memo and the failure record must not stop a fresh rate being
+        read from the file as it always was."""
+        tm.ONLINE_LOOKUP[0] = True
+        self.save(1)
+        self.assertEqual(tm.fx_rates(), ({"USD": 1.0, "GBP": 0.5}, self.WHEN, True))
+        self.assertEqual(self.requests, [])
+
+    def test_a_file_from_before_fetch_times_is_dated_by_its_last_write(self):
+        """Files written by earlier versions carry no fetch time."""
+        with open(tm.FX_CACHE, "w") as f:
+            json.dump({"rates": {"USD": 1.0, "GBP": 0.5}, "when": self.WHEN, "live": True}, f)
+        self.assertTrue(self.new_run()[2])
+        old = time.time() - 48 * 3600
+        os.utime(tm.FX_CACHE, (old, old))
+        self.assertEqual(self.new_run()[1], f"cached, {self.WHEN}")
+
+    def test_a_failed_fetch_is_tried_once_and_not_again_for_an_hour(self):
+        """A failed fetch was forgotten at once, so every call in a run, and
+        every run after it, sat through the timeout again."""
+        tm.ONLINE_LOOKUP[0] = True
+        self.save(48)
+        for _ in range(3):
+            got = tm.fx_rates()
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(got, ({"USD": 1.0, "GBP": 0.5}, f"stale, {self.WHEN}", False))
+        # The failure is in the file; the rates it held are kept, and still old.
+        saved = json.loads(slurp(tm.FX_CACHE))
+        self.assertEqual(saved["rates"], {"USD": 1.0, "GBP": 0.5})
+        self.assertLess(saved["fetched"], time.time() - tm.FX_TTL)
+        self.assertEqual(self.new_run(), got)                # the next run, within the hour
+        self.assertEqual(len(self.requests), 1)
+        saved["failed"] -= tm.FX_RETRY
+        with open(tm.FX_CACHE, "w") as f:
+            json.dump(saved, f)
+        self.new_run()                                       # an hour later
+        self.assertEqual(len(self.requests), 2)
+
+    def test_a_run_asks_once_even_where_nothing_can_be_saved(self):
+        """With the rate file unwritable, every call in a run fetched again."""
+        tm.ONLINE_LOOKUP[0] = True
+        tm.FX_CACHE = os.path.join(self.tmp, "no-such-folder", "fx_rates.json")
+        answers = [tm.fx_rates() for _ in range(3)]
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(answers, [(tm.FALLBACK_RATES, tm.FX_ESTIMATE, False)] * 3)
+
+    def test_a_failure_with_nothing_saved_is_never_used_as_rates(self):
+        """The record of a failed fetch, with no rates beside it, must read
+        as no rate at all, not as an empty set of rates."""
+        tm.ONLINE_LOOKUP[0] = True
+        rates, when, live = tm.fx_rates()
+        self.assertEqual((rates, live), (tm.FALLBACK_RATES, False))
+        self.assertEqual(when, tm.FX_ESTIMATE)
+        self.assertNotIn("rates", json.loads(slurp(tm.FX_CACHE)))
+        self.assertEqual(self.new_run(), (tm.FALLBACK_RATES, tm.FX_ESTIMATE, False))
+        self.assertEqual(len(self.requests), 1)
+
+    def test_an_offline_run_makes_no_request(self):
+        """--offline stopped only the price lookup: a report in pounds and
+        the menu bar's summary still fetched exchange rates."""
+        self.write("a.jsonl", record("msg_1", out=10),
+                   record("msg_2", model="claude-opus-9", out=10))
+        tm.ONLINE_LOOKUP[0] = True
+        out = cli("--offline", "--currency", "GBP")
+        self.assertIn(f"to the dollar ({tm.FX_ESTIMATE_OFFLINE}). ", out)
+        self.assertIn("no price on file for claude-opus-9", out)
+        tm._FX_MEMO.clear()
+        tm.ONLINE_LOOKUP[0] = True
+        s = json.loads(cli("--offline", "--summary-json"))
+        self.assertEqual((s["rate_when"], s["rate_live"]), (tm.FX_ESTIMATE_OFFLINE, False))
+        self.assertEqual(self.requests, [])
+
+    def test_summary_asks_once(self):
+        """summary() called fx_rates() three times, once per field."""
+        self.write("a.jsonl", record("msg_1", out=10))
+        calls = []
+        tm.fx_rates = lambda: calls.append(1) or ({"USD": 1.0, "GBP": 0.5}, self.WHEN, False)
+        s = tm.summary()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((s["rates"], s["rate_when"], s["rate_live"]),
+                         ({"USD": 1.0, "GBP": 0.5}, self.WHEN, False))
+
+    def test_the_rate_says_what_it_is_once(self):
+        """The footer read "(OFFLINE ESTIMATE, offline estimate, no cached rate)"."""
+        self.write("a.jsonl", record("msg_1", out=10))
+        result = tm.collect(tm.transcripts(), ledger=False)
+        out = os.path.join(self.tmp, "d.html")
+        for when, live, shown in ((tm.FX_ESTIMATE_OFFLINE, False, tm.FX_ESTIMATE_OFFLINE),
+                                  (tm.FX_ESTIMATE, False, tm.FX_ESTIMATE),
+                                  (f"stale, {self.WHEN}", False, f"stale, {self.WHEN}"),
+                                  (f"cached, {self.WHEN}", False, f"cached, {self.WHEN}"),
+                                  (self.WHEN, True, f"live, {self.WHEN}")):
+            with self.subTest(when=when):
+                tm.DISPLAY.update(code="GBP", symbol="£", rate=0.5, when=when, live=live)
+                footer = terminal(*result, "", "all time").strip().splitlines()[-1]
+                self.assertIn(f"to the dollar ({shown}). ", footer)
+                self.assertLessEqual(footer.lower().count("estimate"), 1, footer)
+                tm.fx_rates = lambda: ({"USD": 1.0, "GBP": 0.5}, when, live)
+                tm.render_html(*result, "all time", out)
+                self.assertEqual(payload_of(slurp(out, encoding="utf-8"))["rateWhen"], shown)
+
+
 class TestStatusLine(Base):
-    def run_statusline(self, payload, **env):
+    def run_statusline(self, payload, counted=False, **env):
         """statusline.py as Claude Code runs it, sealed: a copy in the temp
         folder (so its day cache lands there), the engine from this checkout,
         a temp home, ledger and price cache, and no network."""
@@ -1692,7 +1854,22 @@ class TestStatusLine(Base):
                       TOKENMETER_PRICE_CACHE=os.path.join(self.tmp, "prices.json"),
                       TOKENMETER_OFFLINE="1", TOKENMETER_CURRENCY="USD")
         sealed.update(env)
-        return subprocess.run([sys.executable, os.path.join(here, "statusline.py")],
+        script = [os.path.join(here, "statusline.py")]
+        if counted:
+            # Run through a wrapper that counts every request and answers none.
+            with open(os.path.join(here, "counted.py"), "w") as f:
+                f.write("import runpy, sys, urllib.request\n"
+                        "calls = []\n"
+                        "def refuse(*args, **kw):\n"
+                        "    calls.append(args)\n"
+                        "    raise OSError('no network in tests')\n"
+                        "urllib.request.urlopen = refuse\n"
+                        "try:\n"
+                        "    runpy.run_path(sys.argv[1], run_name='__main__')\n"
+                        "finally:\n"
+                        "    sys.stderr.write('requests: %d\\n' % len(calls))\n")
+            script.insert(0, os.path.join(here, "counted.py"))
+        return subprocess.run([sys.executable] + script,
                               input=json.dumps(payload), capture_output=True, text=True,
                               env=sealed, timeout=60)
 
@@ -1711,6 +1888,21 @@ class TestStatusLine(Base):
                 out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
                 self.assertEqual(len(out.splitlines()), 2, out)
                 self.assertIn(f"{tm.money(cost)} session", out)
+
+    def test_it_makes_no_network_request(self):
+        """It runs on every prompt, and fetched exchange rates (as many times
+        as it asked for them) whenever none were saved, so a slow network held
+        up the prompt. Online lookups on, pounds, a model no table has and
+        nothing saved: every reason to fetch, and still no request."""
+        path = self.write("sess.jsonl", record("msg_1", out=1000),
+                          record("msg_2", model="claude-opus-9", out=1000))
+        done = self.run_statusline({"model": {"display_name": "Opus"}, "transcript_path": path},
+                                   counted=True, TOKENMETER_OFFLINE="", TOKENMETER_CURRENCY="GBP")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("requests: 0", done.stderr)
+        out = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout)
+        self.assertEqual(len(out.splitlines()), 2, out)
+        self.assertIn("£", out)
 
     def test_the_command_line_names_where_a_bad_code_came_from(self):
         """A typo in TOKENMETER_CURRENCY read as if it had been typed on the

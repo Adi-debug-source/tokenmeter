@@ -145,7 +145,7 @@ There are three levels of confidence, and every report says which one each figur
 
 The tables model what each provider publishes and a log can support: cached input rates, cache writes by lifetime, long-context surcharges above a threshold, fast or priority tiers, dated price changes (Gemini 3.6 to 3.8 Flash rise on 1 January 2027, and each call is priced at the rate on its own day), and DeepSeek's off-peak discount by time of day.
 
-**A model the tables do not have is looked up online at startup,** once: first on the provider's own pricing page where Tokenmeter can read it, otherwise in [LiteLLM's public price list](https://github.com/BerriAI/litellm). The result is saved locally with its source and date, rechecked weekly, and labelled in every report as looked up, not checked by hand. Only price lists are downloaded; no usage data, totals or model names are sent anywhere except the one case of reading an OpenAI model's own page. `TOKENMETER_OFFLINE=1` or `--offline` switches it off, and an unknown model is then priced at a flagged stand-in rate.
+**A model the tables do not have is looked up online at startup,** once: first on the provider's own pricing page where Tokenmeter can read it, otherwise in [LiteLLM's public price list](https://github.com/BerriAI/litellm). The result is saved locally with its source and date, rechecked weekly, and labelled in every report as looked up, not checked by hand. Only price lists are downloaded; no usage data, totals or model names are sent anywhere except the one case of reading an OpenAI model's own page. `TOKENMETER_OFFLINE=1` or `--offline` switches it off, along with the exchange-rate request, and an unknown model is then priced at a flagged stand-in rate.
 
 ## How accurate is this?
 
@@ -153,7 +153,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 **Other providers are best-effort.** Their tables were read from each provider's own pricing pages, figure by figure, and `--check-prices` confirms they still match those pages. What has not been done is comparing them with a real bill from someone who uses those models daily. If you do, please check a month against your invoice and open an issue whether it matches or not.
 
-**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date it was last verified, shown in every report, with a warning once it is more than 90 days old. `tokenmeter --check-prices` fetches every provider's page and reports any difference, but never changes a table: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made. The one thing that is fetched automatically is a price for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; prices do not.
+**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date it was last verified, shown in every report, with a warning once it is more than 90 days old. `tokenmeter --check-prices` fetches every provider's page and reports any difference, but never changes a table: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made. The one thing that is fetched automatically is a price for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
@@ -211,7 +211,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 | `TOKENMETER_CURRENCY` | Default display currency everywhere (USD unless set) |
 | `TOKENMETER_LEDGER` | Where the ledger lives |
 | `TOKENMETER_CLAUDE_PROJECTS` | Extra Claude Code projects folders, colon separated, to count two Macs as one history |
-| `TOKENMETER_OFFLINE` | `1` to never look prices up online |
+| `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME` | Respected, as each harness uses them |
 
 The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there.

@@ -145,56 +145,99 @@ CURRENCIES = {
     "JPY": ("¥", "yen"),
 }
 
-# Used only when the rate lookup cannot reach the network. Roughly right beats
-# refusing to print a number, but the report says when it is falling back.
+# Used only when no real rate can be had: none fetched and none saved. Roughly
+# right beats refusing to print a number, but every face says it is an estimate.
 FALLBACK_RATES = {"USD": 1.0, "GBP": 0.74, "EUR": 0.86, "INR": 95.0,
                   "CAD": 1.38, "AUD": 1.38, "JPY": 153.0}
+FX_ESTIMATE = "ESTIMATE, no exchange rate fetched and none saved"
+FX_ESTIMATE_OFFLINE = "ESTIMATE, offline and no exchange rate saved"
 
+FX_URL = "https://open.er-api.com/v6/latest/USD"
 FX_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fx_rates.json")
 # Half a day, so a rate checked in the morning is never yesterday afternoon's.
 # The menu bar calls this every 60 seconds, so expiry heals itself with no
 # scheduler, no cron and no agent run.
 FX_TTL = 43200
+# After a failed fetch, how long to wait before trying again. Without it every
+# menu bar refresh on a dead network sat through the whole timeout.
+FX_RETRY = 3600
+# The answer, once per process: summary(), set_currency() and the dashboard all
+# ask, and used to ask the network once each.
+_FX_MEMO: list = []
 
 
 def fx_rates() -> tuple:
     """Dollars to everything else. Returns (rates, when, live).
 
+    Asked once per run. A rate saved less than FX_TTL ago is used as it is.
+    Offline (--offline or TOKENMETER_OFFLINE, see ONLINE_LOOKUP below) nothing
+    is fetched: an older saved rate is used and says so, else the built-in
+    estimate. Online an older rate is refreshed; a failed fetch is remembered
+    in the file and not retried for FX_RETRY seconds, the stale rate or the
+    estimate standing in meanwhile.
+
     The only thing that leaves the Mac is the string "USD". No usage data,
     no totals, nothing identifying.
     """
-    cached = None
+    if not _FX_MEMO:
+        _FX_MEMO.append(_fx_lookup())
+    return _FX_MEMO[0]
+
+
+def _fx_lookup() -> tuple:
+    now = time.time()
     try:
         with open(FX_CACHE) as f:
-            cached = json.load(f)
-        if time.time() - os.path.getmtime(FX_CACHE) < FX_TTL:
-            return cached["rates"], cached.get("when", "cached"), True
-    except Exception:
-        cached = None
+            saved = json.load(f)
+        if not isinstance(saved, dict):
+            saved = {}
+        # A file written before fetch times were recorded is as old as its
+        # last write.
+        if not isinstance(saved.get("fetched"), (int, float)):
+            saved["fetched"] = os.path.getmtime(FX_CACHE)
+    except (OSError, ValueError):
+        saved = {}
+    rates = saved.get("rates") if isinstance(saved.get("rates"), dict) else None
+    failed = saved.get("failed") if isinstance(saved.get("failed"), (int, float)) else 0
+    day = saved.get("when") or "unknown"
+    if rates and now - saved["fetched"] < FX_TTL:
+        return rates, saved.get("when", "cached"), True
+    if not ONLINE_LOOKUP[0]:
+        if rates:
+            return rates, f"cached, {day}", False
+        return FALLBACK_RATES, FX_ESTIMATE_OFFLINE, False
 
+    if now - failed >= FX_RETRY:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(FX_URL, timeout=8) as r:
+                payload = json.load(r)
+            if payload.get("result") == "success":
+                fresh = {k: v for k, v in payload["rates"].items() if k in CURRENCIES}
+                fresh["USD"] = 1.0
+                when = payload.get("time_last_update_utc", "")[:16]
+                _save_fx({"rates": fresh, "when": when, "live": True, "fetched": now})
+                return fresh, when, True
+        except Exception:
+            pass
+        # Remembered in the file, so the next hour of runs does not wait on
+        # the same timeout. The rates it holds, if any, are kept with their
+        # own fetch time, so the write does not make them look fresh.
+        _save_fx(dict(saved, failed=now) if rates else {"failed": now})
+
+    # A real rate from yesterday beats a constant from whenever this file was
+    # last edited, so prefer the stale cache.
+    if rates:
+        return rates, f"stale, {day}", False
+    return FALLBACK_RATES, FX_ESTIMATE, False
+
+
+def _save_fx(data: dict) -> None:
     try:
-        import urllib.request
-        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=8) as r:
-            payload = json.load(r)
-        if payload.get("result") == "success":
-            rates = {k: v for k, v in payload["rates"].items() if k in CURRENCIES}
-            rates["USD"] = 1.0
-            when = payload.get("time_last_update_utc", "")[:16]
-            try:
-                with open(FX_CACHE, "w") as f:
-                    json.dump({"rates": rates, "when": when, "live": True}, f)
-            except OSError:
-                pass
-            return rates, when, True
-    except Exception:
+        with open(FX_CACHE, "w") as f:
+            json.dump(data, f)
+    except OSError:
         pass
-
-    # The fetch failed. A real rate from yesterday beats a constant from
-    # whenever this file was last edited, so prefer the stale cache.
-    if cached and cached.get("rates"):
-        return cached["rates"], f"stale, {cached.get('when', 'unknown')}", False
-
-    return FALLBACK_RATES, "offline estimate, no cached rate", False
 
 
 DISPLAY = {"code": "USD", "symbol": "$", "rate": 1.0, "when": "", "live": True}
@@ -1651,10 +1694,13 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
         colour = "" if level == "warn" else DIM
         print(f"  {tag}{colour}{text}{RESET}")
     if DISPLAY["code"] != "USD":
-        tag = "live" if DISPLAY["live"] else "OFFLINE ESTIMATE"
+        # A rate that is not live says what it is itself ("stale, <date>",
+        # "cached, <date>" or an estimate), so it is printed alone; a tag in
+        # front once read "(OFFLINE ESTIMATE, offline estimate, ...)".
+        source = f"live, {DISPLAY['when']}" if DISPLAY["live"] else DISPLAY["when"]
         print()
         print(f"  {DIM}shown in {CURRENCIES[DISPLAY['code']][1]} at "
-              f"{DISPLAY['rate']:.4f} to the dollar ({tag}, {DISPLAY['when']}). "
+              f"{DISPLAY['rate']:.4f} to the dollar ({source}). "
               f"--currency USD for the billed figures.{RESET}")
     print()
 
@@ -2826,6 +2872,8 @@ def summary(ledger: bool = True) -> dict:
     """
     paths = transcripts()
     overall, groups, _meta, unknown = collect(paths, ledger=ledger)
+    # Asked once: it was asked three times, a fetch each when the network was down.
+    rates, rate_when, rate_live = fx_rates()
 
     today = dt.date.today()
     week_start = today - dt.timedelta(days=6)
@@ -2873,9 +2921,9 @@ def summary(ledger: bool = True) -> dict:
         # The same order the dashboard's pills use. A JSON object's key order
         # does not survive into Swift, so the order travels as a list.
         "currency_order": list(CURRENCIES),
-        "rates": fx_rates()[0],
-        "rate_when": fx_rates()[1],
-        "rate_live": fx_rates()[2],
+        "rates": rates,
+        "rate_when": rate_when,
+        "rate_live": rate_live,
         "no_cache_saved": overall["no_cache"] - overall["total"],
         "covered": covered_span(groups, paths),
         "unknown_models": sorted(unknown),
@@ -3198,8 +3246,9 @@ def main(argv=None) -> None:
                     help="every model with a checked price, and its rates")
     ap.add_argument("--markdown", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--offline", action="store_true",
-                    help="never look prices up online; unknown models get a flagged "
-                         f"stand-in rate (or set {OFFLINE_ENV}=1)")
+                    help="make no network requests: unknown models get a flagged stand-in "
+                         "rate, and the last saved exchange rate is used at any age, else "
+                         f"a built-in estimate (or set {OFFLINE_ENV}=1)")
     ap.add_argument("--check-prices", action="store_true",
                     help="fetch each provider's pricing page and report any difference "
                          "from the tables; changes nothing")

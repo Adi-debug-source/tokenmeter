@@ -11,6 +11,11 @@ tokenmeter.py beside this file, so there is one table, not two.
 Receives session JSON on stdin (see Claude Code's statusLine documentation).
 Set TOKENMETER_CURRENCY to show another currency (USD by default); a code it
 does not know falls back to dollars rather than blanking the line.
+
+It never makes a network request, because it runs on every prompt. Looked-up
+prices and the exchange rate are whatever a report, the dashboard or the menu
+bar last saved, at any age; with no saved exchange rate it uses the built-in
+estimate.
 """
 
 import json
@@ -24,12 +29,16 @@ CACHE_TTL = 90  # seconds; the daily figure need not be to the second
 
 sys.path.insert(0, HERE)
 try:
-    from tokenmeter import (COMPONENTS, DEFAULT_CURRENCY, money, session_totals,
-                            set_currency)
+    from tokenmeter import (COMPONENTS, DEFAULT_CURRENCY, ONLINE_LOOKUP, money,
+                            session_totals, set_currency)
 except Exception:  # the status line must never be the thing that breaks
     session_totals = None
     money = None
 else:
+    # Offline for everything this process does: set_currency() then reads the
+    # exchange rate a report, the dashboard or the menu bar last saved instead
+    # of fetching one, which could hold up every prompt for its timeout.
+    ONLINE_LOOKUP[0] = False
     try:
         set_currency(DEFAULT_CURRENCY)
     except (SystemExit, Exception):

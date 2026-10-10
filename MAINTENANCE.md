@@ -86,6 +86,12 @@ found nowhere is not asked about again for a day. Delete that file to forget
 every lookup. The status line never looks anything up; it only reads what a
 report or the menu bar already saved.
 
+Exchange rates (`fx_rates()`) are asked for once per run and saved to
+`.fx_rates.json`, trusted for 12 hours. A failed fetch is recorded there and
+not retried for an hour. Offline, and always in the status line, nothing is
+fetched: the saved rate is used at any age, else `FALLBACK_RATES`, and every
+face says which.
+
 ## Adapters
 
 Everything about writing one and promoting it from unverified is in
