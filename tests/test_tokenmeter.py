@@ -728,7 +728,7 @@ def zstd_compress(data):
         return zstandard.ZstdCompressor().compress(data)
     except ImportError:
         pass
-    tool = shutil.which("zstd")
+    tool = tm.codex._zstd_tool()
     if tool:
         import subprocess
         return subprocess.run([tool, "-q", "-c"], input=data, capture_output=True,
@@ -1160,6 +1160,59 @@ class TestCodexAdapter(Base):
         self.assertIn("2 compressed Codex sessions (.jsonl.zst) could not be read; the files may "
                       "be damaged or still being compressed", notes)
         self.assertNotIn("Install zstd", notes)
+
+    def no_decoder_but(self, *zstd_paths):
+        """A machine like the menu bar's: /usr/bin/python3, so no compression.zstd
+        and no zstandard, and launchd's PATH, so no zstd on it. zstd_paths
+        stand in for where Homebrew puts the command."""
+        from unittest import mock
+        import contextlib
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.dict(sys.modules, {"compression": None,
+                                                          "compression.zstd": None,
+                                                          "zstandard": None}))
+        stack.enter_context(mock.patch("shutil.which", return_value=None))
+        stack.enter_context(mock.patch.object(tm.codex, "ZSTD_PATHS", zstd_paths))
+        return stack
+
+    def fake_zstd(self, where, executable=True):
+        """A stand-in for `zstd -dc FILE` that prints FILE as it is."""
+        os.makedirs(where, exist_ok=True)
+        p = os.path.join(where, "zstd")
+        with open(p, "w") as f:
+            f.write('#!/bin/sh\nexec cat "$2"\n')
+        os.chmod(p, 0o755 if executable else 0o644)
+        return p
+
+    def test_zstd_is_found_where_homebrew_puts_it(self):
+        """The menu bar runs under launchd, whose PATH has no Homebrew folder,
+        so shutil.which never found zstd there: every compressed session was
+        left out and the menu said to install zstd, which was installed."""
+        missing = os.path.join(self.tmp, "nowhere", "zstd")
+        not_runnable = self.fake_zstd(os.path.join(self.tmp, "plain"), executable=False)
+        tool = self.fake_zstd(os.path.join(self.tmp, "homebrew", "bin"))
+        with self.no_decoder_but(missing, not_runnable, tool):
+            self.assertEqual(tm.codex._zstd_tool(), tool)
+            p = self.place("gen4_current_paginated.jsonl")
+            os.rename(p, p + ".zst")
+            overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 3)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertNotIn("could not be read", notes)
+
+    def test_with_no_decoder_anywhere_it_says_to_install_zstd(self):
+        """No decoder at all is a different problem from a damaged file, and
+        only this one is solved by installing zstd."""
+        p = self.place("gen4_current_paginated.jsonl")
+        os.rename(p, p + ".zst")
+        with self.no_decoder_but(os.path.join(self.tmp, "nowhere", "zstd")):
+            self.assertIsNone(tm.codex._zstd_tool())
+            overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 0)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("1 compressed Codex session (.jsonl.zst) could not be read. Install zstd "
+                      "(brew install zstd) to include them", notes)
+        self.assertNotIn("damaged", notes)
 
     def test_claude_code_alone_is_unchanged_by_codex_existing(self):
         """Adding an adapter must not move a Claude Code figure."""

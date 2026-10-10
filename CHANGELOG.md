@@ -88,6 +88,11 @@
   one is while Codex is still compressing it, is skipped and reported as
   possibly damaged. On Python 3.14 it ended every run in a traceback, and on
   older versions the report said to install zstd when zstd was installed.
+- The menu bar reads compressed Codex sessions when zstd came from Homebrew.
+  It runs under launchd, whose PATH has no Homebrew folder, so it never found
+  the command: it left out every Codex session older than a week until a
+  terminal run had recorded it, and said to install zstd. The command is now
+  also looked for in `/opt/homebrew/bin` and `/usr/local/bin`.
 
 ## 1.1.2, 6 October 2026
 

@@ -31,11 +31,13 @@ What Codex writes, and what this reader does with it:
   - Codex compresses sessions older than seven days to .jsonl.zst. Python has
     no zstd reader before 3.14, so those are read with the `zstd` command or
     the `zstandard` package when either is installed, and counted and reported
-    when neither is. A compressed file that will not decode, because it is cut
-    short or corrupt (Codex may still be compressing it), is skipped and
-    reported as possibly damaged rather than ending the run. The ledger keeps
-    every call it has already seen, so a session read before it was compressed
-    is never lost.
+    when neither is. The command is looked for on PATH and then where Homebrew
+    puts it (ZSTD_PATHS), because the menu bar runs under launchd, whose PATH
+    has no Homebrew folder. A compressed file that will not decode, because it
+    is cut short or corrupt (Codex may still be compressing it), is skipped
+    and reported as possibly damaged rather than ending the run. The ledger
+    keeps every call it has already seen, so a session read before it was
+    compressed is never lost.
 """
 
 from __future__ import annotations
@@ -62,6 +64,10 @@ LEGACY_MODEL = "gpt-5"
 # else is passed through as written, and priced only if a table or the online
 # lookup knows it; a local model (ollama, lmstudio) is not a billed API call.
 PROVIDERS = {"openai": "openai"}
+
+# Where Homebrew puts the zstd command, on Apple silicon and on Intel. The menu
+# bar runs under launchd, whose PATH has neither, so PATH alone is not enough.
+ZSTD_PATHS = ("/opt/homebrew/bin/zstd", "/usr/local/bin/zstd")
 
 _STATE = {"guessed": 0, "compressed_unread": 0, "compressed_damaged": 0}
 
@@ -124,6 +130,18 @@ def reset() -> None:
     _STATE.update(guessed=0, compressed_unread=0, compressed_damaged=0)
 
 
+def _zstd_tool():
+    """The zstd command: the one on PATH, else the first of ZSTD_PATHS that
+    can be run, else None."""
+    tool = shutil.which("zstd")
+    if tool:
+        return tool
+    for path in ZSTD_PATHS:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
 class _Damaged(Exception):
     """A .jsonl.zst that a zstd decoder could not read: cut short, corrupt, or
     still being written."""
@@ -151,7 +169,7 @@ def _decoder():
             with open(path, "rb") as f:
                 return zstandard.ZstdDecompressor().stream_reader(f).read()
         return read
-    tool = shutil.which("zstd")
+    tool = _zstd_tool()
     if tool:
         def read(path):
             return subprocess.run([tool, "-dc", path], capture_output=True, timeout=30,
