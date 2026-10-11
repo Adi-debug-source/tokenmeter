@@ -2211,6 +2211,12 @@ const D = __PAYLOAD__;
 const SLOW = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 const callsText = n => n.toLocaleString('en-US') + (n === 1 ? ' call' : ' calls');
+/* Text bound for markup. A provider's name comes from the logs or an import,
+   and one holding markup ran when the tooltip showed it, so every string goes
+   through here before it meets innerHTML; only numbers and the engine's fixed
+   colours go in as they are. */
+const esc = v => String(v).replace(/[&<>"']/g,
+  c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
 
 /* ---- money. Same rule as money() in tokenmeter.py. Three copies of this
    exist, one per face, and they must agree or one figure reads two ways.
@@ -2317,7 +2323,7 @@ function drawChart() {
 
   const padL = 54, padR = 16, padT = 16, padB = 28;
   const iw = W - padL - padR, ih = H - padT - padB;
-  const rate = D.rates[CUR] || 1, sym = D.symbols[CUR] || '$';
+  const rate = D.rates[CUR] || 1, sym = D.symbols[CUR] || '$', pageId = esc(ACTIVE);
 
   const part = (d, s) => MODE === 'cost' ? (d.by[s.name] || 0) * rate : (d.byTok[s.name] || 0);
   const val = d => stacked ? series.reduce((a, s) => a + part(d, s), 0)
@@ -2347,7 +2353,7 @@ function drawChart() {
     const yy = padT + ih - (i / 4) * ih;
     g += '<line class="gridline" x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '"/>' +
          '<text class="axlab" x="' + (padL - 9) + '" y="' + (yy + 3.5) + '" text-anchor="end">' +
-         shortNum(peak * i / 4) + '</text>';
+         esc(shortNum(peak * i / 4)) + '</text>';
   }
 
   const grow = (i, top, h) => SLOW ? '' :
@@ -2362,7 +2368,7 @@ function drawChart() {
     const bx = x(i) + bw * 0.17, bwid = Math.max(1, bw * 0.66);
     const rx = Math.min(2.5, bw * 0.3).toFixed(2);
     if (!stacked) {
-      bars += '<rect class="dbar" data-i="' + i + '" style="fill:url(#bargrad-' + ACTIVE + ')" x="' +
+      bars += '<rect class="dbar" data-i="' + i + '" style="fill:url(#bargrad-' + pageId + ')" x="' +
               bx.toFixed(2) + '" y="' + (padT + ih - h).toFixed(2) +
               '" width="' + bwid.toFixed(2) + '" height="' + h.toFixed(2) + '" rx="' + rx + '">' +
               grow(i, padT + ih - h, h) + '</rect>';
@@ -2395,7 +2401,7 @@ function drawChart() {
   days.forEach(function (d, i) {
     if (i % every && i !== days.length - 1) return;
     ticks += '<text class="axlab" x="' + (x(i) + bw / 2).toFixed(1) + '" y="' + (H - 7) +
-             '" text-anchor="middle">' + d.short + '</text>';
+             '" text-anchor="middle">' + esc(d.short) + '</text>';
   });
 
   /* Split bars already use the harness colours, so the running total drops
@@ -2405,12 +2411,12 @@ function drawChart() {
     '<defs>' +
     /* Ids carry the page's name: a gradient defined inside a hidden page
        can fail to paint the page that is showing. */
-    '<linearGradient id="bargrad-' + ACTIVE + '" x1="0" y1="0" x2="0" y2="1">' +
+    '<linearGradient id="bargrad-' + pageId + '" x1="0" y1="0" x2="0" y2="1">' +
       '<stop offset="0%" stop-color="#e8916f"/><stop offset="100%" stop-color="#c9663f"/></linearGradient>' +
-    '<linearGradient id="cumgrad-' + ACTIVE + '" x1="0" y1="0" x2="0" y2="1">' +
+    '<linearGradient id="cumgrad-' + pageId + '" x1="0" y1="0" x2="0" y2="1">' +
       '<stop offset="0%" stop-color="' + lineColour + '" stop-opacity="' + (stacked ? '.12' : '.22') + '"/>' +
       '<stop offset="100%" stop-color="' + lineColour + '" stop-opacity="0"/></linearGradient></defs>' +
-    g + '<path class="cumfill" style="fill:url(#cumgrad-' + ACTIVE + ')" d="' + area + '"/>' + bars +
+    g + '<path class="cumfill" style="fill:url(#cumgrad-' + pageId + ')" d="' + area + '"/>' + bars +
     '<path class="cum' + (stacked ? ' neutral' : '') + '" d="' + line + '"' +
       (SLOW ? '' : ' stroke-dasharray="5000" stroke-dashoffset="5000">' +
         '<animate attributeName="stroke-dashoffset" values="5000;0" dur="1.7s" begin="0.15s" fill="freeze"/></path>') +
@@ -2440,13 +2446,13 @@ function onMove(e, host) {
   if (stacked) {
     const usd = series.reduce((a, s) => a + (d.by[s.name] || 0), 0);
     const calls = series.reduce((a, s) => a + (d.byCalls[s.name] || 0), 0);
-    tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(usd, CUR) + '</b>' +
+    tip.innerHTML = '<i>' + esc(d.full) + '</i><b>' + esc(fmt(usd, CUR)) + '</b>' +
       series.filter(s => d.by[s.name]).map(s => '<i><span class="sw" style="background:' + s.color +
-        '"></span>' + s.label + ' ' + fmt(d.by[s.name], CUR) + '</i>').join('') +
-      '<i>' + callsText(calls) + ' · running ' + running + '</i>';
+        '"></span>' + esc(s.label + ' ' + fmt(d.by[s.name], CUR)) + '</i>').join('') +
+      '<i>' + esc(callsText(calls) + ' · running ' + running) + '</i>';
   } else {
-    tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(d.total, CUR) + '</b><i>' +
-      callsText(d.calls) + ' · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
+    tip.innerHTML = '<i>' + esc(d.full) + '</i><b>' + esc(fmt(d.total, CUR)) + '</b><i>' +
+      esc(callsText(d.calls) + ' · ' + d.tokShort + ' tokens') + '</i><i>' + esc('running ' + running) + '</i>';
   }
   tip.classList.add('on');
 
@@ -2577,6 +2583,13 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
     several = len(hrows) > 1 and bool(views)
     today = dt.date.today()
 
+    def attr(text) -> str:
+        """A string made safe inside an HTML attribute. A provider's name comes
+        from the logs or an import, and one holding a double quote broke out
+        of the legend button's attribute, so every string that reaches an
+        attribute goes through here."""
+        return html.escape(str(text), quote=True)
+
     def m(usd):
         """A money value the currency switcher can rewrite in place."""
         return f'<span class="m" data-usd="{usd:.8f}" data-shown="{usd:.8f}">{money(usd)}</span>'
@@ -2671,7 +2684,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             pct = (cost / total * 100) if total else 0
             if pct > 0.15:
                 stack += (f'<div class="seg" style="width:{pct:.3f}%;background:{col};'
-                          f'transition-delay:{i * 110}ms" title="{name}"></div>')
+                          f'transition-delay:{i * 110}ms" title="{attr(name)}"></div>')
             legend += (f'<div class="lg"><span class="dot" style="background:{col}"></span>'
                        f'<span class="lg-k">{name}</span><span class="lg-t">{tk}</span>'
                        f'<span class="lg-v">{m(cost)}</span></div>')
@@ -2825,8 +2838,8 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             peak = max(vals) or 1
             cols = "".join(
                 f'<div class="col" style="height:{max(2, v / peak * 100):.1f}%;'
-                f'transition-delay:{i * 26}ms" title="{fmt_label(labels[i]) or labels[i]}: '
-                f'{money(v)}"></div>' for i, v in enumerate(vals))
+                f'transition-delay:{i * 26}ms" title="{attr(fmt_label(labels[i]) or labels[i])}: '
+                f'{attr(money(v))}"></div>' for i, v in enumerate(vals))
             xs = "".join(f'<span>{fmt_label(k)}</span>' for k in labels)
             return f'<div class="cols">{cols}</div><div class="cols-x">{xs}</div>'
 
@@ -2880,7 +2893,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             spend_lede = (f"Each day\u2019s bar split by {'harness' if kind == 'source' else 'provider'}. "
                           "The line is the running total. Click a name to leave it out.")
             series_legend = '<div class="slegend">' + "".join(
-                f'<button class="sl" data-series="{n}"><span class="sw" style="background:{c}"></span>'
+                f'<button class="sl" data-series="{attr(n)}"><span class="sw" style="background:{c}"></span>'
                 f'{html.escape(lab)}</button>' for n, lab, c in series) + '</div>'
 
         # A sentence gets one full stop: notes that already end in one used to
@@ -2982,7 +2995,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
                                           only=r["name"], axis=axis)))
 
     pills = "".join(
-        f'<button data-cur="{c}" class="pill{" on" if c == DISPLAY["code"] else ""}" '
+        f'<button data-cur="{attr(c)}" class="pill{" on" if c == DISPLAY["code"] else ""}" '
         f'style="animation-delay:{.58 + i * .045:.3f}s">{CURRENCIES[c][0]} {c}</button>'
         for i, c in enumerate(CURRENCIES))
     # With several harnesses, one of them can be shown on its own. A choice to
@@ -2990,16 +3003,20 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
     picker = ""
     if several:
         options = '<option value="all">All harnesses</option>' + "".join(
-            f'<option value="{r["name"]}">{html.escape(r["label"])}'
+            f'<option value="{attr(r["name"])}">{html.escape(r["label"])}'
             f'{"" if r["status"] == "verified" else " (" + r["status_word"] + ")"}</option>'
             for r in hrows)
         picker = f'<label class="hpick">Harness <select class="hsel">{options}</select></label>'
 
+    # The data block goes inside a <script> element, where "</script>" in a
+    # provider's name ended the dashboard's script early and ran what came
+    # after it. <, > and & are written as JSON escapes, which read back as the
+    # same characters.
     payload = json.dumps({
         "rates": rates, "symbols": {c: CURRENCIES[c][0] for c in CURRENCIES},
         "current": DISPLAY["code"], "rateWhen": ("live, " + when) if live else when,
         "first": "all", "views": {key: chart for key, (_, chart) in pages},
-    })
+    }).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     doc = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -3019,7 +3036,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         '</div></div>'
 
         '<div class="wrap">'
-        + "".join(f'<div class="view" data-view="{key}"{"" if key == "all" else " hidden"}>{body}</div>'
+        + "".join(f'<div class="view" data-view="{attr(key)}"{"" if key == "all" else " hidden"}>{body}</div>'
                   for key, (body, _) in pages)
         + '</div>'
 

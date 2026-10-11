@@ -163,6 +163,11 @@
   "Caching made it 0.5x less expensive". With no cache reads at all, the
   terminal and the dashboard no longer quote a cache rate of $0.0000 per
   million.
+- The dashboard writes a provider's name as text wherever it appears: in an
+  attribute, in its data block and in the chart's tooltip. Provider names come
+  from import files and from OpenCode's and Codex's logs, and one holding
+  markup, such as `</script>` or a double quote, broke the page and ran as
+  part of it when the page was opened.
 
 ## 1.1.2, 6 October 2026
 

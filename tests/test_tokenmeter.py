@@ -1023,6 +1023,46 @@ class TestDashboard(Base):
         self.assertIn('<td class="dim">?</td>', page)
         self.assertNotIn(chr(0x2014), page)                 # the em dash
 
+    def test_a_providers_name_cannot_write_markup(self):
+        """Provider names come from import files, OpenCode and Codex logs. One
+        named '"><img src=x onerror=alert(1)>' broke out of the chart legend's
+        data-series attribute, and one named '</script><img src=x>' closed the
+        dashboard's script early, twice; both ran as markup when opened."""
+        hostile = ['</script><img src=x>', '"><img src=x onerror=alert(1)>']
+        p = os.path.join(self.tmp, "events.jsonl")
+        with open(p, "w") as f:
+            for i, provider in enumerate(hostile + ["openai"]):
+                f.write(json.dumps({"id": f"e{i}", "timestamp": "2026-09-20T10:00:00Z",
+                                    "provider": provider, "model": "gpt-5",
+                                    "input": 1000, "output": 500}) + "\n")
+        tm._IMPORTS[:] = [p]
+        tm._ONLY[:] = ["import"]
+        out = os.path.join(self.tmp, "d.html")
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(set(groups["provider"]), set(hostile) | {"openai"})
+        tm.render_html(overall, groups, meta, unknown, "all time", out)
+        page = slurp(out, encoding="utf-8")
+        for raw in ("</script><img", 'data-series=""><img', "<img"):
+            self.assertFalse(raw in page, raw)
+        self.assertEqual(page.count("</script>"), 1)        # the dashboard's own
+        self.assertIn('data-series="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"', page)
+        series = payload_of(page)["views"]["all"]["series"]
+        self.assertEqual({s["name"] for s in series}, set(hostile) | {"openai"})
+        self.assertEqual({s["label"] for s in series} - {"OpenAI"}, set(hostile))
+
+    def test_the_script_escapes_what_it_writes_as_markup(self):
+        """The chart's tooltip put each series' label into innerHTML as it
+        was. Every payload string now goes through esc() first."""
+        js = tm.DASH_JS
+        self.assertIn("const esc = ", js)
+        tip = js[js.index("const tip = host.querySelector('.tip');"):js.index("tip.classList.add('on')")]
+        for raw in ("'<i>' + d.full", "+ s.label", "d.tokShort + ' tokens</i>"):
+            self.assertNotIn(raw, tip)
+        for escaped in ("esc(d.full)", "esc(s.label + ", "' · ' + d.tokShort + ' tokens')"):
+            self.assertIn(escaped, tip)
+        self.assertIn("pageId = esc(ACTIVE)", js)
+        self.assertIn("esc(d.short)", js)
+
     def test_renders_with_no_history_at_all(self):
         """A fresh install opens the dashboard before it has priced anything."""
         out = os.path.join(self.tmp, "empty.html")
