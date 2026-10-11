@@ -3173,7 +3173,11 @@ def summary(ledger: bool = True) -> dict:
         "models": [{"name": k, "total": v["total"], "calls": v["calls"],
                     "provider": priced_by.get(k, (DEFAULT_PROVIDER,))[0]}
                    for k, v in sorted(groups["model"].items(), key=lambda kv: -kv[1]["total"])],
-        "days": [{"day": k, "total": v["total"]} for k, v in sorted(groups["day"].items())][-30:],
+        # The menu bar's "last 30 days" sparkline: every calendar day, oldest
+        # first, a quiet day at zero. It was the last 30 days with any calls,
+        # which spans more than 30 days after any break.
+        "days": [{"day": d, "total": groups["day"][d]["total"] if d in groups["day"] else 0.0}
+                 for d in ((today - dt.timedelta(days=n)).isoformat() for n in range(29, -1, -1))],
         "tokens": t,
         "cache_hit_pct": (t["cache_read"] / prompt_tokens * 100) if prompt_tokens else 0.0,
         "without_cache": overall["no_cache"],

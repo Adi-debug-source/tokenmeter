@@ -172,6 +172,11 @@
   happens" are named for the run's own window, such as "September 2026" for
   `--period lastmonth`. They always said "All time", though the tile showed
   that window's total and the section covered only that window.
+- The menu bar's "Daily spend, last 30 days" sparkline covers the last 30
+  calendar days, a day with no calls at zero. It drew the last 30 days that
+  had any calls, so after a break it reached further back and drew the days
+  either side of the gap as neighbours. `--summary-json`'s `days` now always
+  holds those 30 days, oldest first.
 
 ## 1.1.2, 6 October 2026
 

@@ -968,6 +968,32 @@ class TestSummaryJson(Base):
             tm.main(["--summary-json"])
         self.assertEqual(json.loads(buf.getvalue())["all"]["calls"], 1)
 
+    def test_days_are_the_last_30_calendar_days(self):
+        """The menu bar's "Daily spend, last 30 days" sparkline was sent the
+        last 30 days that had calls, so after any quiet spell it reached back
+        further than 30 days and drew the days either side of a gap as
+        neighbours."""
+        today = dt.date.today()
+
+        def noon(days_ago):
+            local = dt.datetime.combine(today - dt.timedelta(days=days_ago), dt.time(12)).astimezone()
+            return local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        self.write("a.jsonl", record("msg_1", ts=noon(0), out=1000),
+                   record("msg_2", ts=noon(3), out=2000), record("msg_3", ts=noon(45), out=500))
+        days = tm.summary(ledger=False)["days"]
+        self.assertEqual([d["day"] for d in days],
+                         [(today - dt.timedelta(days=n)).isoformat() for n in range(29, -1, -1)])
+        self.assertAlmostEqual(days[-1]["total"], 1000 * 25 / 1e6, places=12)
+        self.assertAlmostEqual(days[-4]["total"], 2000 * 25 / 1e6, places=12)
+        self.assertEqual(days[-2]["total"], 0.0)                 # a day with no calls
+        self.assertEqual(sum(1 for d in days if d["total"]), 2)  # 45 days ago is not in it
+        # Now always 30 entries, so the menu bar draws nothing for a month of
+        # zeros rather than an empty line.
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        self.assertIn("if snap.days.contains(where: { $0 > 0 }) {", swift)
+
 
 class TestDashboard(Base):
     """The dashboard has to be one self-contained file that works offline."""

@@ -471,8 +471,10 @@ final class Controller: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
-        if !snap.days.isEmpty {
-            add(menu, sparkline(snap.days.suffix(30).map { $0 }), indent: 1, mono: true)
+        // The engine sends the last 30 calendar days, a quiet day at zero. A
+        // month with no spend at all has nothing to draw.
+        if snap.days.contains(where: { $0 > 0 }) {
+            add(menu, sparkline(Array(snap.days.suffix(30))), indent: 1, mono: true)
                 .toolTip = "Daily spend, last 30 days"
         }
         // %.1f, matching the terminal report. At 95.5 the two faces were
