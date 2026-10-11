@@ -89,7 +89,9 @@ _OWNER: dict = {}
 # --project and --session. Files are filtered on the way in where the path
 # says enough, and every call is filtered again on the way out, because calls
 # restored from the ledger have no file. Before this second filter, a single
-# session's report with the ledger on showed the whole history.
+# session's report with the ledger on showed the whole history. _SESSION
+# holds every id a call may start with: one typed, or each one a file given
+# to --session holds.
 _PROJECT: list = []
 _SESSION: list = []
 
@@ -113,17 +115,22 @@ def adapter_for(path: str):
     """The adapter that reads this file.
 
     Files found by scanning are remembered as they are found. A path handed
-    over directly, as --session accepts, is recognised from its first line
-    that parses, and falls back to Claude Code, the one format that is
-    verified.
+    over directly, as --session accepts, is recognised from its first lines,
+    and falls back to Claude Code, the one format that is verified. Claude
+    Code's test is the loosest ("sessionId" is on Gemini CLI's first line
+    too), so every other format is tried on a line before it. A compressed
+    session can only be Codex's, the one harness that writes .jsonl.zst.
     """
     name = _OWNER.get(path)
     if name:
         return ALL_SOURCES[name]
+    if path.endswith(".jsonl.zst"):
+        return codex
+    order = [a for a in ADAPTERS.values() if a is not claude_code] + [claude_code]
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as fh:
             for _, line in zip(range(50), fh):
-                for a in ADAPTERS.values():
+                for a in order:
                     if a.looks_like(line):
                         return a
     except OSError:
@@ -714,6 +721,27 @@ def transcripts(project: str = "", session: str = "") -> list:
     return paths
 
 
+def session_paths(path: str) -> tuple:
+    """(files to read, session ids to keep) for --session given a file.
+
+    The file is read once by the adapter its format belongs to, and the
+    session ids its calls carry are the filter, because each harness names a
+    session its own way: Codex by the id inside the file rather than its
+    name, Gemini CLI likewise, and a Claude Code agent by the session that
+    started it. Filtering on the file's name found nothing for any of them. A
+    Claude Code transcript brings its agents' transcripts with it
+    (claude_code.session_files()), as the status line's session cost does. A
+    file with no calls in it falls back to its name, which is a Claude Code
+    session's id.
+    """
+    adapter = adapter_for(path)
+    paths = claude_code.session_files(path) if adapter is claude_code else [path]
+    for p in paths:
+        _OWNER[p] = adapter.NAME
+    ids = sorted({ev["session"] for _, ev in adapter.records(path) if ev["session"]})
+    return paths, ids or [os.path.basename(path).split(".")[0]]
+
+
 def session_totals(path: str) -> tuple:
     """Cost so far and live context size for one session. Used by the status
     line, which must stay fast, so it reads only that session's files: for a
@@ -1160,7 +1188,7 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
             continue
         if _PROJECT and _PROJECT[0].lower() not in (ev["project"] or "").lower():
             continue
-        if _SESSION and not (ev["session"] or "").startswith(_SESSION[0]):
+        if _SESSION and not any((ev["session"] or "").startswith(s) for s in _SESSION):
             continue
         if since and ev["when"] and ev["when"] < since:
             continue
@@ -3358,7 +3386,8 @@ def main(argv=None) -> None:
     ap.add_argument("--period", default="", metavar="NAME",
                     help="calendar period: today, yesterday, week, lastweek, "
                          "month, lastmonth, year")
-    ap.add_argument("--session", default="", help="session id or transcript path")
+    ap.add_argument("--session", default="",
+                    help="a session id, or the path of a session's log file from any harness")
     ap.add_argument("--project", default="", help="substring of the project folder")
     ap.add_argument("--ledger", default="", metavar="FILE",
                     help=f"ledger file (default {DEFAULT_LEDGER}, or set {LEDGER_ENV})")
@@ -3456,13 +3485,17 @@ def main(argv=None) -> None:
                  f"try one of {', '.join(CURRENCIES)}")
     set_currency(args.currency)
 
+    session_label = ""
     if args.session:
         if os.path.isfile(args.session):
-            paths = [args.session]
-            _SESSION[:] = [os.path.basename(args.session).split(".")[0]]
+            paths, ids = session_paths(args.session)
+            _SESSION[:] = ids
+            session_label = (f"session {ids[0][:8]}" if len(ids) == 1
+                             else os.path.basename(args.session))
         else:
             paths = transcripts(session=args.session)
             _SESSION[:] = [args.session]
+            session_label = f"session {args.session[:8]}"
             if not paths and not any(str(r.get("c", "")).startswith(args.session)
                                      for r in read_ledger().values()):
                 sys.exit(f"no transcript found for session {args.session}")
@@ -3498,8 +3531,8 @@ def main(argv=None) -> None:
         label = f"{args.since} to {args.until}"
     elif args.since:
         label = f"last {args.since}"
-    elif args.session:
-        label = f"session {args.session[:8]}"
+    elif session_label:
+        label = session_label
     else:
         label = "all time"
     if args.project:

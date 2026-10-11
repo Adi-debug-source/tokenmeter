@@ -484,6 +484,75 @@ class TestWorkflowAgents(Base):
                          ("-proj", "sess-1", False))
 
 
+class TestSessionPath(Base):
+    """--session given a file filtered on the file's name, but Codex and
+    Gemini CLI name a session by the id inside the file and a Claude Code
+    agent's file by the session that started it, so each of them found
+    nothing; and Gemini CLI's files were read as Claude Code's, whose test
+    for its format matches their first line too."""
+
+    def json_for(self, path, *flags):
+        return json.loads(cli("--json", "--session", path, *flags))
+
+    def test_a_subagent_path_finds_its_calls(self):
+        main = self.write("sess-1.jsonl", record("msg_main", out=100))
+        agent = os.path.join(self.projects, "sess-1", "subagents", "agent-a.jsonl")
+        os.makedirs(os.path.dirname(agent))
+        with open(agent, "w") as f:
+            f.write(record("msg_a", out=200) + "\n")
+        got = self.json_for(agent, "--no-ledger")
+        self.assertEqual((got["calls"], got["tokens"]["output"]), (1, 200))
+        self.assertEqual(got["label"], "session sess-1")
+        # A session's own transcript brings its agents' with it.
+        got = self.json_for(main, "--no-ledger")
+        self.assertEqual((got["calls"], got["tokens"]["output"]), (2, 300))
+        # With the ledger on, the session's other calls come back from it, as
+        # they do for a session given by its id.
+        cli("--json")
+        self.assertEqual(self.json_for(agent)["calls"], 2)
+
+    def test_a_gemini_cli_path_is_read_by_its_own_adapter(self):
+        home = os.path.join(self.tmp, "gemini-home")
+        shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home"), home)
+        path = os.path.join(home, ".gemini", "tmp", "demo", "chats",
+                            "session-2026-09-26T09-12-3f9c1a2b.jsonl")
+        self.assertIs(tm.adapter_for(path), tm.ADAPTERS["gemini-cli"])
+        got = self.json_for(path, "--no-ledger")
+        self.assertEqual(got["calls"], 3)
+        self.assertEqual(got["label"], "session 3f9c1a2b")
+
+    def test_a_codex_path_is_filtered_on_the_id_inside_it(self):
+        folder = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(folder)
+        path = os.path.join(folder, "rollout-2026-09-24T14-07-33-"
+                                    "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl")
+        shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"), path)
+        got = self.json_for(path, "--no-ledger")
+        self.assertEqual(got["calls"], 3)
+        self.assertEqual(got["label"], "session 0198f3c1")
+        packed = zstd_compress(slurp(path, mode="rb"))
+        if packed is not None:
+            with open(path + ".zst", "wb") as f:
+                f.write(packed)
+            tm._OWNER.clear()
+            self.assertIs(tm.adapter_for(path + ".zst"), tm.codex)
+            self.assertEqual(self.json_for(path + ".zst", "--no-ledger")["calls"], 3)
+
+    def test_a_file_holding_two_sessions_keeps_both_and_is_named(self):
+        text = slurp(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"))
+        other = text.replace("0198f3c1-6d2a-7b41-9e05-3c8d5a27b110",
+                             "0198f3c1-0000-7000-8000-00000000000b")
+        path = os.path.join(self.tmp, "two-sessions.jsonl")
+        with open(path, "w") as f:
+            f.write(text + other)
+        paths, ids = tm.session_paths(path)
+        self.assertEqual(ids, ["0198f3c1-0000-7000-8000-00000000000b",
+                               "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110"])
+        got = self.json_for(path, "--no-ledger")
+        self.assertEqual(got["calls"], 6)
+        self.assertEqual(got["label"], "two-sessions.jsonl")
+
+
 class TestTheRestoredCount(Base):
     """A --project alpha run said "ledger holds 5, 3 of them no longer in any
     transcript", and all three were in the other project's transcript, on

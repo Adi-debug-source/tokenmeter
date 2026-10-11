@@ -120,6 +120,12 @@
   file, so `--session` and `--project` missed them. Calls the ledger already
   holds keep the project and session they were written with once their
   transcripts are swept, because the ledger is only ever added to.
+- `--session` given a file reads it with the adapter its format belongs to
+  and keeps the session ids its calls carry. It filtered on the file's name,
+  which is not how Codex, Gemini CLI or a Claude Code agent's transcript names
+  its session, so each of them found nothing; and a Gemini CLI file was read
+  as Claude Code's. A Claude Code transcript now brings its agents' with it,
+  and the report is labelled with the session's id.
 
 ## 1.1.2, 6 October 2026
 
