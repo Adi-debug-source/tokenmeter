@@ -426,7 +426,15 @@ LITELLM_NAME = "LiteLLM's public price list"
 PRICE_CACHE = os.environ.get("TOKENMETER_PRICE_CACHE") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".fetched_prices.json")
 OFFLINE_ENV = "TOKENMETER_OFFLINE"
-ONLINE_LOOKUP = [os.environ.get(OFFLINE_ENV, "").strip() in ("", "0")]
+
+
+def online_by_default() -> bool:
+    """Whether the lookup is on before any option says otherwise: unless
+    TOKENMETER_OFFLINE is set to anything but 0."""
+    return os.environ.get(OFFLINE_ENV, "").strip() in ("", "0")
+
+
+ONLINE_LOOKUP = [online_by_default()]
 RECHECK_DAYS = 7          # how long a fetched rate is trusted before a recheck
 MISS_RETRY_HOURS = 24     # how long "found nowhere", or a failed recheck, is remembered
 FAIL_RETRY_MINUTES = 10   # how long "could not reach the price lists" is remembered
@@ -939,7 +947,8 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
 # What the last reconcile did, for the report to declare. Same pattern as
 # DISPLAY: one module-level fact set once per run, rather than threaded
 # through six call sites that do not otherwise care.
-LEDGER_STATE = {"written": 0, "restored": 0, "rows": 0, "used": False}
+LEDGER_UNUSED = {"written": 0, "restored": 0, "rows": 0, "used": False}
+LEDGER_STATE = dict(LEDGER_UNUSED)
 
 LEDGER_ENV = "TOKENMETER_LEDGER"
 DEFAULT_LEDGER = os.path.expanduser("~/.claude/cost-ledger.jsonl")
@@ -1192,7 +1201,8 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     the ledger knows and the transcripts no longer do gets read back. That is
     what makes "all time" survive Claude Code deleting old transcripts. Pass
     ledger=False for a partial scan, such as the status line's one-day window,
-    where the ledger would be read for nothing.
+    where the ledger would be read for nothing; LEDGER_STATE then says the
+    ledger played no part.
 
     Before anything is priced, every model seen is checked against the price
     tables, and one they lack is looked up online (see resolve_prices). Pass
@@ -1201,6 +1211,10 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     best = scan_transcripts(paths)
     if ledger:
         reconcile_ledger(best)
+    else:
+        # Not read, so nothing to report. The last run that did read it left
+        # its figures here, and a covered line printed them as this run's.
+        LEDGER_STATE.update(LEDGER_UNUSED)
     if online is None or online:
         # The startup check: every model seen gets a price before anything is
         # priced. Instant when the tables already cover everything.
@@ -1232,14 +1246,19 @@ def scan_transcripts(paths) -> dict:
     harness. Split out from iter_events so the ledger rebuild can reach the
     call ids, which the priced events deliberately do not carry.
     """
-    for a in ALL_SOURCES.values():
-        if hasattr(a, "reset"):
-            a.reset()
+    reset_adapters()
     best = {}
     for path in paths:
         for key, ev in adapter_for(path).records(path):
             merge(best, key, ev)
     return best
+
+
+def reset_adapters() -> None:
+    """Clear what each adapter remembers from a scan for its notes."""
+    for a in ALL_SOURCES.values():
+        if hasattr(a, "reset"):
+            a.reset()
 
 
 def reconcile_ledger(best: dict) -> tuple:
@@ -3473,8 +3492,36 @@ def flags_given(args, *flags) -> list:
     return [f for f in flags if getattr(args, f.lstrip("-").replace("-", "_"))]
 
 
+def reset_run() -> None:
+    """Put every per-run value back as a new process starts with it.
+
+    A run's options, and what it found on the way, live in module globals read
+    where they are needed: the folders to read (_ROOTS, ADAPTER_ROOTS), what to
+    keep (_ONLY, _IMPORTS, _PROJECT, _SESSION), the ledger (_LEDGER,
+    LEDGER_STATE), how to price (CURRENT_RATES, ONLINE_LOOKUP), the display
+    currency (DISPLAY), and what was read, looked up and skipped (_OWNER,
+    _PRICE_STATE, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS and each
+    adapter's own). A second run in the same process started with some of the
+    first one's still set: its --import or --session, or its ledger's figures
+    in a covered line that never read the ledger. main() calls this first.
+
+    Each global keeps its name and stays the same object, emptied in place,
+    because the status line and other scripts import them by name.
+    """
+    for value in (_ROOTS, ADAPTER_ROOTS, _ONLY, _IMPORTS, _OWNER, _PROJECT, _SESSION, _LEDGER,
+                  CURRENT_RATES, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS):
+        value.clear()
+    ONLINE_LOOKUP[0] = online_by_default()
+    set_currency("USD")
+    LEDGER_STATE.update(LEDGER_UNUSED)
+    _PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
+    reset_adapters()
+
+
 def main(argv=None) -> None:
-    """The command line. argv defaults to sys.argv[1:]; tests pass their own."""
+    """The command line. argv defaults to sys.argv[1:]; tests pass their own.
+    Every call starts afresh (reset_run()), as a new process would."""
+    reset_run()
     ap = argparse.ArgumentParser(
         prog="tokenmeter",
         description="What your AI coding would have cost at API rates.")

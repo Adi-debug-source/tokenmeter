@@ -54,36 +54,34 @@ class Base(unittest.TestCase):
         self.projects = os.path.join(self.tmp, "projects", "-proj")
         os.makedirs(self.projects)
         self.ledger = os.path.join(self.tmp, "ledger.jsonl")
+        # Sealed off from the machine running the tests: no real logs, no real
+        # ledger, no network. First in the environment, which is where a run
+        # looks once reset_run() has put everything back, so even a main()
+        # that skipped cli() reads and writes only this temp folder.
+        env = unittest.mock.patch.dict(os.environ, {
+            tm.PROJECTS_ENV: os.path.join(self.tmp, "projects"), tm.LEDGER_ENV: self.ledger,
+            tm.OFFLINE_ENV: "1", "CODEX_HOME": os.path.join(self.tmp, "no-codex"),
+            "XDG_DATA_HOME": os.path.join(self.tmp, "no-xdg")})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("OPENCODE_DB", None)
+        # Each test starts as a new run would, with nothing left from the last.
+        tm.reset_run()
         tm._ROOTS[:] = [os.path.join(self.tmp, "projects")]
         tm._LEDGER[:] = [self.ledger]
-        tm.CURRENT_RATES.clear()
-        tm.DISPLAY.update(code="USD", symbol="$", rate=1.0, when="", live=True)
-        # Sealed off from the machine running the tests: no other harness's
-        # real logs, no network, no saved price lookups, no exchange rates.
         for name in tm.ADAPTERS:
             if name != "claude-code":
                 tm.ADAPTER_ROOTS[name] = [os.path.join(self.tmp, "no-" + name)]
-        tm._ONLY.clear()
-        tm._IMPORTS.clear()
-        tm._OWNER.clear()
-        tm._PROJECT.clear()
-        tm._SESSION.clear()
         tm.ONLINE_LOOKUP[0] = False
+        # No saved price lookups and no exchange rates: both caches live in the
+        # temp folder, never beside the engine.
         tm.PRICE_CACHE = os.path.join(self.tmp, "prices.json")
-        tm._PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
-        tm.LOOKUPS.clear()
-        # The rate cache lives in the temp folder, never beside the engine, and
-        # each test starts as a new run would, with nothing remembered.
         tm.FX_CACHE = os.path.join(self.tmp, "fx_rates.json")
-        tm._FX_MEMO.clear()
         self._fx = tm.fx_rates
         tm.fx_rates = lambda: (dict(tm.FALLBACK_RATES), "test", False)
 
     def tearDown(self):
-        tm._ROOTS.clear()
-        tm._LEDGER.clear()
-        tm.CURRENT_RATES.clear()
-        tm.ADAPTER_ROOTS.clear()
+        tm.reset_run()
         tm.fx_rates = self._fx
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -964,7 +962,8 @@ class TestSummaryJson(Base):
         from unittest import mock
         self.write("a.jsonl", record("msg_1", out=10))
         buf = io.StringIO()
-        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"), contextlib.redirect_stdout(buf):
+        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"), as_a_new_run(), \
+                contextlib.redirect_stdout(buf):
             tm.main(["--summary-json"])
         self.assertEqual(json.loads(buf.getvalue())["all"]["calls"], 1)
 
@@ -2513,6 +2512,23 @@ def terminal(*args, **kw):
     return re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
 
 
+def as_a_new_run():
+    """main() starts every run afresh with reset_run(), as a new process does.
+    A new process takes the folders it reads, its ledger and the lookup switch
+    from its environment; under test they are the test's own, put back straight
+    after that reset, so the command line reads and writes only what the test
+    laid out."""
+    sealed = (list(tm._ROOTS), list(tm._LEDGER), dict(tm.ADAPTER_ROOTS), tm.ONLINE_LOOKUP[0])
+    reset = tm.reset_run
+
+    def reset_then_seal():
+        reset()
+        tm._ROOTS[:], tm._LEDGER[:] = sealed[0], sealed[1]
+        tm.ADAPTER_ROOTS.update(sealed[2])
+        tm.ONLINE_LOOKUP[0] = sealed[3]
+    return unittest.mock.patch.object(tm, "reset_run", reset_then_seal)
+
+
 def cli(*argv):
     """The command line with these arguments: what it prints, without colour.
     In dollars unless a test names a currency, because the environment running
@@ -2521,13 +2537,8 @@ def cli(*argv):
     argv = list(argv)
     if "--currency" not in argv:
         argv += ["--currency", "USD"]
-    # Each run starts as a new process would: main() sets these only from the
-    # options it is given, so one run's --import or --session would leak on.
-    tm._IMPORTS.clear()
-    tm._PROJECT.clear()
-    tm._SESSION.clear()
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
+    with as_a_new_run(), contextlib.redirect_stdout(buf):
         tm.main(argv)
     return re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
 
@@ -3020,7 +3031,7 @@ class TestStatusLine(Base):
         command line, which had no --currency on it."""
         from unittest import mock
         self.write("a.jsonl", record("msg_1", out=10))
-        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"):
+        with mock.patch.object(tm, "DEFAULT_CURRENCY", "GPB"), as_a_new_run():
             with self.assertRaises(SystemExit) as e:
                 tm.main(["--json"])
         self.assertIn("unknown currency 'GPB' in TOKENMETER_CURRENCY; try one of",
@@ -3041,6 +3052,100 @@ class TestCommandLine(Base):
         self.assertEqual(got["currency"], "USD")
         self.assertAlmostEqual(got["total_usd"], round(overall["total"], 6), places=9)
         self.assertFalse(os.path.exists(self.ledger))
+
+
+
+class TestRunState(Base):
+    """A run's options and findings are module globals, and nothing put them
+    back between runs in one process: the tests reset thirteen of them by
+    hand and missed the rest, and main() reset none."""
+
+    def test_a_run_without_the_ledger_reports_none(self):
+        """A collect with ledger=False after one with the ledger printed the
+        earlier run's "ledger holds 2, 1 of them no longer in any transcript"
+        for a ledger it never read. Run after TestLedger's deletion test, the
+        covered line of a test that never used the ledger read that way."""
+        self.write("a.jsonl", record("msg_1", out=1000))
+        self.write("b.jsonl", record("msg_2", out=2000))
+        tm.collect(tm.transcripts(), ledger=True)
+        os.remove(os.path.join(self.projects, "a.jsonl"))
+        paths = tm.transcripts()
+        _, groups, *_ = tm.collect(paths, ledger=True)
+        self.assertIn("ledger holds 2, 1 of them no longer in any transcript",
+                      tm.covered_span(groups, paths))
+        _, groups, *_ = tm.collect(paths, ledger=False)
+        self.assertNotIn("ledger", tm.covered_span(groups, paths))
+        tm.collect(paths, ledger=True)
+        list(tm.iter_events(paths, ledger=False))
+        self.assertEqual(tm.LEDGER_STATE, tm.LEDGER_UNUSED)
+
+    def test_reset_run_puts_every_value_back(self):
+        """Base.setUp missed LEDGER_STATE, FETCHED_USED and importer.PROBLEMS,
+        so one test's ledger figures, looked-up models and skipped import
+        lines reached the next. Every value goes back, in the same object,
+        because the status line and other scripts import them by name."""
+        names = ("_ROOTS", "ADAPTER_ROOTS", "_ONLY", "_IMPORTS", "_OWNER", "_PROJECT",
+                 "_SESSION", "_LEDGER", "CURRENT_RATES", "ONLINE_LOOKUP", "DISPLAY",
+                 "LEDGER_STATE", "_PRICE_STATE", "LOOKUPS", "FETCHED_USED", "_FX_MEMO")
+        same = {name: getattr(tm, name) for name in names}
+        for offline, online in (("1", False), ("", True), ("0", True)):
+            with self.subTest(offline=offline):
+                tm._ROOTS[:] = ["/Users/sam/old-mac/projects"]
+                tm.ADAPTER_ROOTS["codex"] = ["/Users/sam/.codex/sessions"]
+                tm._ONLY[:] = ["codex"]
+                tm._IMPORTS[:] = ["/Users/sam/trial.jsonl"]
+                tm._OWNER["/Users/sam/a.jsonl"] = "codex"
+                tm._PROJECT[:] = ["app"]
+                tm._SESSION[:] = ["abc"]
+                tm._LEDGER[:] = ["/Users/sam/ledger.jsonl"]
+                tm.CURRENT_RATES.append(True)
+                tm.ONLINE_LOOKUP[0] = not online
+                tm.DISPLAY.update(code="GBP", symbol="\u00a3", rate=0.5, when="cached", live=False)
+                tm.LEDGER_STATE.update(written=1, restored=2, rows=3, used=True)
+                tm._PRICE_STATE.update(loaded=True, data={"fetched": {"openai:x": {}}, "misses": {}})
+                tm.LOOKUPS.append({"provider": "openai", "model": "x", "found": False})
+                tm.FETCHED_USED[("openai", "x")] = "LiteLLM"
+                tm._FX_MEMO.append(({"USD": 1.0}, "cached", False))
+                tm.importer.PROBLEMS["/Users/sam/trial.jsonl"] = {"skipped": 1, "examples": []}
+                tm.codex._STATE["guessed"].add("call")
+                tm.codex._STATE["compressed_unread"] = 2
+                with unittest.mock.patch.dict(os.environ, {tm.OFFLINE_ENV: offline}):
+                    tm.reset_run()
+                for name in names:
+                    self.assertIs(getattr(tm, name), same[name], name)
+                for box in (tm._ROOTS, tm.ADAPTER_ROOTS, tm._ONLY, tm._IMPORTS, tm._OWNER,
+                            tm._PROJECT, tm._SESSION, tm._LEDGER, tm.CURRENT_RATES, tm.LOOKUPS,
+                            tm.FETCHED_USED, tm._FX_MEMO, tm.importer.PROBLEMS):
+                    self.assertFalse(box, box)
+                self.assertEqual(tm.ONLINE_LOOKUP, [online])
+                self.assertEqual(tm.DISPLAY, {"code": "USD", "symbol": "$", "rate": 1.0,
+                                              "when": "", "live": True})
+                self.assertEqual(tm.LEDGER_STATE, {"written": 0, "restored": 0, "rows": 0,
+                                                   "used": False})
+                self.assertEqual(tm._PRICE_STATE, {"loaded": False,
+                                                   "data": {"fetched": {}, "misses": {}}})
+                self.assertEqual(tm.codex._STATE, {"guessed": set(), "compressed_unread": 0,
+                                                   "compressed_damaged": 0})
+
+    def test_each_command_line_run_starts_afresh(self):
+        """main() set these only from the options it was given, so in one
+        process a run's --import and --session carried on into the next, and
+        the tests' cli() cleared them by hand."""
+        self.write("sess-a.jsonl", record("a1", out=100))
+        self.write("sess-b.jsonl", record("b1", out=100))
+        trial = os.path.join(self.tmp, "trial.jsonl")
+        with open(trial, "w") as f:
+            f.write(json.dumps(TestImport.GOOD) + "\n")
+
+        def calls(*argv):
+            return json.loads(cli("--json", "--no-ledger", *argv))["calls"]
+        self.assertEqual(calls("--import", trial), 3)
+        self.assertEqual(calls(), 2)
+        self.assertEqual(calls("--session", "sess-a"), 1)
+        self.assertEqual(calls(), 2)
+        cli("--json")
+        self.assertIn("ledger holds 2", cli())
+        self.assertNotIn("ledger", cli("--no-ledger"))
 
 
 if __name__ == "__main__":
