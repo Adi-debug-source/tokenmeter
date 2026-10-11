@@ -56,8 +56,9 @@ conversions.
 
 `key` must identify the API call itself, not the log line. Harnesses write the
 same call more than once (once per streamed block, again on resume, again when
-a message is edited), and the engine keeps one copy per key: the first
-sighting's time and session, and the largest usage block. So:
+a message is edited), and the engine keeps one copy per key: the earliest
+sighting's time, session and project (the first one read on a tie), and the
+largest usage block. So:
 
 - Use the provider's response id when the log has one.
 - Otherwise build a key that is the same wherever the same call appears, and
