@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 
 _FRACTION = re.compile(r"\.(\d+)")
@@ -67,6 +68,18 @@ def _extended(s: str) -> str:
         seconds = ":" + offset[5:] if offset[5:] else ""
         offset = offset[:3] + ":" + (offset[3:5] or "00") + seconds
     return date + time + offset
+
+
+def whole(v) -> int:
+    """A token count from a log as an int: an int or a float as it stands
+    (a float rounded towards zero), and 0 for anything else. A bool is not a
+    count, though Python calls it an int, and neither is a float with no
+    whole value (Infinity, NaN), which int() refuses."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return 0
+    if isinstance(v, float) and not math.isfinite(v):
+        return 0
+    return int(v)
 
 
 def usage(input=0, output=0, cache_read=0, cache_write_5m=0, cache_write_1h=0,

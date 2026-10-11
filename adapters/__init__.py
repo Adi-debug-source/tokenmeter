@@ -17,6 +17,9 @@ and optionally:
   notes()          sentences the report must print about this run's figures
   reset()          clear per-run state before a scan
 
+The importer has no looks_like: it reads only the files named with --import
+and is never asked to recognise one, so it is not in ADAPTERS.
+
 The engine does everything else: de-duplication, the ledger, pricing, windows
 and every report. An adapter only reads its harness's logs and says what each
 call was, which keeps the arithmetic in one place.

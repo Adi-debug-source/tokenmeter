@@ -36,7 +36,7 @@ import glob
 import json
 import os
 
-from .common import parse_time, usage
+from .common import parse_time, usage, whole
 
 NAME = "gemini-cli"
 LABEL = "Gemini CLI"
@@ -54,8 +54,8 @@ def files(roots: list, project: str = "", session: str = "") -> list:
     paths = []
     for root in roots:
         for pattern in ("*.jsonl", "*.json"):
-            paths.extend(p for p in glob.glob(os.path.join(root, "*", "chats", "**", pattern),
-                                              recursive=True))
+            paths.extend(glob.glob(os.path.join(root, "*", "chats", "**", pattern),
+                                   recursive=True))
     if session:
         paths = [p for p in paths if session in os.path.basename(p)]
     return sorted(paths)
@@ -135,12 +135,8 @@ def records(path: str):
         if m.get("type") != "gemini" or not isinstance(m.get("tokens"), dict):
             continue
         t = m["tokens"]
-
-        def n(k):
-            v = t.get(k)
-            return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
-        inp, out, cached, thoughts, tool, total = (n("input"), n("output"), n("cached"),
-                                                   n("thoughts"), n("tool"), n("total"))
+        inp, out, cached, thoughts, tool, total = (
+            whole(t.get(k)) for k in ("input", "output", "cached", "thoughts", "tool", "total"))
         if not any((inp, out, cached, thoughts, tool)):
             continue
         # Google's contract is that the prompt count includes cached tokens.

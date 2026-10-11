@@ -50,7 +50,7 @@ import shutil
 import subprocess
 
 from .claude_code import project_matches
-from .common import parse_time, usage
+from .common import parse_time, usage, whole
 
 NAME = "codex"
 LABEL = "Codex"
@@ -238,11 +238,9 @@ def _lines(path: str, limit: int = 0, text: str | None = None):
 
 def _counts(u: dict) -> tuple:
     """(input, cached, cache write, output, reasoning) from a TokenUsage."""
-    def n(k):
-        v = u.get(k)
-        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
-    return (n("input_tokens"), n("cached_input_tokens"), n("cache_write_input_tokens"),
-            n("output_tokens"), n("reasoning_output_tokens"))
+    return tuple(whole(u.get(k)) for k in ("input_tokens", "cached_input_tokens",
+                                            "cache_write_input_tokens", "output_tokens",
+                                            "reasoning_output_tokens"))
 
 
 def _minus(a: tuple, b: tuple) -> tuple:
@@ -262,6 +260,8 @@ def records(path: str):
             _STATE["compressed_unread"] += 1
             return
     name = os.path.basename(path)
+    # rollout-2026-01-19T11-02-14-<thread id>.jsonl: the 20 is the timestamp
+    # and the hyphen after it, YYYY-MM-DDTHH-MM-SS-.
     thread = name.split(".")[0][len("rollout-") + 20:] if name.startswith("rollout-") else name
     session = root = thread
     project, model, provider, speed = "", "", PROVIDER, "standard"
@@ -304,7 +304,7 @@ def records(path: str):
                 total_c = _counts(total) if isinstance(total, dict) else None
                 if total_c is not None and total_c == previous:
                     continue  # the same snapshot re-sent
-                if isinstance(last, dict) and (total_c is None or total_c != previous):
+                if isinstance(last, dict):
                     got = _counts(last)
                 elif total_c is not None:
                     got = _minus(total_c, previous or (0, 0, 0, 0, 0))

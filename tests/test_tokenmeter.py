@@ -2155,6 +2155,55 @@ class TestOpenCodeAdapter(Base):
             tm._PROJECT.clear()
 
 
+class TestTokenCounts(Base):
+    """Codex, Gemini CLI and OpenCode each kept their own copy of the rule for
+    reading a count from a log, and a count of Infinity or NaN, both of which
+    json.loads accepts, ended the run in a traceback in Codex and Gemini CLI.
+    whole() is the one rule now."""
+
+    def test_a_count_is_a_whole_number_or_none(self):
+        from adapters.common import whole
+        for value, want in ((7, 7), (7.9, 7), (-3.5, -3), (0, 0), (10 ** 30, 10 ** 30),
+                            (True, 0), (False, 0), (None, 0), ("12", 0), ([3], 0),
+                            (float("inf"), 0), (float("-inf"), 0), (float("nan"), 0)):
+            with self.subTest(value=value):
+                self.assertEqual(whole(value), want)
+                self.assertIs(type(whole(value)), int)
+
+    def test_opencode_still_reads_a_negative_count_as_none(self):
+        from adapters import opencode
+        _, ev = opencode._event("opencode:k", 0, "gpt-6-sol", "openai", "", "ses_1",
+                                {"input": -5, "output": 3.9, "reasoning": True,
+                                 "cache": {"read": 2, "write": float("nan")}})
+        u = ev["_usage"]
+        self.assertEqual((u["input_tokens"], u["output_tokens"], u["cache_read_input_tokens"],
+                          u["cache_creation"]["ephemeral_5m_input_tokens"]), (0, 3, 2, 0))
+
+    def test_an_infinite_count_does_not_end_the_run(self):
+        from adapters import gemini_cli
+        codex_file = os.path.join(self.tmp, "rollout-2026-09-24T10-00-00-thread-1.jsonl")
+        with open(codex_file, "w", encoding="utf-8") as f:
+            f.write('{"timestamp":"2026-09-24T10:00:01.000Z","type":"turn_context",'
+                    '"payload":{"model":"gpt-5.2-codex","cwd":"/Users/sam/code/demo"}}\n'
+                    '{"timestamp":"2026-09-24T10:00:02.000Z","type":"event_msg",'
+                    '"payload":{"type":"token_count","info":{'
+                    '"total_token_usage":{"input_tokens":100,"output_tokens":Infinity},'
+                    '"last_token_usage":{"input_tokens":100,"output_tokens":Infinity}}}}\n')
+        tm.codex.reset()
+        (_, ev), = list(tm.codex.records(codex_file))
+        self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (100, 0))
+
+        chats = os.path.join(self.tmp, "gemini", "proj", "chats")
+        os.makedirs(chats)
+        gemini_file = os.path.join(chats, "session-1.jsonl")
+        with open(gemini_file, "w", encoding="utf-8") as f:
+            f.write('{"type":"gemini","id":"m1","timestamp":"2026-09-24T10:00:00Z",'
+                    '"model":"gemini-3.1-pro-preview","tokens":{"input":50,"output":NaN,'
+                    '"cached":0,"thoughts":0,"tool":0,"total":50}}\n')
+        (_, ev), = list(gemini_cli.records(gemini_file))
+        self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (50, 0))
+
+
 class TestOnlineLookup(Base):
     """The startup check, with every fetch faked. Nothing here uses the network."""
 

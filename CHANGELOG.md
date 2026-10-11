@@ -104,6 +104,9 @@
   large to price, or with a byte that is not UTF-8, is skipped and explained
   like any other bad line. One such line ended the whole run in a traceback,
   from a file or from standard input.
+- A token count of `Infinity` or `NaN` in a Codex, Gemini CLI or OpenCode
+  log, both of which JSON readers accept, reads as none, where it could end
+  the run in a traceback. The three readers now share one rule for a count.
 - Import timestamps in the basic form (`20260920T100211Z`), with a comma
   before the fraction of a second, or with an offset written `+0100` or `+01`
   are read on every Python version. Python 3.9, which the menu bar runs,

@@ -50,7 +50,9 @@ including cache reads or writes; `output` includes any reasoning; `thinking`
 says how much of `output` was reasoning. Every harness reports these
 differently, and translating them correctly is most of an adapter's job. The
 table in [docs/import-format.md](../docs/import-format.md) shows the usual
-conversions.
+conversions. Read each count with `adapters.common.whole()`, which keeps an
+int or a float and reads anything else (a bool, a string, `Infinity`, `NaN`)
+as 0, so one odd value in a log cannot end the run.
 
 ## De-duplication
 

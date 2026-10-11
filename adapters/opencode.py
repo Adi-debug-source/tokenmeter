@@ -34,6 +34,7 @@ Neither is read, so a forked session's copied history is counted again.
 
 from __future__ import annotations
 
+import datetime as dt
 import glob
 import json
 import os
@@ -41,7 +42,7 @@ import shutil
 import sqlite3
 import tempfile
 
-from .common import usage
+from .common import usage, whole
 
 NAME = "opencode"
 LABEL = "OpenCode"
@@ -70,7 +71,7 @@ def files(roots: list, project: str = "", session: str = "") -> list:
             if os.path.isfile(candidate):
                 paths.append(candidate)
     for root in roots:
-        paths.extend(p for p in glob.glob(os.path.join(root, "opencode*.db")))
+        paths.extend(glob.glob(os.path.join(root, "opencode*.db")))
     return sorted(set(paths))
 
 
@@ -97,14 +98,12 @@ def _event(key, when_ms, model, provider, project, session, tokens):
     if not isinstance(tokens, dict):
         return None
     cache = tokens.get("cache") or {}
-
-    def n(v):
-        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else 0
-    inp, out, reasoning = n(tokens.get("input")), n(tokens.get("output")), n(tokens.get("reasoning"))
-    read, write = n(cache.get("read")), n(cache.get("write"))
+    # A negative count is read as none.
+    inp, out, reasoning, read, write = (max(0, whole(v)) for v in (
+        tokens.get("input"), tokens.get("output"), tokens.get("reasoning"),
+        cache.get("read"), cache.get("write")))
     if not any((inp, out, reasoning, read, write)):
         return None
-    import datetime as dt
     when = None
     if isinstance(when_ms, (int, float)) and when_ms > 0:
         when = dt.datetime.fromtimestamp(when_ms / 1000, tz=dt.timezone.utc)
