@@ -92,8 +92,6 @@ FALLBACK_MODEL = "gemini-3.1-pro-preview"
 
 # ---- reading the published page, for --check-prices and the startup lookup
 
-_MONEY = re.compile(r"\$([\d.,]+)")
-
 
 def _paid_cell(cell: str) -> dict:
     """One paid-tier cell as {"base", "long", "dated"}.

@@ -277,10 +277,9 @@ def set_currency(code: str) -> None:
 # today's. When a rate changes, a dated entry is added to that model's list and
 # the old one is left alone, so history stays what it actually was.
 
-# Anthropic's table under its historical names, which the tests and the
-# maintenance notes use.
+# Anthropic's table and multiples under their historical names. Only the
+# tests read them; the engine itself goes through TABLES.
 PRICES = _anthropic.PRICES
-FALLBACK = PRICES[_anthropic.FALLBACK_MODEL][0]
 CACHE_WRITE_5M_MULT = _anthropic.CACHE_WRITE_5M_MULT
 CACHE_WRITE_1H_MULT = _anthropic.CACHE_WRITE_1H_MULT
 WEB_SEARCH_PER_1K = _anthropic.WEB_SEARCH_PER_1K
@@ -983,7 +982,6 @@ _LEDGER: list = []
 #   in input           o  output           r  cache read
 #   w5 5-minute write  w1 1-hour write     th thinking   s  web searches
 #   pv provider, when not "anthropic"      a  source, when not "claude-code"
-_TOKEN_KEYS = ("in", "o", "r", "w5", "w1", "th", "s")
 
 
 def ledger_path() -> str:

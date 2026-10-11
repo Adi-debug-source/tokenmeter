@@ -22,7 +22,7 @@ var currencySymbols: [String: String] = ["GBP": "\u{00A3}", "USD": "$"]
 var displayCurrency = UserDefaults.standard.string(forKey: "currency") ?? "USD"
 var displayRates: [String: Double] = ["USD": 1.0]
 
-func rate(_ code: String) -> Double { displayRates[code] ?? (code == "USD" ? 1.0 : 1.0) }
+func rate(_ code: String) -> Double { displayRates[code] ?? 1.0 }
 
 struct Window {
     var total = 0.0, calls = 0
@@ -44,7 +44,6 @@ struct Snapshot {
     var rateWhen = ""
     var rateLive = true
     var covered = ""
-    var tokens: [String: Int] = [:]
     // Only filled when harnesses or providers are mixed. One harness on one
     // provider sees the menu it always had.
     var multi = false
@@ -215,7 +214,6 @@ func loadSnapshot() -> Snapshot {
     if let order = root["currency_order"] as? [String], !order.isEmpty {
         currencyOrder = order
     }
-    snap.tokens = root["tokens"] as? [String: Int] ?? [:]
     if let ms = root["models"] as? [[String: Any]] {
         snap.models = ms.map { (($0["name"] as? String) ?? "?",
                                 ($0["total"] as? Double) ?? 0,
@@ -335,7 +333,6 @@ final class Controller: NSObject, NSApplicationDelegate {
         mi.target = self
         mi.indentationLevel = indent
         mi.isEnabled = enabled ?? (action != nil)
-        if action == nil && enabled == nil { mi.isEnabled = false }
         if state { mi.state = .on }
         if mono {
             mi.attributedTitle = NSAttributedString(string: title, attributes: [
