@@ -438,6 +438,52 @@ class TestFiltersReachTheLedger(Base):
         self.assertEqual(overall["calls"], 0)
 
 
+class TestWorkflowAgents(Base):
+    """Workflow agents write to <session>/subagents/workflows/<id>/, and only a
+    file directly in a subagents folder was recognised as an agent's, so every
+    workflow agent's calls were filed under a project named after its workflow
+    and a session named after its own file, and written to the ledger so."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("sess-1.jsonl", record("msg_main", out=100))
+        self.agent = os.path.join(self.projects, "sess-1", "subagents", "workflows",
+                                  "wf_0001", "agent-a1.jsonl")
+        os.makedirs(os.path.dirname(self.agent))
+        with open(self.agent, "w") as f:
+            f.write(record("msg_wf", out=200) + "\n")
+
+    def test_a_workflow_agent_is_filed_under_its_session_and_project(self):
+        ev = tm.scan_transcripts([self.agent])["msg_wf"]
+        self.assertEqual((ev["project"], ev["session"], ev["sidechain"]),
+                         ("-proj", "sess-1", True))
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=True)
+        self.assertEqual(overall["calls"], 2)
+        self.assertEqual(set(groups["project"]), {"-proj"})
+        self.assertEqual(set(groups["session"]), {"sess-1"})
+        self.assertEqual({(r["p"], r["c"]) for r in tm.read_ledger().values()},
+                         {("-proj", "sess-1")})
+
+    def test_its_session_and_project_find_it(self):
+        for flags in (["--session", "sess-1"], ["--project", "proj"]):
+            for ledger in ([], ["--no-ledger"]):
+                with self.subTest(flags=flags, ledger=ledger):
+                    got = json.loads(cli("--json", *flags, *ledger))
+                    self.assertEqual(got["calls"], 2)
+                    self.assertEqual(got["tokens"]["output"], 300)
+
+    def test_a_subagent_one_folder_down_is_read_as_before(self):
+        p = os.path.join(self.projects, "sess-1", "subagents", "agent-b2.jsonl")
+        with open(p, "w") as f:
+            f.write(record("msg_sub", out=50) + "\n")
+        ev = tm.scan_transcripts([p])["msg_sub"]
+        self.assertEqual((ev["project"], ev["session"], ev["sidechain"]),
+                         ("-proj", "sess-1", True))
+        ev = tm.scan_transcripts([os.path.join(self.projects, "sess-1.jsonl")])["msg_main"]
+        self.assertEqual((ev["project"], ev["session"], ev["sidechain"]),
+                         ("-proj", "sess-1", False))
+
+
 class TestTheRestoredCount(Base):
     """A --project alpha run said "ledger holds 5, 3 of them no longer in any
     transcript", and all three were in the other project's transcript, on

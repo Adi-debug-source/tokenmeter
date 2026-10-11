@@ -113,6 +113,13 @@
   copies its earlier calls, is filed under its earliest copy's time, session
   and project, whichever file is read first. It went to the first copy read,
   and the order files are listed in differs from one machine to the next.
+- Calls made by workflow agents, whose transcripts lie in
+  `<session>/subagents/workflows/<id>/`, are filed under the session that
+  started them and its project, as subagents' calls are. They were filed under
+  a project named after the workflow and a session named after the agent's own
+  file, so `--session` and `--project` missed them. Calls the ledger already
+  holds keep the project and session they were written with once their
+  transcripts are swept, because the ledger is only ever added to.
 
 ## 1.1.2, 6 October 2026
 

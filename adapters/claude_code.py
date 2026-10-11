@@ -39,14 +39,15 @@ def files(roots: list, project: str = "", session: str = "") -> list:
 
     The single place that knows the on-disk layout. Subagent transcripts live
     in <session>/subagents/agent-*.jsonl, a level deeper than the session
-    files, so a "*/*.jsonl" glob silently drops every subagent's tokens, which
-    are real API calls and real money.
+    files, and workflow agents' in <session>/subagents/workflows/<id>/, so a
+    "*/*.jsonl" glob silently drops every agent's tokens, which are real API
+    calls and real money.
     """
     paths = []
     for root in roots:
         paths.extend(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
     if session:
-        # The session's own transcript, plus the subagents it spawned.
+        # The session's own transcript, plus the agents it started.
         paths = [p for p in paths
                  if os.path.basename(p).startswith(session)
                  or f"{os.sep}{session}" in p and f"{os.sep}subagents{os.sep}" in p]
@@ -82,6 +83,26 @@ def dedup_key(msg: dict, record: dict):
     return msg.get("id") or f"{record.get('requestId')}|{record.get('uuid')}"
 
 
+def _where(path: str) -> tuple:
+    """(project, session, is_subagent) for one transcript, from where it lies.
+
+    A session's own transcript is <project>/<session>.jsonl. An agent's lies
+    below <project>/<session>/subagents/: a subagent's directly in it, a
+    workflow agent's in workflows/<id>/ below that. The nearest folder named
+    subagents is what marks one, at whatever depth: looking only at the
+    file's own folder filed every workflow agent's calls under a project
+    named after its workflow and a session named after its file.
+    """
+    folder = up = os.path.dirname(path)
+    while True:
+        head, name = os.path.split(up)
+        if not name:
+            return os.path.basename(folder), os.path.basename(path)[:-6], False
+        if name == "subagents":
+            return os.path.basename(os.path.dirname(head)), os.path.basename(head), True
+        up = head
+
+
 def records(path: str):
     """Yield (key, event) for every line that carries an API response.
 
@@ -90,16 +111,7 @@ def records(path: str):
     largest usage block, because the early copies of a streamed reply carry an
     output count that is still climbing.
     """
-    parent = os.path.dirname(path)
-    if os.path.basename(parent) == "subagents":
-        # <project>/<session>/subagents/agent-*.jsonl
-        session = os.path.basename(os.path.dirname(parent))
-        project = os.path.basename(os.path.dirname(os.path.dirname(parent)))
-        is_subagent = True
-    else:
-        session = os.path.basename(path)[:-6]
-        project = os.path.basename(parent)
-        is_subagent = False
+    project, session, is_subagent = _where(path)
     try:
         fh = open(path, "r", encoding="utf-8", errors="ignore")
     except OSError:
