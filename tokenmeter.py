@@ -1608,18 +1608,22 @@ def money(usd: float) -> str:
     $2,519" over "Saved $2,011" over "With cache reads $508.17" does not add
     up when read, though the figures behind them agree exactly. Zero showed as
     $0.0000, which is not how anyone writes nothing.
+
+    A negative amount takes its minus before the symbol, -$0.10, the way it is
+    written; it used to print $-0.10.
     """
     x = usd * DISPLAY["rate"]
     sym = DISPLAY["symbol"]
     if x == 0:
         return f"{sym}0.00"
-    if abs(x) < 0.00005:
+    sign, x = ("-" if x < 0 else ""), abs(x)
+    if x < 0.00005:
         # Real money, but below the smallest figure worth printing. $0.0000
         # would read as nothing at all, which is the thing being fixed here.
-        return ("-" if x < 0 else "") + f"<{sym}0.0001"
-    if abs(x) < 0.01:
-        return f"{sym}{x:.4f}"
-    return f"{sym}{x:,.2f}"
+        return f"{sign}<{sym}0.0001"
+    if x < 0.01:
+        return f"{sign}{sym}{x:.4f}"
+    return f"{sign}{sym}{x:,.2f}"
 
 
 def unit_money(usd: float) -> str:
@@ -2169,13 +2173,15 @@ const SLOW = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 
 /* ---- money. Same rule as money() in tokenmeter.py. Three copies of this
-   exist, one per face, and they must agree or one figure reads two ways. ---- */
+   exist, one per face, and they must agree or one figure reads two ways.
+   A negative amount takes its minus before the symbol: -$0.10, not $-0.10. ---- */
 function fmt(usd, cur) {
   const x = usd * (D.rates[cur] || 1), s = D.symbols[cur] || '$';
   if (x === 0) return s + '0.00';
-  if (Math.abs(x) < 0.00005) return (x < 0 ? '-' : '') + '<' + s + '0.0001';
-  if (Math.abs(x) < 0.01) return s + x.toFixed(4);
-  return s + x.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const sign = x < 0 ? '-' : '', a = Math.abs(x);
+  if (a < 0.00005) return sign + '<' + s + '0.0001';
+  if (a < 0.01) return sign + s + a.toFixed(4);
+  return sign + s + a.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 let CUR = D.current;
 

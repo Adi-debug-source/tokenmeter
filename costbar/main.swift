@@ -72,12 +72,14 @@ func money(_ usd: Double) -> String {
     // 0.0290 and not as free. Rounding thousands to whole units used to make
     // this menu contradict itself, with Saved and With not adding up to
     // Without on screen even though the figures behind them agreed exactly.
+    // A negative amount takes its minus before the symbol, -$0.10, not $-0.10.
     if x == 0 { return s + "0.00" }
+    let sign = x < 0 ? "-" : "", a = abs(x)
     // Real money below the smallest printable figure. "0.0000" would read as
     // nothing at all, which is the thing being fixed here.
-    if abs(x) < 0.00005 { return (x < 0 ? "-" : "") + "<" + s + "0.0001" }
-    if abs(x) < 0.01 { return s + String(format: "%.4f", x) }
-    return s + (groupedTwoDP.string(from: NSNumber(value: x)) ?? String(format: "%.2f", x))
+    if a < 0.00005 { return sign + "<" + s + "0.0001" }
+    if a < 0.01 { return sign + s + String(format: "%.4f", a) }
+    return sign + s + (groupedTwoDP.string(from: NSNumber(value: a)) ?? String(format: "%.2f", a))
 }
 
 func shownDifference(_ big: Double, _ small: Double) -> Double {

@@ -128,6 +128,39 @@ class TestMoney(Base):
         tm.DISPLAY.update(code="GBP", symbol="£", rate=0.5)
         self.assertEqual(tm.money(100), "£50.00")
 
+    def test_a_negative_amount_puts_its_minus_first(self):
+        """A saving below zero printed as $-0.10; money is written -$0.10.
+        Every bracket keeps the rule, and the digits are the positive ones."""
+        self.assertEqual(tm.money(-0.1), "-$0.10")
+        self.assertEqual(tm.money(-2533.428), "-$2,533.43")
+        self.assertEqual(tm.money(-0.0029), "-$0.0029")
+        self.assertEqual(tm.money(-0.0000004), "-<$0.0001")
+        for x in (0.125, 2.675, 1.005, 0.00415):
+            self.assertEqual(tm.money(-x), "-" + tm.money(x))
+        tm.DISPLAY.update(code="GBP", symbol="£", rate=0.5)
+        self.assertEqual(tm.money(-100), "-£50.00")
+
+
+class TestMoneyOnEveryFace(Base):
+    """The menu bar and the dashboard each carry their own copy of money(),
+    in Swift and JavaScript. No Python test can run them, so these read their
+    source for the parts that once disagreed with the terminal."""
+
+    def swift(self):
+        return slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                     encoding="utf-8")
+
+    def test_every_copy_puts_the_minus_first(self):
+        """$-0.10 was printed by all three copies; changing one alone would
+        make the same saving read two ways."""
+        swift = self.swift()
+        money_swift = swift[swift.index("func money("):swift.index("func shownDifference")]
+        fmt_js = tm.DASH_JS[tm.DASH_JS.index("function fmt("):tm.DASH_JS.index("let CUR")]
+        for body in (money_swift, fmt_js):
+            self.assertIn("sign + s + ", body)
+            self.assertNotIn("return s + x", body)
+            self.assertNotIn("return s + String(format", body)
+
 
 class TestReconciledColumn(Base):
     """with + saved must equal without as printed, in every currency."""

@@ -145,6 +145,8 @@
   3.8 Flash have a list price Google has set from 1 January 2027, twice their
   launch price, so their calls were charged double. A call with no timestamp
   is priced at today's rates the same way.
+- A negative amount puts its minus before the currency symbol, `-$0.10`, in
+  the terminal, the dashboard and the menu bar alike. It printed `$-0.10`.
 
 ## 1.1.2, 6 October 2026
 
