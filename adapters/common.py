@@ -17,7 +17,7 @@ _DATE_TIME = re.compile(
     r"([+-]\d{2}(?::\d{2}(?::\d{2})?|\d{2}(?:\d{2})?)?)?$")    # +01, +0100, +01:00
 
 
-def parse_time(ts) -> dt.datetime | None:
+def parse_time(ts, local=False) -> dt.datetime | None:
     """An ISO 8601 timestamp as an aware datetime, or None.
 
     Python 3.9's fromisoformat reads only the extended form with a +HH:MM
@@ -29,7 +29,8 @@ def parse_time(ts) -> dt.datetime | None:
     basic form (20260920T100211Z), a comma before the fraction and a short
     offset (+0100, +01) read the same on every version. A time with no offset
     is taken as UTC rather than rejected, because comparing a naive time with
-    an aware one raises instead of answering.
+    an aware one raises instead of answering; local=True takes it as local
+    time instead, which is what a person typing one means.
     """
     if not ts or not isinstance(ts, str):
         return None
@@ -43,7 +44,7 @@ def parse_time(ts) -> dt.datetime | None:
         except ValueError:
             return None
     if when.tzinfo is None:
-        when = when.replace(tzinfo=dt.timezone.utc)
+        when = when.astimezone() if local else when.replace(tzinfo=dt.timezone.utc)
     return when
 
 

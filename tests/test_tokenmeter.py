@@ -915,6 +915,67 @@ class TestParseSince(Base):
         with self.assertRaises(SystemExit):
             tm.parse_since("soonish")
 
+    def test_a_timestamp_keeps_its_offset_and_its_z(self):
+        """The text was lowercased before parsing, so '2026-10-01T10:00Z' was
+        refused, and any offset was then replaced by UTC."""
+        utc = dt.timezone.utc
+        for flag in ("--since", "--until"):
+            with self.subTest(flag=flag):
+                self.assertEqual(tm.parse_since("2026-10-01T10:00Z", flag),
+                                 dt.datetime(2026, 10, 1, 10, 0, tzinfo=utc))
+                self.assertEqual(tm.parse_since("2026-10-01T11:00+02:00", flag),
+                                 dt.datetime(2026, 10, 1, 9, 0, tzinfo=utc))
+        self.assertEqual(tm.parse_since("2026-10-01 10:00:00+0100"),
+                         dt.datetime(2026, 10, 1, 9, 0, tzinfo=utc))
+        for s in ("7D", "24H", "2W"):
+            self.assertIsNotNone(tm.parse_since(s))
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "needs time.tzset to change the zone")
+    def test_a_date_is_local_midnight_and_a_bare_time_is_local(self):
+        """A date was taken as midnight UTC, away from the local day
+        boundaries --period and the day buckets use: in London in summer,
+        --since 2026-10-01 began an hour into the day."""
+        old = os.environ.get("TZ")
+        os.environ["TZ"] = "Europe/London"
+        time.tzset()
+        try:
+            utc = dt.timezone.utc
+            day = tm.parse_since("2026-10-01")
+            self.assertEqual(day, tm.local_midnight(dt.date(2026, 10, 1)))
+            self.assertEqual(day, dt.datetime(2026, 9, 30, 23, 0, tzinfo=utc))
+            self.assertEqual(tm.parse_since("2026-10-01T10:00", "--until"),
+                             dt.datetime(2026, 10, 1, 9, 0, tzinfo=utc))
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+
+    def test_a_value_too_large_exits_naming_its_flag(self):
+        """'--since 99999999d' ended in an OverflowError traceback."""
+        for s in ("99999999d", "-99999999d", "1e400w", "nanh", "2026-13-01"):
+            for flag in ("--since", "--until"):
+                with self.subTest(value=s, flag=flag):
+                    with self.assertRaises(SystemExit) as cm:
+                        tm.parse_since(s, flag)
+                    self.assertIn(f"could not read {flag} {s!r}", str(cm.exception.code))
+        self.write("a.jsonl", record("msg_1", out=100))
+        with self.assertRaises(SystemExit) as cm:
+            cli("--until", "99999999d", "--no-ledger")
+        self.assertIn("could not read --until '99999999d'", str(cm.exception.code))
+
+    def test_until_alone_is_labelled_until(self):
+        """A run with --until and no --since was labelled 'all time'."""
+        self.write("a.jsonl", record("msg_1", ts="2026-09-01T12:00:00.000Z", out=100),
+                   record("msg_2", ts="2026-09-05T12:00:00.000Z", out=100))
+        got = json.loads(cli("--json", "--until", "2026-09-03", "--no-ledger"))
+        self.assertEqual((got["label"], got["calls"]), ("until 2026-09-03", 1))
+        got = json.loads(cli("--json", "--since", "2026-09-01T00:00Z",
+                             "--until", "2026-09-03T00:00Z", "--no-ledger"))
+        self.assertEqual((got["label"], got["calls"]),
+                         ("2026-09-01T00:00Z to 2026-09-03T00:00Z", 1))
+
 
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")

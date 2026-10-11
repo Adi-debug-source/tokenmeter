@@ -1061,21 +1061,40 @@ def append_ledger(rows: list, path: str = "") -> int:
     return len(rows)
 
 
-def parse_since(s: str) -> dt.datetime | None:
+def parse_since(s: str, flag: str = "--since") -> dt.datetime | None:
+    """The moment --since or --until names: a span back from now (24h, 7d or
+    2w, the unit in either case), or a date, or a date and time.
+
+    A date alone is local midnight, as --period and the day buckets have
+    always taken it, and a time with no offset is local time; an offset or a
+    Z is kept. The whole text used to be lowercased, so a Z became a z that no
+    Python reads, an offset was replaced by UTC, and a date was midnight UTC,
+    away from the local day boundaries the rest of a report uses. Anything
+    unreadable, or too far back to count to, exits with a message naming the
+    flag it came from.
+    """
     if not s:
         return None
-    now = dt.datetime.now(dt.timezone.utc)
-    s = s.strip().lower()
+    text = s.strip()
+    unit = text[-1:].lower()
     try:
-        if s.endswith("h"):
-            return now - dt.timedelta(hours=float(s[:-1]))
-        if s.endswith("d"):
-            return now - dt.timedelta(days=float(s[:-1]))
-        if s.endswith("w"):
-            return now - dt.timedelta(weeks=float(s[:-1]))
-        return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
-    except ValueError:
-        sys.exit(f"could not read --since {s!r}: use 24h, 7d, 2w or 2026-09-01")
+        if unit in ("h", "d", "w"):
+            n = float(text[:-1])
+            if unit == "h":
+                span = dt.timedelta(hours=n)
+            elif unit == "d":
+                span = dt.timedelta(days=n)
+            else:
+                span = dt.timedelta(weeks=n)
+            return dt.datetime.now(dt.timezone.utc) - span
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            return local_midnight(dt.date.fromisoformat(text))
+        when = parse_time(text, local=True)
+        if when is not None:
+            return when
+    except (OverflowError, ValueError, OSError):
+        pass
+    sys.exit(f"could not read {flag} {s!r}: use 24h, 7d, 2w, 2026-09-01 or 2026-09-01T10:00")
 
 
 def month_first(d: dt.date) -> dt.date:
@@ -3381,8 +3400,11 @@ def main(argv=None) -> None:
         prog="tokenmeter",
         description="What your AI coding would have cost at API rates.")
     ap.add_argument("--version", action="version", version=f"tokenmeter {__version__}")
-    ap.add_argument("--since", default="", help="rolling window: 24h, 7d, 30d, 2w or 2026-09-01")
-    ap.add_argument("--until", default="", help="stop at this date, for a closed range")
+    ap.add_argument("--since", default="",
+                    help="rolling window: 24h, 7d, 30d, 2w, or a date or time such as "
+                         "2026-09-01 or 2026-09-01T10:00 (local unless an offset is given)")
+    ap.add_argument("--until", default="",
+                    help="stop at this moment, in the same forms, for a closed range")
     ap.add_argument("--period", default="", metavar="NAME",
                     help="calendar period: today, yesterday, week, lastweek, "
                          "month, lastmonth, year")
@@ -3518,7 +3540,7 @@ def main(argv=None) -> None:
         since, until = period_range(args.period)
     else:
         since = parse_since(args.since)
-        until = parse_since(args.until) if args.until else None
+        until = parse_since(args.until, "--until") if args.until else None
     # The dashboard gives each harness a page of its own when there are
     # several, so it has the run split by harness in the same single pass.
     whole, parts = collect_views(paths, since, ledger=not args.no_ledger, until=until,
@@ -3533,6 +3555,8 @@ def main(argv=None) -> None:
         label = f"{args.since} to {args.until}"
     elif args.since:
         label = f"last {args.since}"
+    elif args.until:
+        label = f"until {args.until}"
     elif session_label:
         label = session_label
     else:

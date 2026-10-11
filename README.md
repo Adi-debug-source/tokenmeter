@@ -196,6 +196,8 @@ Every API call in the logs on this Mac, plus every call the ledger remembers. No
 
 `--since` is rolling and always the same length, so `--since 30d` is comparable with the thirty days before it. `--period` is the calendar, which is what you want when checking against a bill: `lastmonth` is whichever month just ended. Weeks start on Monday. The menu bar uses rolling windows, because "this week" on a Monday morning is an hour long.
 
+`--since` and `--until` also take a date or a date and time, such as `2026-09-01` or `2026-09-01T10:00`. Both are local time unless they carry an offset or a `Z`, so a date starts at local midnight, as the calendar periods do. `--until` stops just before the moment it names.
+
 ### What orchestration costs
 
 A session that spawns subagents costs more because every subagent makes its own API calls. Tokenmeter reads subagent transcripts too, so that cost is counted. On one real history a quarter of all spend was subagents. `--by session` and the dashboard show where it went. Effort settings change how many tokens a model produces, never the price per token, so they need no special handling.

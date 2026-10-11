@@ -133,6 +133,13 @@
   punctuation, such as `My App`, or a full path found nothing. Every harness's
   projects are now matched both ways, ignoring case, and the report's label
   names the project without the home folder.
+- `--since` and `--until` take a date as local midnight, as `--period` and
+  the day buckets always have; it was midnight UTC. A time with no offset is
+  local time, and an offset or a `Z` is kept: the whole value was lowercased,
+  so `2026-10-01T10:00Z` was refused and an offset was read as UTC. A value
+  too large to count back, such as `99999999d`, exits with a message naming
+  the flag instead of a traceback, and a report with `--until` alone is
+  labelled "until ..." rather than "all time".
 
 ## 1.1.2, 6 October 2026
 
