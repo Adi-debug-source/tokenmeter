@@ -2655,14 +2655,17 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
                     acc["calls"] += v["calls"]
             return acc
 
+        # The fourth tile is the run's own window. It read "All time" whatever
+        # that was, so a --period lastmonth page called its month all time.
+        whole = "All time" if label == "all time" else label[:1].upper() + label[1:]
         wins = [("Today", window(today)),
                 ("Last 7 days", window(today - dt.timedelta(days=6))),
                 ("Last 30 days", window(today - dt.timedelta(days=29))),
-                ("All time", {"total": total, "calls": overall["calls"]})]
+                (whole, {"total": total, "calls": overall["calls"]})]
         wmax = max((w[1]["total"] for w in wins), default=0) or 1
         win_html = ""
         for i, (name, w) in enumerate(wins):
-            win_html += (f'<div class="win"><div style="flex:1"><div class="win-k">{name}</div>'
+            win_html += (f'<div class="win"><div style="flex:1"><div class="win-k">{html.escape(name)}</div>'
                          f'<div class="win-bar" style="width:{w["total"] / wmax * 100:.1f}%;'
                          f'transition-delay:{i * 90}ms"></div></div>'
                          f'<div class="win-v">{m(w["total"])}</div>'
@@ -2848,8 +2851,8 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         wnames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         rhythm = ('<section class="fade">'
                   + head("When the work happens",
-                         "Local time, all time. Spend rather than calls, so a quiet hour of heavy "
-                         "thinking outweighs a busy hour of small ones.")
+                         f"Local time, {html.escape(label)}. Spend rather than calls, so a quiet "
+                         "hour of heavy thinking outweighs a busy hour of small ones.")
                   + '<div class="rhythm">'
                   f'<div><p class="sub-h">By hour</p>'
                   f'{columns("hour", hours, lambda h: h if int(h) % 3 == 0 else "")}</div>'

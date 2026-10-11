@@ -1063,6 +1063,31 @@ class TestDashboard(Base):
         self.assertIn("pageId = esc(ACTIVE)", js)
         self.assertIn("esc(d.short)", js)
 
+    def test_the_whole_window_is_named_for_the_run(self):
+        """The fourth window tile always read "All time" and the rhythm
+        section "Local time, all time", so a --period lastmonth page called
+        its own month all time."""
+        self.write("a.jsonl", record("msg_1", out=900))
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=False)
+        out = os.path.join(self.tmp, "d.html")
+
+        def page(label):
+            tm.render_html(overall, groups, meta, unknown, label, out)
+            return slurp(out, encoding="utf-8")
+
+        month = tm.period_label("lastmonth")                 # "September 2026"
+        got = page(month)
+        self.assertIn(f'<div class="win-k">{month}</div>', got)
+        self.assertNotIn('<div class="win-k">All time</div>', got)
+        self.assertIn(f"Local time, {month}. Spend", got)
+        self.assertNotIn("Local time, all time", got)
+        got = page("last 7d · <b>app</b>")
+        self.assertIn('<div class="win-k">Last 7d · &lt;b&gt;app&lt;/b&gt;</div>', got)
+        self.assertIn("Local time, last 7d · &lt;b&gt;app&lt;/b&gt;. Spend", got)
+        got = page("all time")
+        self.assertIn('<div class="win-k">All time</div>', got)
+        self.assertIn("Local time, all time. Spend", got)
+
     def test_renders_with_no_history_at_all(self):
         """A fresh install opens the dashboard before it has priced anything."""
         out = os.path.join(self.tmp, "empty.html")

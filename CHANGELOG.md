@@ -168,6 +168,10 @@
   from import files and from OpenCode's and Codex's logs, and one holding
   markup, such as `</script>` or a double quote, broke the page and ran as
   part of it when the page was opened.
+- The dashboard's fourth window tile and the caption of "When the work
+  happens" are named for the run's own window, such as "September 2026" for
+  `--period lastmonth`. They always said "All time", though the tile showed
+  that window's total and the section covered only that window.
 
 ## 1.1.2, 6 October 2026
 
