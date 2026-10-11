@@ -361,9 +361,10 @@ final class Controller: NSObject, NSApplicationDelegate {
             let mi = add(menu, line, #selector(setMode(_:)), enabled: true,
                          mono: true, state: mode == key)
             mi.representedObject = key
+            let calls = "\(w.calls) API call" + (w.calls == 1 ? "" : "s")
             mi.toolTip = key == "all" && !snap.covered.isEmpty
-                ? "\(w.calls) API calls, covering \(snap.covered). Show this one in the menu bar."
-                : "\(w.calls) API calls. Show this one in the menu bar."
+                ? "\(calls), covering \(snap.covered). Show this one in the menu bar."
+                : "\(calls). Show this one in the menu bar."
         }
 
         let w = current()

@@ -151,6 +151,11 @@
   language, as the terminal does. They followed the system's locale, so on a
   Mac set to German the same figure read `1.234,50` there and `1,234.50` in
   the terminal, and the menu bar's own sub-penny amounts kept the full stop.
+- One call is "1 API call" in the terminal's header and "1 call" in its
+  `--by` tables, the dashboard's chart tooltip and the menu bar's tooltips,
+  instead of "1 API calls" and "1 calls". The dollar figure printed beside
+  another currency follows the rule every other amount does, so a sub-penny
+  total reads `£0.0056 ($0.0075)` rather than `£0.0056 ($0.01)`.
 
 ## 1.1.2, 6 October 2026
 

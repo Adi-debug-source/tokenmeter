@@ -35,7 +35,9 @@ The one deliberate exception is `money()`, which exists three times, in
 Python, Swift and the dashboard's JavaScript, because each renders in its own
 runtime. All three carry the same comment. **Change one and you must change
 all three**, or the same figure reads differently in different places, which
-has happened.
+has happened. In Python the rule itself is `format_money()`, which `money()`
+calls with the display currency and the terminal calls for the dollar figure
+beside another currency.
 
 ## When a harness updates
 

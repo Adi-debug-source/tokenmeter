@@ -1612,8 +1612,15 @@ def money(usd: float) -> str:
     A negative amount takes its minus before the symbol, -$0.10, the way it is
     written; it used to print $-0.10.
     """
-    x = usd * DISPLAY["rate"]
-    sym = DISPLAY["symbol"]
+    return format_money(usd * DISPLAY["rate"], DISPLAY["symbol"])
+
+
+def format_money(x: float, sym: str) -> str:
+    """money()'s rule for an amount already in its currency, written with sym.
+
+    The dollar figure printed beside another currency goes through here too.
+    It had a rule of its own, so a sub-penny total read "£0.0057 ($0.01)".
+    """
     if x == 0:
         return f"{sym}0.00"
     sign, x = ("-" if x < 0 else ""), abs(x)
@@ -1649,6 +1656,17 @@ def shown_difference(big: float, small: float) -> float:
     """
     r = DISPLAY["rate"] or 1.0
     return (round(big * r, 2) - round(small * r, 2)) / r
+
+
+def plural(n: int, word: str) -> str:
+    """'1 call', '2 calls'."""
+    return f"{n:,} {word}{'' if n == 1 else 's'}"
+
+
+def call_word(n: int) -> str:
+    """"call" or "calls" after a count in a table, one width either way so the
+    columns after it stay in line. Every row once read "1 calls"."""
+    return "call " if n == 1 else "calls"
 
 
 def toks(n: int) -> str:
@@ -1804,9 +1822,9 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     print(f"  {DIM}{'-' * 64}{RESET}")
     alt = ""
     if DISPLAY["code"] != "USD":
-        alt = f"   {DIM}(${overall['total']:,.2f}){RESET}"
+        alt = f"   {DIM}({format_money(overall['total'], '$')}){RESET}"
     print(f"  {BOLD}{YELLOW}{money(overall['total'])}{RESET}{alt}"
-          f"   {DIM}{overall['calls']:,} API calls{RESET}")
+          f"   {DIM}{plural(overall['calls'], 'API call')}{RESET}")
     if covered:
         print(f"  {DIM}{covered}{RESET}")
     print()
@@ -1853,7 +1871,7 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
         for r in rows:
             mark = f"{GREEN}verified  {RESET}" if r["status"] == "verified" else f"{DIM}{r['status_word']:<10}{RESET}"
             print(f"    {r['label']:<{width}}  {mark}{money(r['total']):>11}  "
-                  f"{DIM}{r['calls']:>6,} calls  {money(r['per_call']):>8} a call  "
+                  f"{DIM}{r['calls']:>6,} {call_word(r['calls'])}  {money(r['per_call']):>8} a call  "
                   f"{r['cache_hit_pct']:5.1f}% from cache{RESET}")
     elif by:
         print()
@@ -1868,7 +1886,7 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
             name = display_name(by, k)
             name = name if len(name) <= width else "…" + name[-(width - 1):]
             bar = "█" * int(round(v["total"] / peak * 22))
-            print(f"    {name:<{width}}  {money(v['total']):>10}  {DIM}{v['calls']:>4} calls{RESET}  {CYAN}{bar}{RESET}")
+            print(f"    {name:<{width}}  {money(v['total']):>10}  {DIM}{v['calls']:>4} {call_word(v['calls'])}{RESET}  {CYAN}{bar}{RESET}")
 
     if sessions:
         print()
@@ -2171,6 +2189,7 @@ DASH_JS = """/* Tokenmeter dashboard behaviour.
 const D = __PAYLOAD__;
 const SLOW = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
+const callsText = n => n.toLocaleString('en-US') + (n === 1 ? ' call' : ' calls');
 
 /* ---- money. Same rule as money() in tokenmeter.py. Three copies of this
    exist, one per face, and they must agree or one figure reads two ways.
@@ -2403,10 +2422,10 @@ function onMove(e, host) {
     tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(usd, CUR) + '</b>' +
       series.filter(s => d.by[s.name]).map(s => '<i><span class="sw" style="background:' + s.color +
         '"></span>' + s.label + ' ' + fmt(d.by[s.name], CUR) + '</i>').join('') +
-      '<i>' + calls.toLocaleString('en-US') + ' calls · running ' + running + '</i>';
+      '<i>' + callsText(calls) + ' · running ' + running + '</i>';
   } else {
     tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(d.total, CUR) + '</b><i>' +
-      d.calls.toLocaleString('en-US') + ' calls · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
+      callsText(d.calls) + ' · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
   }
   tip.classList.add('on');
 
@@ -2996,11 +3015,6 @@ def backup_path(path: str) -> str:
         n += 1
         candidate = f"{stamped}-{n}"
     return candidate
-
-
-def plural(n: int, word: str) -> str:
-    """'1 call', '2 calls'."""
-    return f"{n:,} {word}{'' if n == 1 else 's'}"
 
 
 def rebuild_ledger(paths) -> None:

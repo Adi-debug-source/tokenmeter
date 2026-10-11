@@ -177,6 +177,47 @@ class TestMoneyOnEveryFace(Base):
             self.assertNotIn("return s + String(format", body)
 
 
+class TestReportWording(Base):
+    """The terminal report's words, where they once said something wrong."""
+
+    def report(self, by=""):
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=False)
+        return terminal(overall, groups, meta, unknown, by, "all time")
+
+    def test_one_call_is_one_call(self):
+        """The header read "1 API calls" and every --by table "1 calls"."""
+        self.write("a.jsonl", record("msg_1", out=1000))
+        out = self.report("model")
+        self.assertIn("   1 API call\n", out)
+        self.assertIn("   1 call  ", out)
+        self.assertNotIn("1 API calls", out)
+        self.assertNotIn("1 calls", out)
+        self.assertIn("1 call  ", self.report("source"))
+        self.write("b.jsonl", record("msg_2", out=10))
+        self.assertIn("   2 API calls\n", self.report())
+
+    def test_one_call_keeps_the_table_in_line(self):
+        """'call' is a letter shorter than 'calls'; the bars must still start
+        in one column."""
+        self.write("a.jsonl", record("msg_1", out=1000),
+                   record("msg_2", out=1000, ts="2026-09-02T12:00:00.000Z"),
+                   record("msg_3", model="claude-opus-4-8", out=1000))
+        rows = [ln for ln in self.report("model").splitlines() if "█" in ln and "call" in ln]
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(rows[0].index("█"), rows[1].index("█"))
+
+    def test_the_dollar_bracket_follows_moneys_rule(self):
+        """Beside another currency the dollar figure had its own two-decimal
+        rule, so a sub-penny total read "£0.0056 ($0.01)"."""
+        self.write("a.jsonl", record("msg_1", out=300))      # $0.0075
+        tm.DISPLAY.update(code="GBP", symbol="£", rate=0.75)
+        head = self.report().splitlines()[3]
+        self.assertIn("£0.0056", head)
+        self.assertIn("($0.0075)", head)
+        self.assertEqual(tm.format_money(2533.428, "$"), "$2,533.43")
+        self.assertEqual(tm.format_money(-0.1, "€"), "-€0.10")
+
+
 class TestReconciledColumn(Base):
     """with + saved must equal without as printed, in every currency."""
 
