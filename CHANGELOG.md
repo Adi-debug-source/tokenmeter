@@ -140,6 +140,11 @@
   too large to count back, such as `99999999d`, exits with a message naming
   the flag instead of a traceback, and a report with `--until` alone is
   labelled "until ..." rather than "all time".
+- `--current-rates` prices every call at the rates in force today. It took
+  each model's newest price even when that starts later: Gemini 3.6, 3.7 and
+  3.8 Flash have a list price Google has set from 1 January 2027, twice their
+  launch price, so their calls were charged double. A call with no timestamp
+  is priced at today's rates the same way.
 
 ## 1.1.2, 6 October 2026
 

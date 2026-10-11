@@ -291,27 +291,31 @@ DEFAULT_PROVIDER = _anthropic.PROVIDER
 # cannot quietly report wrong figures for a year.
 STALE_DAYS = 90
 
-# Price the whole history at the newest rates instead of the ones in force at
-# the time. Off by default: "what it would have cost" means what it would have
-# cost then. On, it answers the other question, "what would running all of this
-# again cost me now".
+# Price the whole history at the rates in force today instead of the ones in
+# force at the time. Off by default: "what it would have cost" means what it
+# would have cost then. On, it answers the other question, "what would running
+# all of this again cost me now".
 CURRENT_RATES = []
 
 
 def rate_on(rows: list, when=None) -> dict:
-    """The entry in force on `when`, or the newest if there is no date.
+    """The entry in force on `when`'s local date, or on today's.
 
-    Rows are ordered oldest first. No date means the caller has no timestamp to
-    work from, as the status line does not, in which case the newest rate is
-    both the best guess and almost always right, since the call being priced is
-    one happening now.
+    Rows are ordered oldest first, and a row's "from" can be a date still to
+    come when a provider announces a price change ahead. Today's date is used
+    for a call with no timestamp, which is rare (the status line passes each
+    call's own), and for every call under --current-rates, which asks what
+    the work would cost now. Taking the newest row instead charged a price not
+    yet in force, such as a 2027 rate for work priced today.
     """
-    if when is None or CURRENT_RATES:
-        return rows[-1]
-    try:
-        day = when.astimezone().strftime("%Y-%m-%d")
-    except (ValueError, OSError):
-        return rows[-1]
+    day = None
+    if when is not None and not CURRENT_RATES:
+        try:
+            day = when.astimezone().strftime("%Y-%m-%d")
+        except (ValueError, OSError, OverflowError):
+            pass
+    if day is None:
+        day = dt.date.today().isoformat()
     chosen = rows[0]
     for r in rows:
         if r["from"] and r["from"] > day:

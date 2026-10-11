@@ -201,6 +201,44 @@ class TestPricing(Base):
         self.assertAlmostEqual(m5["cache_write"], 5.0 * 1.25, places=9)
 
 
+class TestCurrentRates(Base):
+    """--current-rates took each model's newest row, so it charged a price
+    announced for a date still to come: a gemini-3.8-flash call of 1M in and
+    1M out cost $4.50 at its own date and $9.00 "at today's rates", the price
+    Google has set for 2027."""
+
+    def setUp(self):
+        super().setUp()
+        prices = tm.TABLES["google"].PRICES
+        rows = prices["gemini-3.8-flash"]
+        # The table's own later row, kept a year ahead whatever day this runs.
+        ahead = (dt.date.today() + dt.timedelta(days=365)).isoformat()
+        prices["gemini-3.8-flash"] = [rows[0], dict(rows[1], **{"from": ahead})]
+        self.addCleanup(prices.__setitem__, "gemini-3.8-flash", rows)
+        self.rows = prices["gemini-3.8-flash"]
+        self.trial = os.path.join(self.tmp, "trial.jsonl")
+        with open(self.trial, "w") as f:
+            f.write(json.dumps({"id": "g1", "timestamp": "2026-10-01T10:00:00Z",
+                                "provider": "google", "model": "gemini-3.8-flash",
+                                "input": 1_000_000, "output": 1_000_000}) + "\n")
+
+    def total(self, *flags):
+        return json.loads(cli("--json", "--adapter", "import", "--import", self.trial,
+                              "--no-ledger", *flags))["total_usd"]
+
+    def test_todays_rates_are_the_ones_in_force_today(self):
+        self.assertEqual((self.rows[0]["in"], self.rows[0]["out"]), (0.75, 3.75))
+        self.assertAlmostEqual(self.total(), 4.5, places=9)
+        self.assertAlmostEqual(self.total("--current-rates"), 4.5, places=9)
+
+    def test_a_call_with_no_date_is_priced_as_of_today(self):
+        self.assertIs(tm.rate_on(self.rows), self.rows[0])
+        later = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=400)
+        self.assertIs(tm.rate_on(self.rows, later), self.rows[1])
+        tm.CURRENT_RATES.append(True)
+        self.assertIs(tm.rate_on(self.rows, later), self.rows[0])
+
+
 class TestPublishedRates(Base):
     """The whole table against platform.claude.com, checked 11 September 2026.
     Sonnet 5.5 added from the same page on 6 October 2026.
