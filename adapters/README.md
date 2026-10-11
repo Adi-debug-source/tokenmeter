@@ -23,7 +23,7 @@ A module in this folder, added to `ADAPTERS` in `__init__.py`, with:
 | `FILES` | What it reads, in words: `sessions`. |
 | `FILE` | The same for one of them: `session`. Reports say "1 Codex session". |
 | `default_roots()` | The folders it reads, honouring the harness's own environment variables. |
-| `files(roots, project="", session="")` | The log files under those folders. |
+| `files(roots, project="", session="")` | The log files under those folders, narrowed by `project` and `session` where the files say enough (match a project with `claude_code.project_matches()`). The engine filters every call again, so reading too many is safe and too few is not. |
 | `looks_like(line)` | Whether one line of an unknown file is in this format. |
 | `records(path)` | Yield `(key, event)` for every API call in one file. |
 | `notes()` *(optional)* | Sentences every report must print about this run's figures. |

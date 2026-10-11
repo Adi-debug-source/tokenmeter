@@ -1186,7 +1186,7 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     for ev in best.values():
         if _ONLY and ev["source"] not in _ONLY:
             continue
-        if _PROJECT and _PROJECT[0].lower() not in (ev["project"] or "").lower():
+        if _PROJECT and not claude_code.project_matches(_PROJECT[0], ev["project"] or ""):
             continue
         if _SESSION and not any((ev["session"] or "").startswith(s) for s in _SESSION):
             continue
@@ -1652,9 +1652,9 @@ def project_name(project: str) -> str:
     home = os.path.expanduser("~").rstrip(os.sep)
     if project.startswith(home + os.sep):
         return project[len(home) + 1:]
-    slug = re.sub(r"[^A-Za-z0-9]", "-", home) + "-"
-    if project.startswith(slug):
-        return project[len(slug):]
+    prefix = claude_code.slug(home) + "-"
+    if project.startswith(prefix):
+        return project[len(prefix):]
     return project
 
 
@@ -3388,7 +3388,8 @@ def main(argv=None) -> None:
                          "month, lastmonth, year")
     ap.add_argument("--session", default="",
                     help="a session id, or the path of a session's log file from any harness")
-    ap.add_argument("--project", default="", help="substring of the project folder")
+    ap.add_argument("--project", default="",
+                    help="part of a project's folder name or path, or . for the current folder")
     ap.add_argument("--ledger", default="", metavar="FILE",
                     help=f"ledger file (default {DEFAULT_LEDGER}, or set {LEDGER_ENV})")
     ap.add_argument("--current-rates", action="store_true",
@@ -3485,6 +3486,7 @@ def main(argv=None) -> None:
                  f"try one of {', '.join(CURRENCIES)}")
     set_currency(args.currency)
 
+    project = os.getcwd() if args.project == "." else args.project
     session_label = ""
     if args.session:
         if os.path.isfile(args.session):
@@ -3500,8 +3502,8 @@ def main(argv=None) -> None:
                                      for r in read_ledger().values()):
                 sys.exit(f"no transcript found for session {args.session}")
     else:
-        paths = transcripts(project=args.project)
-        _PROJECT[:] = [args.project] if args.project else []
+        paths = transcripts(project=project)
+        _PROJECT[:] = [project] if project else []
     if not paths and (args.no_ledger or not read_ledger()):
         sys.exit(nothing_found())
 
@@ -3535,8 +3537,8 @@ def main(argv=None) -> None:
         label = session_label
     else:
         label = "all time"
-    if args.project:
-        label += f" · {args.project}"
+    if project:
+        label += f" · {project_name(project)}"
     if args.current_rates:
         label += " · at today's rates"
 

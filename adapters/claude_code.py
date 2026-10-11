@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 
 from .common import parse_time
 
@@ -52,8 +53,29 @@ def files(roots: list, project: str = "", session: str = "") -> list:
                  if os.path.basename(p).startswith(session)
                  or f"{os.sep}{session}" in p and f"{os.sep}subagents{os.sep}" in p]
     if project:
-        paths = [p for p in paths if project.lower() in p.lower()]
+        paths = [p for p in paths if project_matches(project, _where(p)[0])]
     return paths
+
+
+def slug(text: str) -> str:
+    """A working directory as Claude Code names its project folder: every
+    character that is not a letter or digit becomes "-", so /Users/sam/code/My
+    App becomes -Users-sam-code-My-App."""
+    return re.sub(r"[^A-Za-z0-9]", "-", text)
+
+
+def project_matches(wanted: str, project: str) -> bool:
+    """Whether --project's text names this project, ignoring case: found in
+    it as written, or its slug found in the project's slug.
+
+    Claude Code records a project as its folder's slug and every other source
+    as a real path, so the folder's own name ("My App"), its full path, the
+    slug and any part of these each find the project whichever way it was
+    recorded. Matching the text alone found nothing for a folder whose name
+    has a space or punctuation, or for a full path.
+    """
+    wanted, project = wanted.lower(), project.lower()
+    return wanted in project or slug(wanted) in slug(project)
 
 
 def session_files(path: str) -> list:

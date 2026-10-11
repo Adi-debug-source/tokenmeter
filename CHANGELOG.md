@@ -126,6 +126,13 @@
   its session, so each of them found nothing; and a Gemini CLI file was read
   as Claude Code's. A Claude Code transcript now brings its agents' with it,
   and the report is labelled with the session's id.
+- `--project` finds a project by its folder's own name, its full path, or
+  `.` for the current folder. Claude Code names a project's folder after its
+  path with every character that is not a letter or digit turned into `-`,
+  and the filter was matched against that alone, so a name with a space or
+  punctuation, such as `My App`, or a full path found nothing. Every harness's
+  projects are now matched both ways, ignoring case, and the report's label
+  names the project without the home folder.
 
 ## 1.1.2, 6 October 2026
 

@@ -49,6 +49,7 @@ import os
 import shutil
 import subprocess
 
+from .claude_code import project_matches
 from .common import parse_time, usage
 
 NAME = "codex"
@@ -100,7 +101,7 @@ def files(roots: list, project: str = "", session: str = "") -> list:
     if session:
         paths = [p for p in paths if session in os.path.basename(p)]
     if project:
-        paths = [p for p in paths if project.lower() in (_first_meta(p).get("cwd") or "").lower()]
+        paths = [p for p in paths if project_matches(project, _first_meta(p).get("cwd") or "")]
     return sorted(paths)
 
 

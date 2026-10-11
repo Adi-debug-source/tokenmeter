@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tokenmeter as tm
@@ -551,6 +552,65 @@ class TestSessionPath(Base):
         got = self.json_for(path, "--no-ledger")
         self.assertEqual(got["calls"], 6)
         self.assertEqual(got["label"], "two-sessions.jsonl")
+
+
+class TestProjectNames(Base):
+    """--project matched its text against Claude Code's folder slug, in which
+    every character that is not a letter or digit is "-", so a folder's real
+    name with a space or punctuation, its full path and "." found nothing."""
+
+    WHERE = "/Users/sam/code/My App"
+
+    def setUp(self):
+        super().setUp()
+        for slug, mid in (("-Users-sam-code-My-App", "msg_mine"),
+                          ("-Users-sam-code-Other", "msg_other")):
+            folder = os.path.join(self.tmp, "projects", slug)
+            os.makedirs(folder)
+            with open(os.path.join(folder, "sess-" + mid + ".jsonl"), "w") as f:
+                f.write(record(mid, out=100) + "\n")
+
+    def calls(self, *argv):
+        return json.loads(cli("--json", *argv))["calls"]
+
+    def test_a_name_a_path_and_dot_each_find_it(self):
+        self.assertEqual(tm.claude_code.slug(self.WHERE), "-Users-sam-code-My-App")
+        cli("--json")                              # both now in the ledger too
+        for wanted in ("My App", "my app", self.WHERE, "code-My-App", "-Users-sam-code-My-App", "."):
+            for ledger in ([], ["--no-ledger"]):
+                with self.subTest(project=wanted, ledger=ledger), \
+                        unittest.mock.patch("os.getcwd", return_value=self.WHERE):
+                    self.assertEqual(self.calls("--project=" + wanted, *ledger), 1)
+        with self.assertRaises(SystemExit):
+            self.calls("--project", "No Such App")
+
+    def test_the_current_folder_is_named_in_the_label(self):
+        with unittest.mock.patch("os.getcwd", return_value=self.WHERE), \
+                unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
+            label = json.loads(cli("--json", "--project", ".", "--no-ledger"))["label"]
+        self.assertEqual(label, "all time \u00b7 code/My App")
+
+    def test_an_imports_real_path_still_matches(self):
+        trial = os.path.join(self.tmp, "trial.jsonl")
+        with open(trial, "w") as f:
+            f.write(json.dumps(dict(TestImport.GOOD, project=self.WHERE)) + "\n")
+        for wanted in ("My App", self.WHERE, "-Users-sam-code-My-App"):
+            with self.subTest(project=wanted):
+                self.assertEqual(self.calls("--project=" + wanted, "--adapter", "import",
+                                            "--import", trial, "--no-ledger"), 1)
+
+    def test_a_codex_session_is_found_by_its_folders_slug(self):
+        day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
+        os.makedirs(day)
+        shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"),
+                    os.path.join(day, "rollout-2026-09-24T14-07-33-"
+                                      "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl"))
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.tmp, "codex-home", "sessions")]
+        # The fixture's working folder is /Users/example/code/demo.
+        for wanted in ("code/demo", "code-demo"):
+            with self.subTest(project=wanted):
+                self.assertEqual(self.calls("--project", wanted, "--adapter", "codex",
+                                            "--no-ledger"), 3)
 
 
 class TestTheRestoredCount(Base):
