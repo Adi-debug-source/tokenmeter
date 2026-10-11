@@ -2678,6 +2678,22 @@ class TestMenuBarCurrencies(Base):
         self.assertIn('root["currency_order"]', swift)
 
 
+class TestMenuBarFailure(Base):
+    def test_a_failed_read_shows_a_hyphen(self):
+        """The menu bar's title after a failed read was two spaces and an en
+        dash, the last dash character in the project. It is a hyphen; what went
+        wrong is still in the tooltip and the menu."""
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        failed = swift[swift.index("if let err = snap.failed {"):]
+        failed = failed[:failed.index("} else {")]
+        self.assertIn('item.button?.title = "  -"', failed)
+        self.assertIn("item.button?.toolTip = err", failed)
+        self.assertIn('add(menu, "Could not read usage: \\(err)")', swift)
+        for dash in (chr(0x2013), chr(0x2014)):
+            self.assertNotIn(dash, swift)
+
+
 class TestExchangeRates(Base):
     """fx_rates() itself, against a network that counts every request and
     answers none. With TOKENMETER_OFFLINE=1 it still fetched; with the network

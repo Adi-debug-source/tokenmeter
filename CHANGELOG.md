@@ -177,6 +177,8 @@
   had any calls, so after a break it reached further back and drew the days
   either side of the gap as neighbours. `--summary-json`'s `days` now always
   holds those 30 days, oldest first.
+- When the menu bar cannot read usage, its title is a hyphen instead of an en
+  dash, and the reason is still in its tooltip and menu.
 
 ## 1.1.2, 6 October 2026
 

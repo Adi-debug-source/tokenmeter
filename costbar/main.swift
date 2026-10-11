@@ -310,7 +310,9 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     func render() {
         if let err = snap.failed {
-            item.button?.title = "  –"
+            // A plain hyphen: the project writes no en or em dash anywhere.
+            // What went wrong is in the tooltip and the menu.
+            item.button?.title = "  -"
             item.button?.toolTip = err
         } else {
             // Just the amount. Which window it is was the user's own choice
