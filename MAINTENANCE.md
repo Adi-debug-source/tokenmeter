@@ -29,7 +29,9 @@ else.** Six bugs in this tool's history were a second copy of some logic
 drifting from the first: a hardcoded rate, a second transcript parser, a
 second de-duplication key, a second currency table. When the menu bar needs a
 number it does not compute, add it to `--summary-json`. An adapter never
-prices; a price file never adds up.
+prices; a price file never adds up. The figures every face shows come from one
+helper each: the today, 7-day and 30-day windows from `rolling_windows()`, and
+what caching was worth from `caching_summary()`.
 
 The one deliberate exception is `money()`, which exists three times, in
 Python, Swift and the dashboard's JavaScript, because each renders in its own

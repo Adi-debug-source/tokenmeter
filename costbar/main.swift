@@ -38,7 +38,9 @@ struct Snapshot {
     var days: [Double] = []
     var cacheHit = 0.0
     var withoutCache = 0.0
-    var saved = 0.0
+    // The engine works these out (caching_summary()); the menu only shows them.
+    var savedPct = 0.0
+    var multiple = 0.0
     var rateWhen = ""
     var rateLive = true
     var covered = ""
@@ -196,7 +198,8 @@ func loadSnapshot() -> Snapshot {
     snap.all = window("all")
     snap.cacheHit = root["cache_hit_pct"] as? Double ?? 0
     snap.withoutCache = root["without_cache"] as? Double ?? 0
-    snap.saved = root["no_cache_saved"] as? Double ?? 0
+    snap.savedPct = root["saved_pct"] as? Double ?? 0
+    snap.multiple = root["multiple"] as? Double ?? 0
     snap.covered = root["covered"] as? String ?? ""
     snap.rateWhen = root["rate_when"] as? String ?? ""
     snap.rateLive = root["rate_live"] as? Bool ?? true
@@ -466,10 +469,9 @@ final class Controller: NSObject, NSApplicationDelegate {
         }
         if snap.withoutCache > 0 && snap.all.total > 0 {
             add(menu, dearer
-                ? String(format: "%.1f%% dearer", -snap.saved / snap.withoutCache * 100)
-                : String(format: "%.1f%% cheaper, %.1fx",
-                         max(snap.saved / snap.withoutCache * 100, 0),
-                         snap.withoutCache / snap.all.total), indent: 1)
+                ? String(format: "%.1f%% dearer", -snap.savedPct)
+                : String(format: "%.1f%% cheaper, %.1fx", max(snap.savedPct, 0), snap.multiple),
+                indent: 1)
         }
 
         menu.addItem(.separator())

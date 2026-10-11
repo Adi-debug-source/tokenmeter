@@ -277,6 +277,84 @@ class TestWhenCachingCostsMore(Base):
         self.assertNotIn("came from cache", out)
 
 
+class TestWindowsAndCaching(Base):
+    """Each face worked out the rolling windows and what caching was worth for
+    itself: the dashboard and summary() each walked the day groups, the
+    terminal, the dashboard and summary() each divided out the saving, and the
+    menu bar divided again in Swift, against the rule that arithmetic lives in
+    the engine. Now rolling_windows() and caching_summary() do it once."""
+
+    def setUp(self):
+        super().setUp()
+        today = dt.date.today()
+
+        def noon(days_ago):
+            local = dt.datetime.combine(today - dt.timedelta(days=days_ago), dt.time(12)).astimezone()
+            return local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        self.write("a.jsonl", record("msg_1", ts=noon(0), inp=10, out=1000, read=50000),
+                   record("msg_2", ts=noon(3), out=2000, w5=4000),
+                   record("msg_3", ts=noon(20), out=500, read=9000),
+                   record("msg_4", ts=noon(45), out=100))
+        self.result = tm.collect(tm.transcripts(), ledger=False)
+        self.page = os.path.join(self.tmp, "d.html")
+        tm.render_html(*self.result, "all time", self.page)
+
+    def test_the_windows_count_today_and_reach_back_6_and_29_days(self):
+        _, groups, *_ = self.result
+        w = tm.rolling_windows(groups, dt.date.today())
+        self.assertEqual([w[k]["calls"] for k in ("today", "week", "month")], [1, 2, 3])
+        s = tm.summary(ledger=False)
+        page = slurp(self.page, encoding="utf-8")
+        for k in ("today", "week", "month"):
+            self.assertEqual(list(w[k]), list(tm.COMPONENTS) + ["total", "calls"])
+            self.assertAlmostEqual(sum(w[k][c] for c in tm.COMPONENTS), w[k]["total"], places=12)
+            self.assertEqual(s[k], w[k])
+            self.assertIn(f'<div class="win-v"><span class="m" data-usd="{w[k]["total"]:.8f}"', page)
+
+    def test_every_face_shows_one_caching_summary(self):
+        overall, groups, meta, unknown = self.result
+        c = tm.caching_summary(overall)
+        saved = overall["no_cache"] - overall["total"]
+        self.assertEqual((c["saved"], c["saved_pct"], c["multiple"], c["hit_pct"]),
+                         (saved, saved / overall["no_cache"] * 100,
+                          overall["no_cache"] / overall["total"], tm.cache_hit_pct(overall)))
+        s = tm.summary(ledger=False)
+        self.assertEqual((s["without_cache"], s["no_cache_saved"], s["saved_pct"], s["multiple"],
+                          s["cache_hit_pct"]),
+                         (c["without_cache"], c["saved"], c["saved_pct"], c["multiple"], c["hit_pct"]))
+        out = terminal(overall, groups, meta, unknown, "", "all time")
+        self.assertIn(f"{c['saved_pct']:.1f}% cheaper, {c['multiple']:.1f}x", out)
+        rate = tm.unit_money(c["cache_read_per_million"])
+        self.assertIn(f"{c['hit_pct']:.1f}% of prompt tokens came from cache at {rate} per million", out)
+        page = slurp(self.page, encoding="utf-8")
+        self.assertIn(f"{c['saved_pct']:.1f}% cheaper. Caching made it {c['multiple']:.1f}x "
+                      "less expensive.", page)
+        self.assertIn(f"<b>{c['hit_pct']:.1f}%</b><span>From cache</span>", page)
+        self.assertIn(f"at {rate} per million against full input rates", page)
+
+    def test_a_dearer_run_and_an_empty_one(self):
+        overall, *_ = tm.collect([], ledger=False)
+        c = tm.caching_summary(overall)
+        self.assertEqual((c["prompt_tokens"], c["hit_pct"], c["saved"], c["saved_pct"], c["multiple"]),
+                         (0, 0.0, 0.0, 0, 0))
+        overall["tokens"]["cache_write"] = 20005
+        overall["total"], overall["no_cache"] = 0.200275, 0.100275
+        c = tm.caching_summary(overall)
+        self.assertEqual(f"{-c['saved_pct']:.1f}% dearer", "99.7% dearer")
+        self.assertAlmostEqual(c["multiple"], 0.100275 / 0.200275, places=15)
+
+    def test_the_menu_bar_reads_them_and_divides_nothing(self):
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        self.assertIn('snap.savedPct = root["saved_pct"] as? Double ?? 0', swift)
+        self.assertIn('snap.multiple = root["multiple"] as? Double ?? 0', swift)
+        self.assertIn('String(format: "%.1f%% dearer", -snap.savedPct)', swift)
+        self.assertIn('max(snap.savedPct, 0), snap.multiple)', swift)
+        for division in ("/ snap.withoutCache", "snap.withoutCache /", "/ snap.all.total"):
+            self.assertNotIn(division, swift)
+
+
 class TestReconciledColumn(Base):
     """with + saved must equal without as printed, in every currency."""
 

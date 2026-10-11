@@ -1549,6 +1549,59 @@ def cache_hit_pct(row) -> float:
     return t["cache_read"] / prompt * 100 if prompt else 0.0
 
 
+def rolling_windows(groups, today) -> dict:
+    """Today, the last 7 days and the last 30, as the menu bar shows them and
+    the dashboard's tiles beside it: {"today", "week", "month"}, each with the
+    five components, total and calls. Each window counts today, so the week
+    starts 6 days back and the month 29. The dashboard and summary() each
+    worked these out for themselves."""
+    def window(first_day):
+        acc = {c: 0.0 for c in COMPONENTS}
+        acc["total"] = 0.0
+        acc["calls"] = 0
+        for day, v in groups["day"].items():
+            try:
+                d = dt.datetime.strptime(day, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if d >= first_day:
+                for c in COMPONENTS:
+                    acc[c] += v[c]
+                acc["total"] += v["total"]
+                acc["calls"] += v["calls"]
+        return acc
+
+    return {"today": window(today),
+            "week": window(today - dt.timedelta(days=6)),
+            "month": window(today - dt.timedelta(days=29))}
+
+
+def caching_summary(overall) -> dict:
+    """What caching was worth, as every face shows it. The terminal, the
+    dashboard and summary() each worked it out, and the menu bar divided for
+    itself.
+
+    without_cache is the same calls with every prompt token billed fresh;
+    saved is what caching took off that, below zero when it cost more (see
+    caching_dearer()); saved_pct is saved as a share of without_cache, and
+    multiple is without_cache over what ran. Both are 0 when there is nothing
+    to divide by. cache_read_per_million is the dollars a million cache reads
+    cost on average, to set against full input rates.
+    """
+    t = overall["tokens"]
+    total, no_cache = overall["total"], overall["no_cache"]
+    saved = no_cache - total
+    return {
+        "prompt_tokens": sum(t[k] for k in ("input", "cache_write", "cache_read")),
+        "hit_pct": cache_hit_pct(overall),
+        "without_cache": no_cache,
+        "saved": saved,
+        "saved_pct": (saved / no_cache * 100) if no_cache else 0,
+        "multiple": (no_cache / total) if total else 0,
+        "cache_read_per_million": overall["cache_read"] / max(t["cache_read"], 1) * 1e6,
+    }
+
+
 STATUS_WORDS = {"verified": "verified", "unverified": "unverified", "yours": "imported"}
 
 
@@ -1894,28 +1947,26 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     if t["thinking"]:
         print(f"  {DIM}    of which thinking: {toks(t['thinking'])} output tokens{RESET}")
 
-    prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
-    if prompt_tokens:
-        no_cache = overall["no_cache"]
-        saved = no_cache - overall["total"]
-        pct = (saved / no_cache * 100) if no_cache else 0
-        multiple = (no_cache / overall["total"]) if overall["total"] else 0
+    caching = caching_summary(overall)
+    if caching["prompt_tokens"]:
+        no_cache = caching["without_cache"]
         print()
         print(f"  {BOLD}what caching is worth{RESET}")
         print(f"    {'with cache reads':<24}{money(overall['total']):>12}   {DIM}what you actually ran{RESET}")
         print(f"    {'without cache reads':<24}{money(no_cache):>12}   {DIM}every prompt token billed fresh{RESET}")
         if caching_dearer(no_cache, overall["total"]):
             shown = shown_difference(overall["total"], no_cache)
-            print(f"    {'caching cost':<24}{money(shown):>12}   {DIM}{-pct:.1f}% dearer{RESET}")
+            print(f"    {'caching cost':<24}{money(shown):>12}   "
+                  f"{DIM}{-caching['saved_pct']:.1f}% dearer{RESET}")
         else:
             shown = shown_difference(no_cache, overall["total"])
             print(f"    {'saved':<24}{GREEN}{money(shown):>12}{RESET}   "
-                  f"{DIM}{max(pct, 0.0):.1f}% cheaper, {multiple:.1f}x{RESET}")
+                  f"{DIM}{max(caching['saved_pct'], 0.0):.1f}% cheaper, {caching['multiple']:.1f}x{RESET}")
         # With no cache reads there is no cache rate to quote; it read
         # "0.0% of prompt tokens came from cache at $0.0000 per million".
         if t["cache_read"]:
-            print(f"  {DIM}  {t['cache_read'] / prompt_tokens * 100:.1f}% of prompt tokens came from cache "
-                  f"at {unit_money(overall['cache_read'] / max(t['cache_read'], 1) * 1e6)} per million, "
+            print(f"  {DIM}  {caching['hit_pct']:.1f}% of prompt tokens came from cache "
+                  f"at {unit_money(caching['cache_read_per_million'])} per million, "
                   f"against full input rates{RESET}")
 
     if by == "source":
@@ -2679,24 +2730,13 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         several_here = len(groups["source"]) > 1
 
         # ---- rolling windows, the definitions the menu bar uses ------------
-        def window(first_day):
-            acc = {"total": 0.0, "calls": 0}
-            for day, v in groups["day"].items():
-                try:
-                    d = dt.datetime.strptime(day, "%Y-%m-%d").date()
-                except ValueError:
-                    continue
-                if d >= first_day:
-                    acc["total"] += v["total"]
-                    acc["calls"] += v["calls"]
-            return acc
-
+        rolling = rolling_windows(groups, today)
         # The fourth tile is the run's own window. It read "All time" whatever
         # that was, so a --period lastmonth page called its month all time.
         whole = "All time" if label == "all time" else label[:1].upper() + label[1:]
-        wins = [("Today", window(today)),
-                ("Last 7 days", window(today - dt.timedelta(days=6))),
-                ("Last 30 days", window(today - dt.timedelta(days=29))),
+        wins = [("Today", rolling["today"]),
+                ("Last 7 days", rolling["week"]),
+                ("Last 30 days", rolling["month"]),
                 (whole, {"total": total, "calls": overall["calls"]})]
         wmax = max((w[1]["total"] for w in wins), default=0) or 1
         win_html = ""
@@ -2729,21 +2769,16 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
                        f'<span class="lg-v">{m(cost)}</span></div>')
 
         # ---- caching ------------------------------------------------------
-        prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
-        hit = (t["cache_read"] / prompt_tokens * 100) if prompt_tokens else 0
-        no_cache = overall["no_cache"]
-        saved = no_cache - total
-        saved_pct = (saved / no_cache * 100) if no_cache else 0
-        multiple = (no_cache / total) if total else 0
-        per_m = overall["cache_read"] / max(t["cache_read"], 1) * 1e6
+        caching = caching_summary(overall)
+        prompt_tokens, no_cache = caching["prompt_tokens"], caching["without_cache"]
         if caching_dearer(no_cache, total):
             saved_card = (f'<div class="card"><h3>Caching cost</h3><div class="v">{m_sub(total, no_cache)}</div>'
-                          f'<small>{-saved_pct:.1f}% dearer. Writing to the cache cost more than '
+                          f'<small>{-caching["saved_pct"]:.1f}% dearer. Writing to the cache cost more than '
                           'reading from it saved.</small></div>')
         else:
             saved_card = (f'<div class="card good"><h3>Saved</h3><div class="v">{m_sub(no_cache, total)}</div>'
-                          f'<small>{max(saved_pct, 0.0):.1f}% cheaper. Caching made it {multiple:.1f}x '
-                          'less expensive.</small></div>')
+                          f'<small>{max(caching["saved_pct"], 0.0):.1f}% cheaper. Caching made it '
+                          f'{caching["multiple"]:.1f}x less expensive.</small></div>')
 
         # ---- tables -------------------------------------------------------
         def table(key, heading, lede, limit=10, strip="", name_of=None, extra=None):
@@ -2955,7 +2990,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             f'<div class="kpi"><b>{overall["calls"]:,}</b><span>API calls</span></div>'
             f'<div class="kpi"><b>{toks(prompt_tokens)}</b><span>Prompt tokens</span></div>'
             f'<div class="kpi"><b>{toks(t["output"])}</b><span>Output tokens</span></div>'
-            f'<div class="kpi"><b>{hit:.1f}%</b><span>From cache</span></div>'
+            f'<div class="kpi"><b>{caching["hit_pct"]:.1f}%</b><span>From cache</span></div>'
             '</div></div>'
             f'<div class="card lift wins reveal-on">{win_html}</div>'
             '</div>'
@@ -2981,7 +3016,8 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             f'<div class="card"><h3>With cache reads</h3><div class="v">{m(total)}</div>'
             f'<small>What you actually ran. {toks(t["cache_read"])} of those prompt tokens were '
             'cache hits'
-            + (f', at {unit_money(per_m)} per million against full input rates' if t["cache_read"] else '')
+            + (f', at {unit_money(caching["cache_read_per_million"])} per million against full input rates'
+               if t["cache_read"] else '')
             + '.</small></div>'
             f'<div class="card"><h3>Without cache reads</h3><div class="v">{m(no_cache)}</div>'
             f'<small>The same {toks(prompt_tokens)} prompt tokens billed fresh on every call, at '
@@ -3173,27 +3209,8 @@ def summary(ledger: bool = True) -> dict:
     rates, rate_when, rate_live = fx_rates()
 
     today = dt.date.today()
-    week_start = today - dt.timedelta(days=6)
-    month_start = today - dt.timedelta(days=29)
-
-    def window(first_day):
-        acc = {c: 0.0 for c in COMPONENTS}
-        acc["total"] = 0.0
-        acc["calls"] = 0
-        for day, v in groups["day"].items():
-            try:
-                d = dt.datetime.strptime(day, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            if d >= first_day:
-                for c in COMPONENTS:
-                    acc[c] += v[c]
-                acc["total"] += v["total"]
-                acc["calls"] += v["calls"]
-        return acc
-
-    t = overall["tokens"]
-    prompt_tokens = sum(t[k] for k in ("input", "cache_write", "cache_read"))
+    windows = rolling_windows(groups, today)
+    caching = caching_summary(overall)
     # Which table priced each model, for grouping; the dearest if two did.
     priced_by = {}
     for (provider, model), v in groups["provider_model"].items():
@@ -3201,9 +3218,9 @@ def summary(ledger: bool = True) -> dict:
             priced_by[model] = (provider, v["total"])
 
     return {
-        "today": window(today),
-        "week": window(week_start),
-        "month": window(month_start),
+        "today": windows["today"],
+        "week": windows["week"],
+        "month": windows["month"],
         "all": {**{c: overall[c] for c in COMPONENTS},
                 "total": overall["total"], "calls": overall["calls"]},
         "models": [{"name": k, "total": v["total"], "calls": v["calls"],
@@ -3214,9 +3231,9 @@ def summary(ledger: bool = True) -> dict:
         # which spans more than 30 days after any break.
         "days": [{"day": d, "total": groups["day"][d]["total"] if d in groups["day"] else 0.0}
                  for d in ((today - dt.timedelta(days=n)).isoformat() for n in range(29, -1, -1))],
-        "tokens": t,
-        "cache_hit_pct": (t["cache_read"] / prompt_tokens * 100) if prompt_tokens else 0.0,
-        "without_cache": overall["no_cache"],
+        "tokens": overall["tokens"],
+        "cache_hit_pct": caching["hit_pct"],
+        "without_cache": caching["without_cache"],
         "currencies": {c: {"symbol": CURRENCIES[c][0], "name": CURRENCIES[c][1]}
                        for c in CURRENCIES},
         # The same order the dashboard's pills use. A JSON object's key order
@@ -3225,7 +3242,11 @@ def summary(ledger: bool = True) -> dict:
         "rates": rates,
         "rate_when": rate_when,
         "rate_live": rate_live,
-        "no_cache_saved": overall["no_cache"] - overall["total"],
+        "no_cache_saved": caching["saved"],
+        # The menu bar's "N% cheaper, Nx" line, worked out here rather than in
+        # Swift: see caching_summary().
+        "saved_pct": caching["saved_pct"],
+        "multiple": caching["multiple"],
         "covered": covered_span(groups, paths),
         "unknown_models": sorted(unknown),
         # What the menu must say beside the figures: verification dates, and

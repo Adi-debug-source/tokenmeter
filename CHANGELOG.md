@@ -186,6 +186,14 @@
   writes at all, so once its transcript was gone it was priced without them.
   No such block has been seen in Claude Code's logs, so no total moves.
 
+### Project
+
+- `--summary-json` sends `saved_pct` and `multiple`, the figures behind the
+  menu bar's "N% cheaper, Nx" line, which the menu bar used to divide out for
+  itself. Every other key keeps its value. The terminal, the dashboard and
+  the summary now take their rolling windows and caching figures from one
+  place in the engine each.
+
 ## 1.1.2, 6 October 2026
 
 - Prices: Claude Sonnet 5.5 ($2 in, $10 out, cache hits $0.20, no fast mode)
