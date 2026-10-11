@@ -201,7 +201,7 @@ each, every face is exactly what it was, and tests hold it there.
   without the split.
 - **Links between groups** are extra groups keyed by pairs:
   `source_model`, `source_project`, `source_provider`, `provider_model`,
-  `day_source` and `day_provider`. They cost one `add()` each per call.
+  `day_source` and `day_provider`. They cost one `add_to_row()` each per call.
 - **Shared helpers** feed every face the same numbers: `harness_rows()`,
   `models_by_provider()` and `trust_summary()`.
 - **By model is the default everywhere.** The dashboard shows it first; the

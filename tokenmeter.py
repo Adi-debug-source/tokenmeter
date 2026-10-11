@@ -267,6 +267,7 @@ def set_currency(code: str) -> None:
                    rate=rates.get(code, FALLBACK_RATES.get(code, 1.0)),
                    when=when, live=live)
 
+
 # ---------------------------------------------------------------- pricing
 #
 # The tables live in pricing/, one file per provider, each carrying the
@@ -1324,7 +1325,8 @@ def reconcile_ledger(best: dict) -> tuple:
     LEDGER_STATE.update(written=written, restored=restored)
     return written, restored
 
-def covered_span(groups, n_files) -> str:
+
+def covered_span(groups, files) -> str:
     """What "all time" actually means, in words.
 
     It is not the subscription, the account or the install. It is every API
@@ -1332,6 +1334,9 @@ def covered_span(groups, n_files) -> str:
     window those transcripts happen to cover. Claude Code sweeps transcripts
     older than cleanupPeriodDays (30 by default), at which point the earliest
     date here quietly moves forward, and saying so beats a bare "all time".
+
+    files is the list of log files the run read; each is counted under the
+    harness that owns it.
     """
     days = sorted(groups["day"])
     if not days:
@@ -1341,14 +1346,12 @@ def covered_span(groups, n_files) -> str:
     window = pretty(days[0]) if days[0] == days[-1] else f"{pretty(days[0])} to {pretty(days[-1])}"
     roots = projects_dirs()
     where = "" if len(roots) == 1 else f" across {len(roots)} folders"
-    if isinstance(n_files, int):
-        n_files = [None] * n_files
     counts = defaultdict(int)
-    for p in n_files:
-        counts[_OWNER.get(p, claude_code.NAME) if p else claude_code.NAME] += 1
+    for p in files:
+        counts[_OWNER.get(p, claude_code.NAME)] += 1
     if set(counts) <= {claude_code.NAME}:
         n = counts[claude_code.NAME]
-        files = f"{n:,} transcript{'' if n == 1 else 's'} on disk{where}"
+        logs = f"{n:,} transcript{'' if n == 1 else 's'} on disk{where}"
     else:
         parts = []
         for name, n in sorted(counts.items()):
@@ -1356,8 +1359,8 @@ def covered_span(groups, n_files) -> str:
             what = getattr(a, "FILE", a.FILES) if n == 1 else a.FILES
             # The importer's label is "Imported events"; its files need no prefix.
             parts.append(f"{n:,} {what}" if name == importer.NAME else f"{n:,} {a.LABEL} {what}")
-        files = join_words(parts)
-    line = f"{window} · {files}"
+        logs = join_words(parts)
+    line = f"{window} · {logs}"
     if LEDGER_STATE["used"]:
         line += f" · ledger holds {LEDGER_STATE['rows']:,}"
         # Only a run that read every log knows which rows no transcript holds.
@@ -1377,7 +1380,9 @@ def join_words(items) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-def blank():
+def empty_row() -> dict:
+    """A totals row with nothing in it yet: every component, the total, the
+    no-cache total, the calls and the tokens at zero."""
     row = {c: 0.0 for c in COMPONENTS}
     row["total"] = 0.0
     row["no_cache"] = 0.0
@@ -1386,7 +1391,8 @@ def blank():
     return row
 
 
-def add(row, ev):
+def add_to_row(row, ev) -> None:
+    """One priced call, added into a totals row."""
     c = ev["cost"]
     for comp in COMPONENTS:
         row[comp] += c[comp]
@@ -1423,23 +1429,23 @@ class _Tally:
     or one harness's share of it. Every face reads these and adds nothing."""
 
     def __init__(self):
-        self.overall = blank()
+        self.overall = empty_row()
         self.groups = {
-            "project": defaultdict(blank), "model": defaultdict(blank),
-            "day": defaultdict(blank), "session": defaultdict(blank),
+            "project": defaultdict(empty_row), "model": defaultdict(empty_row),
+            "day": defaultdict(empty_row), "session": defaultdict(empty_row),
             # For the dashboard's rhythm charts: when in the day and week the
             # work actually happens. Free to collect in the pass we already make.
-            "hour": defaultdict(blank), "weekday": defaultdict(blank),
+            "hour": defaultdict(empty_row), "weekday": defaultdict(empty_row),
             # Which harness each call came from, and whose price table it
             # used. Also what decides the verification notes in each report.
-            "source": defaultdict(blank), "provider": defaultdict(blank),
+            "source": defaultdict(empty_row), "provider": defaultdict(empty_row),
             # Links between them, keyed by pairs, for the views that mix
             # harnesses: which harnesses used a model or worked on a project,
             # and whose table priced each model.
-            "source_model": defaultdict(blank), "source_project": defaultdict(blank),
-            "source_provider": defaultdict(blank), "provider_model": defaultdict(blank),
+            "source_model": defaultdict(empty_row), "source_project": defaultdict(empty_row),
+            "source_provider": defaultdict(empty_row), "provider_model": defaultdict(empty_row),
             # Each day split by harness and by provider, for the spend chart.
-            "day_source": defaultdict(blank), "day_provider": defaultdict(blank),
+            "day_source": defaultdict(empty_row), "day_provider": defaultdict(empty_row),
         }
         self.meta = {}
         self.unknown = set()
@@ -1448,24 +1454,24 @@ class _Tally:
 
     def add(self, ev):
         g = self.groups
-        add(self.overall, ev)
-        add(g["project"][ev["project"]], ev)
-        add(g["model"][ev["model"]], ev)
-        add(g["session"][ev["session"]], ev)
-        add(g["source"][ev["source"]], ev)
-        add(g["provider"][ev["provider"]], ev)
-        add(g["source_model"][(ev["source"], ev["model"])], ev)
-        add(g["source_project"][(ev["source"], ev["project"])], ev)
-        add(g["source_provider"][(ev["source"], ev["provider"])], ev)
-        add(g["provider_model"][(ev["provider"], ev["model"])], ev)
+        add_to_row(self.overall, ev)
+        add_to_row(g["project"][ev["project"]], ev)
+        add_to_row(g["model"][ev["model"]], ev)
+        add_to_row(g["session"][ev["session"]], ev)
+        add_to_row(g["source"][ev["source"]], ev)
+        add_to_row(g["provider"][ev["provider"]], ev)
+        add_to_row(g["source_model"][(ev["source"], ev["model"])], ev)
+        add_to_row(g["source_project"][(ev["source"], ev["project"])], ev)
+        add_to_row(g["source_provider"][(ev["source"], ev["provider"])], ev)
+        add_to_row(g["provider_model"][(ev["provider"], ev["model"])], ev)
         if ev["when"]:
             local = ev["when"].astimezone()
             day = local.strftime("%Y-%m-%d")
-            add(g["day"][day], ev)
-            add(g["day_source"][(day, ev["source"])], ev)
-            add(g["day_provider"][(day, ev["provider"])], ev)
-            add(g["hour"][local.strftime("%H")], ev)
-            add(g["weekday"][str(local.weekday())], ev)
+            add_to_row(g["day"][day], ev)
+            add_to_row(g["day_source"][(day, ev["source"])], ev)
+            add_to_row(g["day_provider"][(day, ev["provider"])], ev)
+            add_to_row(g["hour"][local.strftime("%H")], ev)
+            add_to_row(g["weekday"][str(local.weekday())], ev)
         if ev["cost"]["_unknown_model"]:
             self.unknown.add(unknown_label(ev["model"], ev["provider"]))
         elif ev["cost"]["_fetched"]:
@@ -2722,7 +2728,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         chart over the whole run's days (axis), so switching page keeps every
         date where it was."""
         days = sorted(groups["day"].items())
-        chart_days = [(d, groups["day"].get(d) or blank()) for d in axis] if axis else days
+        chart_days = [(d, groups["day"].get(d) or empty_row()) for d in axis] if axis else days
         t = overall["tokens"]
         total = overall["total"]
         several_here = len(groups["source"]) > 1

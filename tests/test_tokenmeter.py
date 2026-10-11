@@ -1397,7 +1397,6 @@ class TestParseSince(Base):
                          ("2026-09-01T00:00Z to 2026-09-03T00:00Z", 1))
 
 
-
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -3194,7 +3193,6 @@ class TestCommandLine(Base):
         self.assertEqual(got["currency"], "USD")
         self.assertAlmostEqual(got["total_usd"], round(overall["total"], 6), places=9)
         self.assertFalse(os.path.exists(self.ledger))
-
 
 
 class TestRunState(Base):
