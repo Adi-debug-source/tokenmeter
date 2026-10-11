@@ -2174,14 +2174,16 @@ const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 
 /* ---- money. Same rule as money() in tokenmeter.py. Three copies of this
    exist, one per face, and they must agree or one figure reads two ways.
-   A negative amount takes its minus before the symbol: -$0.10, not $-0.10. ---- */
+   A negative amount takes its minus before the symbol: -$0.10, not $-0.10.
+   Separators are en-US, not the browser's own, so 1,234.50 reads the same
+   here as in the terminal on a Mac set to any language. ---- */
 function fmt(usd, cur) {
   const x = usd * (D.rates[cur] || 1), s = D.symbols[cur] || '$';
   if (x === 0) return s + '0.00';
   const sign = x < 0 ? '-' : '', a = Math.abs(x);
   if (a < 0.00005) return sign + '<' + s + '0.0001';
   if (a < 0.01) return sign + s + a.toFixed(4);
-  return sign + s + a.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return sign + s + a.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 let CUR = D.current;
 
@@ -2401,10 +2403,10 @@ function onMove(e, host) {
     tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(usd, CUR) + '</b>' +
       series.filter(s => d.by[s.name]).map(s => '<i><span class="sw" style="background:' + s.color +
         '"></span>' + s.label + ' ' + fmt(d.by[s.name], CUR) + '</i>').join('') +
-      '<i>' + calls.toLocaleString() + ' calls · running ' + running + '</i>';
+      '<i>' + calls.toLocaleString('en-US') + ' calls · running ' + running + '</i>';
   } else {
     tip.innerHTML = '<i>' + d.full + '</i><b>' + fmt(d.total, CUR) + '</b><i>' +
-      d.calls.toLocaleString() + ' calls · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
+      d.calls.toLocaleString('en-US') + ' calls · ' + d.tokShort + ' tokens</i><i>running ' + running + '</i>';
   }
   tip.classList.add('on');
 

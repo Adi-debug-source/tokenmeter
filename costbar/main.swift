@@ -55,9 +55,17 @@ struct Snapshot {
     var failed: String?
 }
 
+// A fixed locale and separators, not the Mac's own: with a German locale this
+// printed 1.234,50 while the sub-penny branch below, the terminal and the
+// dashboard all print 1,234.50.
 let groupedTwoDP: NumberFormatter = {
     let f = NumberFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
     f.numberStyle = .decimal
+    f.usesGroupingSeparator = true
+    f.groupingSeparator = ","
+    f.groupingSize = 3
+    f.decimalSeparator = "."
     f.minimumFractionDigits = 2
     f.maximumFractionDigits = 2
     return f

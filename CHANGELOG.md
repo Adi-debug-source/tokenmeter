@@ -147,6 +147,10 @@
   is priced at today's rates the same way.
 - A negative amount puts its minus before the currency symbol, `-$0.10`, in
   the terminal, the dashboard and the menu bar alike. It printed `$-0.10`.
+- The menu bar and the dashboard write `1,234.50` on a Mac set to any
+  language, as the terminal does. They followed the system's locale, so on a
+  Mac set to German the same figure read `1.234,50` there and `1,234.50` in
+  the terminal, and the menu bar's own sub-penny amounts kept the full stop.
 
 ## 1.1.2, 6 October 2026
 

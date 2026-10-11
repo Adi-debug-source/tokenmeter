@@ -150,6 +150,21 @@ class TestMoneyOnEveryFace(Base):
         return slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
                      encoding="utf-8")
 
+    def test_separators_do_not_follow_the_macs_language(self):
+        """The menu bar's NumberFormatter and the dashboard's
+        toLocaleString(undefined) took the system's locale, so on a Mac set to
+        German they printed 1.234,50 beside a sub-penny 0.0042 and a terminal
+        printing 1,234.50."""
+        swift = self.swift()
+        formatter = swift[swift.index("let groupedTwoDP"):swift.index("}()", swift.index("let groupedTwoDP"))]
+        for line in ('f.locale = Locale(identifier: "en_US_POSIX")', 'f.groupingSeparator = ","',
+                     'f.decimalSeparator = "."', "f.usesGroupingSeparator = true"):
+            self.assertIn(line, formatter)
+        calls = re.findall(r"toLocaleString\(([^)]*)\)", tm.DASH_JS)
+        self.assertTrue(calls)
+        for args in calls:
+            self.assertTrue(args.startswith("'en-US'"), args)
+
     def test_every_copy_puts_the_minus_first(self):
         """$-0.10 was printed by all three copies; changing one alone would
         make the same saving read two ways."""
