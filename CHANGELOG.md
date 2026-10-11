@@ -179,6 +179,12 @@
   holds those 30 days, oldest first.
 - When the menu bar cannot read usage, its title is a hyphen instead of an en
   dash, and the reason is still in its tooltip and menu.
+- A usage block whose cache writes are given both as a total and split by
+  lifetime, with the two disagreeing, is priced, written to the ledger and
+  sized by one rule. Three rules applied: such a call was written to the
+  ledger again on every run, and a zero split beside a total was stored as no
+  writes at all, so once its transcript was gone it was priced without them.
+  No such block has been seen in Claude Code's logs, so no total moves.
 
 ## 1.1.2, 6 October 2026
 

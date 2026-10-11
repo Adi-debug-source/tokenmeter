@@ -789,18 +789,33 @@ def session_totals(path: str) -> tuple:
     return total, ctx
 
 
+def cache_writes(usage: dict) -> tuple:
+    """A usage block's cache writes as (5-minute, 1-hour) tokens: the lifetime
+    breakdown when it has any, else the plain total, which older records send,
+    as 5-minute writes.
+
+    price_record(), usage_to_row() and usage_size() all read writes here. Each
+    had its own rule, so a block whose breakdown disagreed with its total was
+    priced by one figure, stored in the ledger as another and sized as a
+    third, and a call sized larger than its ledger row is written again on
+    every run.
+    """
+    cc = usage.get("cache_creation") or {}
+    w5 = int(cc.get("ephemeral_5m_input_tokens") or 0)
+    w1 = int(cc.get("ephemeral_1h_input_tokens") or 0)
+    if not (w5 or w1):
+        w5 = int(usage.get("cache_creation_input_tokens") or 0)
+    return w5, w1
+
+
 def usage_size(usage: dict) -> int:
     """Every token in one usage block, for telling a complete record from a
     partial one. Never used for pricing, where the components differ in rate."""
-    cc = usage.get("cache_creation") or {}
-    written = int(usage.get("cache_creation_input_tokens") or 0)
-    if not written:
-        written = (int(cc.get("ephemeral_5m_input_tokens") or 0)
-                   + int(cc.get("ephemeral_1h_input_tokens") or 0))
+    w5, w1 = cache_writes(usage)
     return (int(usage.get("input_tokens") or 0)
             + int(usage.get("output_tokens") or 0)
             + int(usage.get("cache_read_input_tokens") or 0)
-            + written)
+            + w5 + w1)
 
 
 # What says where a call was made, as opposed to what it cost.
@@ -854,6 +869,17 @@ class _NO_TABLE:
     WEB_SEARCH_PER_1K = 0.0
 
 
+def write_mults(row: dict, table) -> tuple:
+    """A price row's cache-write prices as multiples of its input rate,
+    (5-minute, 1-hour): the row's own write_mult and write_1h_mult where it
+    has them, else the table's defaults. A row with write_mult alone charges
+    it for both lifetimes. Pricing, --check-prices and the price list all ask
+    here, so the three cannot disagree."""
+    m5 = row.get("write_mult", table.CACHE_WRITE_5M_MULT)
+    m1 = row.get("write_1h_mult", row.get("write_mult", table.CACHE_WRITE_1H_MULT))
+    return m5, m1
+
+
 def price_record(model: str, usage: dict, speed: str = "standard", when=None,
                  provider: str = DEFAULT_PROVIDER) -> dict:
     """Cost in USD for one API response, split by component.
@@ -870,11 +896,7 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
     read = int(usage.get("cache_read_input_tokens") or 0)
 
     # Prefer the TTL breakdown; a 1 hour write costs 2x, a 5 minute write 1.25x.
-    cc = usage.get("cache_creation") or {}
-    w5 = int(cc.get("ephemeral_5m_input_tokens") or 0)
-    w1 = int(cc.get("ephemeral_1h_input_tokens") or 0)
-    if not (w5 or w1):
-        w5 = int(usage.get("cache_creation_input_tokens") or 0)
+    w5, w1 = cache_writes(usage)
 
     searches = int((usage.get("server_tool_use") or {}).get("web_search_requests") or 0)
     tokens = {
@@ -905,8 +927,7 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
     if long and inp + w5 + w1 + read > long["over"]:
         # Long-context rates apply to the whole request, cache included.
         rate_in, rate_out = rate_in * long["in"], rate_out * long["out"]
-    m5 = p.get("write_mult", table.CACHE_WRITE_5M_MULT)
-    m1 = p.get("write_1h_mult", p.get("write_mult", table.CACHE_WRITE_1H_MULT))
+    m5, m1 = write_mults(p, table)
 
     return {
         "input": inp * rate_in / M,
@@ -975,11 +996,7 @@ def ledger_path() -> str:
 def usage_to_row(mid, when, model, project, session, usage,
                  provider=DEFAULT_PROVIDER, source=claude_code.NAME) -> dict:
     """One call, as it is written to the ledger."""
-    cc = usage.get("cache_creation") or {}
-    w5 = int(cc.get("ephemeral_5m_input_tokens") or 0)
-    w1 = int(cc.get("ephemeral_1h_input_tokens") or 0)
-    if not cc:
-        w5 = int(usage.get("cache_creation_input_tokens") or 0)
+    w5, w1 = cache_writes(usage)
     row = {
         "i": mid,
         "t": when.isoformat().replace("+00:00", "Z") if when else "",
@@ -3264,9 +3281,9 @@ def md_tables(text: str) -> list:
 def expected_rates(row: dict, table) -> dict:
     """What a table row implies the pricing page should say, per field."""
     inp = row["in"]
+    m5, m1 = write_mults(row, table)
     exp = {"in": inp, "out": row["out"], "cached": inp * row["cache_read_mult"],
-           "write_5m": inp * row.get("write_mult", table.CACHE_WRITE_5M_MULT),
-           "write_1h": inp * row.get("write_1h_mult", row.get("write_mult", table.CACHE_WRITE_1H_MULT))}
+           "write_5m": inp * m5, "write_1h": inp * m1}
     exp["write"] = exp["write_5m"]
     if row["fast"]:
         exp["fast_in"], exp["fast_out"] = row["fast"]
@@ -3396,8 +3413,9 @@ def price_listing(markdown: bool = False) -> str:
             for row in rows:
                 inp = row["in"]
                 cached = inp * row["cache_read_mult"]
-                write = inp * row.get("write_mult", table.CACHE_WRITE_5M_MULT)
-                w1 = inp * row.get("write_1h_mult", row.get("write_mult", table.CACHE_WRITE_1H_MULT))
+                m5, m1 = write_mults(row, table)
+                write = inp * m5
+                w1 = inp * m1
                 also = []
                 if row["from"]:
                     also.append(f"from {row['from']}")

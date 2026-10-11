@@ -579,6 +579,70 @@ class TestLedger(Base):
         self.assertEqual(got["m"]["o"], 1160)
 
 
+class TestCacheWrites(Base):
+    """A usage block's cache writes were read three ways: price_record() took
+    the lifetime breakdown, else the total when both parts were zero;
+    usage_to_row() the breakdown, else the total only when it was missing; and
+    usage_size() the total first. A block whose breakdown disagreed with its
+    total was charged one figure, stored in the ledger as another and sized as
+    a third, and because it then looked larger than its ledger row it was
+    written to the ledger again on every run."""
+
+    BLOCKS = (
+        # A zero breakdown beside a total: charged, but stored as nothing.
+        ({"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 1000,
+          "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0}},
+         (1000, 0)),
+        # A breakdown short of the total: the breakdown is what was billed.
+        ({"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 1000,
+          "cache_creation": {"ephemeral_5m_input_tokens": 300, "ephemeral_1h_input_tokens": 200}},
+         (300, 200)),
+        # The total alone, as older records send it.
+        ({"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 1000},
+         (1000, 0)),
+    )
+
+    def test_pricing_the_ledger_and_sizing_read_writes_alike(self):
+        for u, (w5, w1) in self.BLOCKS:
+            with self.subTest(usage=u):
+                self.assertEqual(tm.cache_writes(u), (w5, w1))
+                c = tm.price_record("claude-opus-5", u)
+                self.assertEqual(c["_tokens"]["cache_write"], w5 + w1)
+                self.assertAlmostEqual(c["cache_write"], (w5 * 1.25 + w1 * 2.0) * 5.0 / 1e6, places=12)
+                row = tm.usage_to_row("m", None, "claude-opus-5", "p", "s", u)
+                self.assertEqual((row.get("w5", 0), row.get("w1", 0)), (w5, w1))
+                self.assertEqual(tm.usage_size(u), tm.row_size(row))
+
+    def test_a_call_is_written_to_the_ledger_once(self):
+        for i, (u, _) in enumerate(self.BLOCKS):
+            self.write(f"s{i}.jsonl", json.dumps(
+                {"type": "assistant", "timestamp": "2026-09-01T12:00:00.000Z", "uuid": f"m{i}",
+                 "requestId": f"m{i}", "cwd": "/tmp",
+                 "message": {"id": f"m{i}", "model": "claude-opus-5", "usage": u}}))
+        for _ in range(3):
+            tm.collect(tm.transcripts(), ledger=True)
+        self.assertEqual(len(slurp(self.ledger).splitlines()), len(self.BLOCKS))
+
+    def test_a_rows_own_write_prices_come_before_the_tables(self):
+        """The rule was written out three times: in pricing, in --check-prices
+        and in the price list. All three now ask write_mults()."""
+        anthropic, moonshot = tm.TABLES["anthropic"], tm.TABLES["moonshot"]
+        self.assertEqual(tm.write_mults({}, anthropic), (1.25, 2.0))
+        self.assertEqual(tm.write_mults({"write_mult": 1.5}, anthropic), (1.5, 1.5))
+        self.assertEqual(tm.write_mults({"write_mult": 1.0, "write_1h_mult": 2.0}, moonshot),
+                         (1.0, 2.0))
+        for provider, table in tm.TABLES.items():
+            for model, rows in table.PRICES.items():
+                with self.subTest(model=model):
+                    row = tm.rate_on(rows)
+                    m5, m1 = tm.write_mults(row, table)
+                    exp = tm.expected_rates(row, table)
+                    self.assertEqual((exp["write_5m"], exp["write_1h"]),
+                                     (row["in"] * m5, row["in"] * m1))
+                    c = tm.price_record(model, usage(w5=1000, w1=1000), provider=provider)
+                    self.assertEqual(c["cache_write"], (1000 * m5 + 1000 * m1) * row["in"] / 1e6)
+
+
 class TestFiltersReachTheLedger(Base):
     """Calls restored from the ledger have no file, so a filter applied only to
     files let them all back in: a one-session report with the ledger on showed
