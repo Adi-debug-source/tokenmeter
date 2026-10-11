@@ -218,6 +218,67 @@ class TestReportWording(Base):
         self.assertEqual(tm.format_money(-0.1, "€"), "-€0.10")
 
 
+class TestWhenCachingCostsMore(Base):
+    """One call that writes 20,000 tokens to the 1-hour cache and reads none
+    costs more than the same tokens billed fresh. Every face assumed a saving:
+    the terminal read "saved $-0.10 -99.7% cheaper, 0.5x" over "0.0% of prompt
+    tokens came from cache at $0.0000 per million", the dashboard "Caching
+    made it 0.5x less expensive", and the menu bar the same as the terminal."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a.jsonl", record("msg_1", inp=5, out=10, w1=20000))
+        self.result = tm.collect(tm.transcripts(), ledger=False)
+
+    def test_the_terminal_names_it_a_cost(self):
+        out = terminal(*self.result, "", "all time")
+        self.assertRegex(out, r"\n    caching cost +\$0\.10   99\.7% dearer\n")
+        for wrong in ("saved", "cheaper", "-$", "$-", "came from cache", "per million"):
+            self.assertNotIn(wrong, out)
+
+    def test_the_dashboard_names_it_a_cost(self):
+        out = os.path.join(self.tmp, "d.html")
+        tm.render_html(*self.result, "all time", out)
+        page = slurp(out, encoding="utf-8")
+        self.assertIn("<h3>Caching cost</h3>", page)
+        self.assertIn("99.7% dearer. Writing to the cache cost more than reading from it saved.", page)
+        # The positive difference, which the currency switcher recomputes.
+        self.assertIn('data-usd-big="0.20027500" data-usd-small="0.10027500"', page)
+        self.assertIn("0 of those prompt tokens were cache hits.</small>", page)
+        for wrong in ("<h3>Saved</h3>", "less expensive", "cheaper", "per million", ">-$0"):
+            self.assertFalse(wrong in page, wrong)
+
+    def test_the_menu_bar_names_it_a_cost(self):
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        self.assertIn('(dearer ? "Caching cost" : "Saved", shownSaved)', swift)
+        self.assertIn('"%.1f%% dearer"', swift)
+        self.assertIn("shownDifference(snap.all.total, snap.withoutCache)", swift)
+
+    def test_a_saving_still_reads_as_one(self):
+        self.write("b.jsonl", record("msg_2", inp=5, out=10, read=800000))
+        overall, *rest = tm.collect(tm.transcripts(), ledger=False)
+        out = terminal(overall, *rest, "", "all time")
+        self.assertRegex(out, r"\n    saved +\$\d+\.\d\d   \d+\.\d% cheaper, \d+\.\dx\n")
+        self.assertIn("of prompt tokens came from cache at $0.5000 per million", out)
+        self.assertNotIn("dearer", out)
+
+    def test_nothing_cached_is_neither_a_cost_nor_below_zero(self):
+        """The two totals add the same parts in a different order, so with
+        nothing cached they can differ in the last bit; that is not a cost,
+        and must not print "-0.0% cheaper"."""
+        self.assertFalse(tm.caching_dearer(0.3, 0.1 + 0.2))
+        self.assertFalse(tm.caching_dearer(1.0, 1.0 + 1e-16))
+        self.assertTrue(tm.caching_dearer(0.100275, 0.200275))
+        overall, *rest = tm.collect([], ledger=False)
+        overall["tokens"]["input"] = 100
+        overall["total"], overall["no_cache"] = 0.1 + 0.2, 0.3
+        out = terminal(overall, *rest, "", "all time")
+        self.assertIn("0.0% cheaper, 1.0x", out)
+        self.assertNotIn("-0.0%", out)
+        self.assertNotIn("came from cache", out)
+
+
 class TestReconciledColumn(Base):
     """with + saved must equal without as printed, in every currency."""
 

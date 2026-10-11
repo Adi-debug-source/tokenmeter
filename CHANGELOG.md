@@ -156,6 +156,13 @@
   instead of "1 API calls" and "1 calls". The dollar figure printed beside
   another currency follows the rule every other amount does, so a sub-penny
   total reads `£0.0056 ($0.0075)` rather than `£0.0056 ($0.01)`.
+- When caching cost more than it saved, as it does when cache writes are
+  never read back, every face says so: the terminal and the menu bar read
+  "caching cost $0.10, 99.7% dearer" and the dashboard's card is titled
+  "Caching cost". They read "saved $-0.10, -99.7% cheaper, 0.5x" and
+  "Caching made it 0.5x less expensive". With no cache reads at all, the
+  terminal and the dashboard no longer quote a cache rate of $0.0000 per
+  million.
 
 ## 1.1.2, 6 October 2026
 

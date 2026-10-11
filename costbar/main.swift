@@ -101,6 +101,14 @@ func shownDifference(_ big: Double, _ small: Double) -> Double {
     return (((big * r * 100).rounded() - (small * r * 100).rounded()) / 100) / r
 }
 
+// True when caching cost more than it saved: cache writes that cost more
+// than the reads they made possible saved. With nothing cached the two totals
+// differ only in the last bit, which is not a cost. Mirrors caching_dearer()
+// in tokenmeter.py.
+func cachingDearer(_ withoutCache: Double, _ withCache: Double) -> Bool {
+    withCache - withoutCache > 1e-9 * max(withCache, withoutCache)
+}
+
 // Column padding. String(format:) ignores a width on %@, so "%-16@" never
 // padded anything and every column in the menu sat ragged. These pad by
 // character count, which is exact in the monospaced font the rows use.
@@ -443,17 +451,23 @@ final class Controller: NSObject, NSApplicationDelegate {
         // its own, so the three lines add up as printed. Rounding each
         // separately left the column a penny out in some currencies; the
         // figures behind them were always exact. Same rule as the report.
-        let shownSaved = shownDifference(snap.withoutCache, snap.all.total)
+        // When caching cost more than it saved, that is named as a cost; a
+        // saving below zero read "-99.7% cheaper, 0.5x".
+        let dearer = cachingDearer(snap.withoutCache, snap.all.total)
+        let shownSaved = dearer ? shownDifference(snap.all.total, snap.withoutCache)
+                                : shownDifference(snap.withoutCache, snap.all.total)
         let cmp: [(String, Double)] = [("With cache reads", snap.all.total),
                                        ("Without cache reads", snap.withoutCache),
-                                       ("Saved", shownSaved)]
+                                       (dearer ? "Caching cost" : "Saved", shownSaved)]
         for (label, v) in cmp {
             add(menu, padRight(label, 21) + padLeft(money(v), 12), indent: 1, mono: true)
         }
         if snap.withoutCache > 0 && snap.all.total > 0 {
-            add(menu, String(format: "%.1f%% cheaper, %.1fx", 
-                             snap.saved / snap.withoutCache * 100,
-                             snap.withoutCache / snap.all.total), indent: 1)
+            add(menu, dearer
+                ? String(format: "%.1f%% dearer", -snap.saved / snap.withoutCache * 100)
+                : String(format: "%.1f%% cheaper, %.1fx",
+                         max(snap.saved / snap.withoutCache * 100, 0),
+                         snap.withoutCache / snap.all.total), indent: 1)
         }
 
         menu.addItem(.separator())

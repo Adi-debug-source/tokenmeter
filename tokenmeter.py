@@ -1658,6 +1658,19 @@ def shown_difference(big: float, small: float) -> float:
     return (round(big * r, 2) - round(small * r, 2)) / r
 
 
+def caching_dearer(no_cache: float, total: float) -> bool:
+    """True when what ran cost more than the same tokens with no caching at
+    all: cache writes that cost more than the reads they made possible saved.
+    Every face assumed a saving and read "saved $-0.10, -99.7% cheaper, 0.5x"
+    and "0.5x less expensive"; this case is now named as a cost.
+
+    The two totals are sums of the same parts in a different order, so with
+    nothing cached they can differ in the last bit. A difference that small
+    is not a cost. Mirrored by cachingDearer() in the menu bar.
+    """
+    return total - no_cache > 1e-9 * max(total, no_cache)
+
+
 def plural(n: int, word: str) -> str:
     """'1 call', '2 calls'."""
     return f"{n:,} {word}{'' if n == 1 else 's'}"
@@ -1855,11 +1868,19 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
         print(f"  {BOLD}what caching is worth{RESET}")
         print(f"    {'with cache reads':<24}{money(overall['total']):>12}   {DIM}what you actually ran{RESET}")
         print(f"    {'without cache reads':<24}{money(no_cache):>12}   {DIM}every prompt token billed fresh{RESET}")
-        shown = shown_difference(no_cache, overall["total"])
-        print(f"    {'saved':<24}{GREEN}{money(shown):>12}{RESET}   {DIM}{pct:.1f}% cheaper, {multiple:.1f}x{RESET}")
-        print(f"  {DIM}  {t['cache_read'] / prompt_tokens * 100:.1f}% of prompt tokens came from cache "
-              f"at {unit_money(overall['cache_read'] / max(t['cache_read'], 1) * 1e6)} per million, "
-              f"against full input rates{RESET}")
+        if caching_dearer(no_cache, overall["total"]):
+            shown = shown_difference(overall["total"], no_cache)
+            print(f"    {'caching cost':<24}{money(shown):>12}   {DIM}{-pct:.1f}% dearer{RESET}")
+        else:
+            shown = shown_difference(no_cache, overall["total"])
+            print(f"    {'saved':<24}{GREEN}{money(shown):>12}{RESET}   "
+                  f"{DIM}{max(pct, 0.0):.1f}% cheaper, {multiple:.1f}x{RESET}")
+        # With no cache reads there is no cache rate to quote; it read
+        # "0.0% of prompt tokens came from cache at $0.0000 per million".
+        if t["cache_read"]:
+            print(f"  {DIM}  {t['cache_read'] / prompt_tokens * 100:.1f}% of prompt tokens came from cache "
+                  f"at {unit_money(overall['cache_read'] / max(t['cache_read'], 1) * 1e6)} per million, "
+                  f"against full input rates{RESET}")
 
     if by == "source":
         # Harnesses compared, when asked for: what mixing tools needs, cost per
@@ -2663,6 +2684,14 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         saved_pct = (saved / no_cache * 100) if no_cache else 0
         multiple = (no_cache / total) if total else 0
         per_m = overall["cache_read"] / max(t["cache_read"], 1) * 1e6
+        if caching_dearer(no_cache, total):
+            saved_card = (f'<div class="card"><h3>Caching cost</h3><div class="v">{m_sub(total, no_cache)}</div>'
+                          f'<small>{-saved_pct:.1f}% dearer. Writing to the cache cost more than '
+                          'reading from it saved.</small></div>')
+        else:
+            saved_card = (f'<div class="card good"><h3>Saved</h3><div class="v">{m_sub(no_cache, total)}</div>'
+                          f'<small>{max(saved_pct, 0.0):.1f}% cheaper. Caching made it {multiple:.1f}x '
+                          'less expensive.</small></div>')
 
         # ---- tables -------------------------------------------------------
         def table(key, heading, lede, limit=10, strip="", name_of=None, extra=None):
@@ -2899,13 +2928,13 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             + '<div class="cmp">'
             f'<div class="card"><h3>With cache reads</h3><div class="v">{m(total)}</div>'
             f'<small>What you actually ran. {toks(t["cache_read"])} of those prompt tokens were '
-            f'cache hits, at {unit_money(per_m)} per million against full input rates.</small></div>'
+            'cache hits'
+            + (f', at {unit_money(per_m)} per million against full input rates' if t["cache_read"] else '')
+            + '.</small></div>'
             f'<div class="card"><h3>Without cache reads</h3><div class="v">{m(no_cache)}</div>'
             f'<small>The same {toks(prompt_tokens)} prompt tokens billed fresh on every call, at '
             'each model\u2019s own rate.</small></div>'
-            f'<div class="card good"><h3>Saved</h3><div class="v">{m_sub(no_cache, total)}</div>'
-            f'<small>{saved_pct:.1f}% cheaper. Caching made it {multiple:.1f}x less expensive.'
-            '</small></div></div></section>'
+            + saved_card + '</div></section>'
 
             # By model first: the breakdown that matters most, on every page.
             + (models_by_provider_table() if page_multi else
