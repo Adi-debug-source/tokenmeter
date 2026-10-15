@@ -85,12 +85,17 @@ def session_files(path: str) -> list:
     Subagents write to <stem>/subagents/agent-*.jsonl and workflow agents to
     <stem>/subagents/workflows/<id>/agent-*.jsonl, beside the session's own
     <stem>.jsonl. Their calls are made for that session, so its cost includes
-    them. A path with no such folder, an agent's own transcript among them,
-    is returned on its own.
+    them. An agent's own transcript stands for its session, so the session's
+    transcript and every agent's come back for it too, the session's left out
+    once it is no longer on disk; reading the agent's file alone priced part
+    of a session under the session's name. A session that started no agents
+    is its transcript alone.
     """
-    stem = os.path.splitext(path)[0]
+    folder = _session_folder(path)
+    stem = folder or os.path.splitext(path)[0]
+    own = stem + ".jsonl" if folder else path
     agents = glob.glob(os.path.join(glob.escape(stem), "**", "*.jsonl"), recursive=True)
-    return [path] + sorted(agents)
+    return ([own] if own == path or os.path.isfile(own) else []) + sorted(agents)
 
 
 def looks_like(line: str) -> bool:
@@ -105,24 +110,38 @@ def dedup_key(msg: dict, record: dict):
     return msg.get("id") or f"{record.get('requestId')}|{record.get('uuid')}"
 
 
+def _session_folder(path: str) -> str:
+    """The <project>/<session> folder an agent's transcript lies under, or ""
+    for a session's own transcript.
+
+    A subagent's transcript lies directly in <session>/subagents/, a workflow
+    agent's in <session>/subagents/workflows/<id>/, and these two layouts are
+    the only ones that mark an agent. Looking only at the file's own folder
+    missed every workflow agent; looking for a folder named subagents at any
+    depth would take one above the projects folder for an agent's too.
+    """
+    folder = os.path.dirname(path)
+    if os.path.basename(folder) == "subagents":
+        return os.path.dirname(folder)
+    workflows = os.path.dirname(folder)
+    subagents = os.path.dirname(workflows)
+    if os.path.basename(workflows) == "workflows" and os.path.basename(subagents) == "subagents":
+        return os.path.dirname(subagents)
+    return ""
+
+
 def _where(path: str) -> tuple:
     """(project, session, is_subagent) for one transcript, from where it lies.
 
-    A session's own transcript is <project>/<session>.jsonl. An agent's lies
-    below <project>/<session>/subagents/: a subagent's directly in it, a
-    workflow agent's in workflows/<id>/ below that. The nearest folder named
-    subagents is what marks one, at whatever depth: looking only at the
-    file's own folder filed every workflow agent's calls under a project
-    named after its workflow and a session named after its file.
+    A session's own transcript is <project>/<session>.jsonl, and an agent's
+    lies below <project>/<session>/ (_session_folder()). Taking the agent's
+    own folder as the project filed every workflow agent's calls under a
+    project named after its workflow and a session named after its file.
     """
-    folder = up = os.path.dirname(path)
-    while True:
-        head, name = os.path.split(up)
-        if not name:
-            return os.path.basename(folder), os.path.basename(path)[:-6], False
-        if name == "subagents":
-            return os.path.basename(os.path.dirname(head)), os.path.basename(head), True
-        up = head
+    folder = _session_folder(path)
+    if folder:
+        return os.path.basename(os.path.dirname(folder)), os.path.basename(folder), True
+    return os.path.basename(os.path.dirname(path)), os.path.basename(path)[:-6], False
 
 
 def records(path: str):

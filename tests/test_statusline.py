@@ -65,6 +65,8 @@ class TestSessionTotals(Base):
         self.write("sess-10.jsonl", record("msg_x", out=5000))
         self.agent("sess-10/subagents/agent-z.jsonl", record("msg_z", out=5000))
         self.assertEqual(tm.claude_code.session_files(main), [main, a, b])
+        # An agent's own transcript stands for its session.
+        self.assertEqual(tm.claude_code.session_files(b), [main, a, b])
         overall, *_ = tm.collect([main, a, b], ledger=False)
         alone, *_ = tm.collect([main], ledger=False)
         cost, ctx = tm.session_totals(main)
@@ -74,8 +76,9 @@ class TestSessionTotals(Base):
         self.assertEqual(ctx, 1500)
 
     def test_a_path_with_no_agents_is_read_on_its_own(self):
-        """An agent's own transcript, or a session that started none, is one
-        file, so its cost is what it was."""
+        """A session that started no agents, or an agent whose session's
+        transcript is no longer on disk, is one file, so its cost is what it
+        was."""
         a = self.agent("sess-1/subagents/agent-a.jsonl", record("msg_a", inp=7000, out=200))
         self.assertEqual(tm.claude_code.session_files(a), [a])
         alone, *_ = tm.collect([a], ledger=False)

@@ -748,10 +748,13 @@ def session_paths(path: str) -> tuple:
     session its own way: Codex by the id inside the file rather than its
     name, Gemini CLI likewise, and a Claude Code agent by the session that
     started it. Filtering on the file's name found nothing for any of them. A
-    Claude Code transcript brings its agents' transcripts with it
-    (claude_code.session_files()), as the status line's session cost does. A
-    file with no calls in it falls back to its name, which is a Claude Code
-    session's id.
+    Claude Code transcript brings its agents' transcripts with it, and an
+    agent's brings its session's and the other agents' (claude_code.
+    session_files()), so the files read are the ones the session id keeps:
+    with the agent's file alone, a run without the ledger priced part of the
+    session under its name, and one with the ledger took the rest for calls
+    whose transcripts were gone. A file with no calls in it falls back to its
+    name, which is a Claude Code session's id.
     """
     adapter = adapter_for(path)
     paths = claude_code.session_files(path) if adapter is claude_code else [path]
@@ -1753,7 +1756,11 @@ def kept_and_on_disk(overall, groups) -> dict:
     is how many sessions they came from. on_disk is the rest: the figure a
     tool that reads only the transcripts would give, which falls when a
     session is deleted while kept does not. Filters and windows apply to all
-    of them as to the money. Without the ledger, everything is on disk.
+    of them as to the money. A run filtered by --project or --session reads
+    only the files its filter names, so the split rests on those files
+    holding every call the filter keeps, which each adapter's files() and
+    session_paths() see to: a kept call in a file the run did not read would
+    be counted as gone. Without the ledger, everything is on disk.
     """
     gone = empty_row()
     for row in groups.get("ledger_only", {}).values():

@@ -63,7 +63,7 @@ tokenmeter --by model           # or project, day, week, month, session, hour, w
 tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
 tokenmeter --period lastmonth   # a calendar period: today, yesterday, week, lastweek, month, lastmonth, year
 tokenmeter --project myapp      # one project: part of its folder's name or path, or . for the current folder
-tokenmeter --session ID         # one session, by its id or the path of its log
+tokenmeter --session ID         # one session, by its id or the path of any of its logs
 tokenmeter --sessions           # the dearest sessions
 tokenmeter --html               # the dashboard, written to ~/Downloads and opened
 tokenmeter --html --no-open     # the dashboard, written but not opened

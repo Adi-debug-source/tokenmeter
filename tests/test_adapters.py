@@ -47,6 +47,23 @@ class TestWorkflowAgents(Base):
                     self.assertEqual(got["calls"], 2)
                     self.assertEqual(got["tokens"]["output"], 300)
 
+    def test_a_folder_named_subagents_above_the_projects_folder_marks_nothing(self):
+        """Any folder named subagents, up to the root, marked an agent, so a
+        projects folder kept below one filed every call under the folders
+        above it, and the ledger kept them so. Only the two layouts Claude
+        Code writes mark an agent."""
+        root = os.path.join(self.tmp, "subagents", "projects", "-proj")
+        own = os.path.join(root, "sess-9.jsonl")
+        agent = os.path.join(root, "sess-9", "subagents", "agent-c.jsonl")
+        os.makedirs(os.path.dirname(agent))
+        for path, mid in ((own, "msg_own"), (agent, "msg_agent")):
+            with open(path, "w") as f:
+                f.write(record(mid, out=10) + "\n")
+        best = tm.scan_transcripts([own, agent])
+        self.assertEqual([(ev["project"], ev["session"], ev["sidechain"])
+                          for ev in (best["msg_own"], best["msg_agent"])],
+                         [("-proj", "sess-9", False), ("-proj", "sess-9", True)])
+
     def test_a_subagent_one_folder_down_is_read_as_before(self):
         p = os.path.join(self.projects, "sess-1", "subagents", "agent-b2.jsonl")
         with open(p, "w") as f:
@@ -76,15 +93,39 @@ class TestSessionPath(Base):
         with open(agent, "w") as f:
             f.write(record("msg_a", out=200) + "\n")
         got = self.json_for(agent, "--no-ledger")
-        self.assertEqual((got["calls"], got["tokens"]["output"]), (1, 200))
+        self.assertEqual((got["calls"], got["tokens"]["output"]), (2, 300))
         self.assertEqual(got["label"], "session sess-1")
         # A session's own transcript brings its agents' with it.
         got = self.json_for(main, "--no-ledger")
         self.assertEqual((got["calls"], got["tokens"]["output"]), (2, 300))
-        # With the ledger on, the session's other calls come back from it, as
-        # they do for a session given by its id.
-        cli("--json")
-        self.assertEqual(self.json_for(agent)["calls"], 2)
+
+    def test_an_agent_path_is_its_whole_session_with_or_without_the_ledger(self):
+        """An agent's file was read alone while the session id it carries
+        kept the session's other calls from the ledger, so the report said
+        the session's own transcript was gone while it was on disk, and the
+        same command without the ledger priced the agent alone."""
+        self.write("sess-1.jsonl", record("msg_main", out=3000))
+        sub = os.path.join(self.projects, "sess-1", "subagents", "agent-a.jsonl")
+        flow = os.path.join(self.projects, "sess-1", "subagents", "workflows", "wf_1", "agent-b.jsonl")
+        for path, mid in ((sub, "msg_a"), (flow, "msg_b")):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(record(mid, out=300) + "\n")
+        cli()                                             # every call now in the ledger
+        for agent in (sub, flow):
+            for ledger in ([], ["--no-ledger"]):
+                with self.subTest(agent=os.path.basename(agent), ledger=ledger):
+                    got = self.json_for(agent, *ledger)
+                    self.assertEqual((got["calls"], got["tokens"]["output"]), (3, 3600))
+                    self.assertEqual((got["tokens_on_disk"], got["tokens_ledger_only"]), (3600, 0))
+            text = cli("--session", agent)
+            self.assertIn("kept by the ledger 3.6k · on disk now 3.6k\n", text)
+            self.assertNotIn("gone", text)
+        # Once the session's own transcript is deleted, its calls are gone.
+        os.remove(os.path.join(self.projects, "sess-1.jsonl"))
+        self.assertEqual(tm.claude_code.session_files(sub), [sub, flow])
+        self.assertIn("kept by the ledger 3.6k · on disk now 600 · 3.0k from 1 session "
+                      "whose transcripts are gone", cli("--session", sub))
 
     def test_a_gemini_cli_path_is_read_by_its_own_adapter(self):
         home = os.path.join(self.tmp, "gemini-home")
@@ -541,6 +582,24 @@ class TestGeminiCliAdapter(Base):
         self.assertEqual(overall["tokens"]["thinking"], t["reasoning"])
         self.assertEqual(set(groups["project"]), {"/Users/example/code/demo"})
         self.assertEqual(set(groups["provider"]), {"google"})
+
+    def test_a_whole_session_id_finds_its_file(self):
+        """Gemini CLI names a file after the first eight characters of its
+        session's id, and --session was matched against the name, so the
+        whole id found no file: nothing without the ledger, and with it the
+        session's calls taken for ones whose transcripts were gone."""
+        sid = "3f9c1a2b-6d41-4f0e-9a52-2b7c8e5d1140"
+        path = os.path.join(self.home, ".gemini", "tmp", "demo", "chats",
+                            "session-2026-09-26T09-12-3f9c1a2b.jsonl")
+        gemini = tm.ADAPTERS["gemini-cli"]
+        for given in (sid, sid[:8]):
+            with self.subTest(session=given):
+                self.assertEqual(gemini.files(tm.adapter_roots("gemini-cli"), session=given), [path])
+                got = json.loads(cli("--json", "--no-ledger", "--session", given))
+                self.assertEqual(got["calls"], 3)
+        cli("--json")                                     # every call now in the ledger
+        got = json.loads(cli("--json", "--session", sid))
+        self.assertEqual((got["calls"], got["tokens_ledger_only"]), (3, 0))
 
     def test_a_message_written_twice_counts_once(self):
         """Each message is appended again when its tokens arrive."""

@@ -57,7 +57,9 @@ def files(roots: list, project: str = "", session: str = "") -> list:
             paths.extend(glob.glob(os.path.join(root, "*", "chats", "**", pattern),
                                    recursive=True))
     if session:
-        paths = [p for p in paths if session in os.path.basename(p)]
+        # A file is named after the first eight characters of its session's
+        # id (session-<time>-<id[:8]>.jsonl), so a whole id found no file.
+        paths = [p for p in paths if session[:8] in os.path.basename(p)]
     return sorted(paths)
 
 
