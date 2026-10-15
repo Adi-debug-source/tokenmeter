@@ -1,6 +1,7 @@
 """Reports and the command line: windows and periods, filters and labels,
-notes, several harnesses side by side, --summary-json for the menu bar, the
-installer's check of the Python the menu bar runs, and a run starting afresh.
+notes, several harnesses side by side, --summary-json for the menu bar,
+--json and plain text for scripts and pipes, the installer's check of the
+Python the menu bar runs, and a run starting afresh.
 """
 
 import datetime as dt
@@ -843,6 +844,130 @@ class TestPlainOutput(Base):
         with contextlib.redirect_stdout(buf):
             tm.print_report(*tm.collect(tm.transcripts(), ledger=False), "", "all time")
         self.assertIn("\x1b[1m", buf.getvalue())
+
+
+class TestJson(Base):
+    """--json printed the same seven keys whatever was asked: no window, no
+    covered line, no notes, and nothing of --by or --sessions, so a script
+    had to read the terminal's text for them. The seven keep their values,
+    and everything else is added after them."""
+
+    OLD = ["total_usd", "total_display", "currency", "calls", "components", "tokens", "label"]
+
+    def setUp(self):
+        super().setUp()
+        self.write("sess-a.jsonl", record("a1", ts="2026-09-01T12:00:00.000Z", out=1000, read=5000),
+                   record("a2", ts="2026-09-02T12:00:00.000Z", out=2000, w5=3000))
+        self.write("sess-b.jsonl", record("b1", ts="2026-09-02T13:00:00.000Z", inp=500, out=300))
+        self.write("sess-c.jsonl", record("c1", model="claude-opus-9",
+                                          ts="2026-09-03T12:00:00.000Z", out=10))
+
+    def run_json(self, *argv):
+        return json.loads(cli("--json", "--no-ledger", *argv))
+
+    def test_the_old_keys_keep_their_values(self):
+        got = self.run_json()
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(list(got)[:len(self.OLD)], self.OLD)
+        self.assertEqual(got["total_usd"], round(overall["total"], 6))
+        self.assertEqual(got["total_display"], round(overall["total"], 6))
+        self.assertEqual(got["currency"], "USD")
+        self.assertEqual(got["calls"], 4)
+        self.assertEqual(got["components"], {c: round(overall[c], 6) for c in tm.COMPONENTS})
+        self.assertEqual(got["tokens"], overall["tokens"])
+        self.assertEqual(got["label"], "all time")
+        for argv in (["--by", "model"], ["--sessions"], ["--by", "day", "--sessions"]):
+            with self.subTest(argv=argv):
+                more = self.run_json(*argv)
+                self.assertEqual({k: more[k] for k in self.OLD}, {k: got[k] for k in self.OLD})
+
+    def test_it_says_what_the_terminal_says_around_the_totals(self):
+        got = self.run_json()
+        paths = tm.transcripts()
+        overall, groups, _meta, unknown = tm.collect(paths, ledger=False)
+        self.assertEqual(got["version"], tm.__version__)
+        self.assertIsNone(got["since"])
+        self.assertIsNone(got["until"])
+        self.assertEqual(got["covered"], tm.covered_span(groups, paths))
+        self.assertIn("3 transcripts", got["covered"])
+        self.assertEqual(got["notes"], [{"level": level, "text": text}
+                                        for level, text in tm.report_notes(groups, unknown)])
+        self.assertIn("warn", [n["level"] for n in got["notes"]])
+        self.assertEqual(got["unknown_models"], ["claude-opus-9"])
+        self.assertEqual(got["without_cache_usd"],
+                         round(tm.caching_summary(overall)["without_cache"], 6))
+        self.assertGreater(got["without_cache_usd"], got["total_usd"])
+        self.assertNotIn("groups", got)
+        self.assertNotIn("sessions", got)
+
+        got = self.run_json("--since", "2026-09-02T00:00Z", "--until", "2026-09-03T00:00+01:00")
+        self.assertEqual(got["since"], "2026-09-02T00:00:00+00:00")
+        self.assertEqual(got["until"], "2026-09-03T00:00:00+01:00")
+        self.assertEqual(got["calls"], 2)
+        got = self.run_json("--period", "lastmonth")
+        self.assertEqual([got["since"], got["until"]],
+                         [t.isoformat() for t in tm.period_range("lastmonth")])
+
+    def test_by_sends_the_groups_in_the_terminals_order(self):
+        other = os.path.join(self.tmp, "projects", "-other")
+        os.makedirs(other)
+        with open(os.path.join(other, "sess-d.jsonl"), "w") as f:
+            f.write(record("d1", ts="2026-09-04T12:00:00.000Z", out=50000) + "\n")
+        _, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        for by in tm.BY_CHOICES:
+            with self.subTest(by=by):
+                got = self.run_json("--by", by)
+                rows = got["groups"]
+                self.assertEqual([r["key"] for r in rows], [k for k, _ in tm.grouped(groups, by)])
+                self.assertEqual([r["label"] for r in rows],
+                                 [tm.display_name(by, r["key"]) for r in rows])
+                self.assertEqual(list(rows[0]),
+                                 ["key", "label", "total_usd", "calls", "components", "tokens"])
+                self.assertAlmostEqual(sum(r["total_usd"] for r in rows), got["total_usd"],
+                                       places=5)
+                self.assertEqual(sum(r["calls"] for r in rows), got["calls"])
+                for c in tm.COMPONENTS:
+                    self.assertAlmostEqual(sum(r["components"][c] for r in rows),
+                                           got["components"][c], places=5)
+                for k in got["tokens"]:
+                    self.assertEqual(sum(r["tokens"][k] for r in rows), got["tokens"][k])
+                self.assertNotIn("sessions", got)
+        # The same rows, in the same order, as the terminal's table.
+        for by in ("project", "model", "day"):
+            with self.subTest(terminal=by):
+                text = cli("--by", by, "--no-ledger")
+                table = text.split(f"by {by}\n", 1)[1].split("\n\n", 1)[0]
+                self.assertEqual([line.split()[0] for line in table.splitlines()],
+                                 [r["label"] for r in self.run_json("--by", by)["groups"]])
+        self.assertEqual([r["label"] for r in self.run_json("--by", "project")["groups"]],
+                         ["-other", "-proj"])
+
+    def test_sessions_only_when_asked(self):
+        for n in range(22):
+            self.write(f"many-{n:02d}.jsonl",
+                       record(f"m{n}", ts="2026-09-05T12:00:00.000Z", out=10000 * (n + 1)))
+        self.assertNotIn("sessions", self.run_json())
+        self.assertNotIn("sessions", self.run_json("--by", "model"))
+        got = self.run_json("--sessions")
+        self.assertNotIn("groups", got)
+        rows = got["sessions"]
+        _, groups, meta, _ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(len(rows), tm.SESSIONS_LISTED)
+        self.assertEqual([r["id"] for r in rows],
+                         [k for k, _ in tm.grouped(groups, "session")[:tm.SESSIONS_LISTED]])
+        totals = [r["total_usd"] for r in rows]
+        self.assertEqual(totals, sorted(totals, reverse=True))
+        first = rows[0]
+        self.assertEqual(list(first), ["id", "project", "last", "total_usd", "calls"])
+        self.assertEqual(first["id"], "many-21")
+        self.assertEqual(first["project"], tm.project_name(meta["many-21"]["project"]))
+        self.assertEqual(dt.datetime.fromisoformat(first["last"]),
+                         dt.datetime(2026, 9, 5, 12, tzinfo=dt.timezone.utc))
+        self.assertEqual((first["total_usd"], first["calls"]),
+                         (round(groups["session"]["many-21"]["total"], 6), 1))
+        text = cli("--sessions", "--no-ledger")
+        for r in rows:
+            self.assertIn(r["id"][:8], text)
 
 
 class TestRunState(Base):

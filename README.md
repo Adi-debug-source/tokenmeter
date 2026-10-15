@@ -76,6 +76,8 @@ tokenmeter --json               # machine readable
 
 Every report says what window it covers, when each price table was last checked, and anything it had to estimate. Nothing is estimated quietly.
 
+`--json` gives a script the same run: the totals with their components and tokens, the version, the window, the covered line, the notes, any model with no price, and the cost without cache reads. With `--by` or `--sessions` it adds the groups or the dearest sessions, in the terminal's order. New keys are only ever added, so a script written for an older version keeps working.
+
 ## Supported harnesses
 
 Tokenmeter finds each harness's logs by itself. Each reader carries a verification status, and every report that uses an unverified one says so.

@@ -237,6 +237,12 @@
   among the figures. `NO_COLOR` turns colour off anywhere, and `FORCE_COLOR`
   or `CLICOLOR_FORCE` keeps it in a pipe; `NO_COLOR` wins over both. The
   status line keeps its colours, which Claude Code shows.
+- `--json` carries what the terminal says around the totals: the version,
+  the window as ISO 8601 (`since` and `until`, null for an open end), the
+  covered line, the notes, any model with no price and the cost without
+  cache reads. With `--by` it adds the groups, and with `--sessions` the 20
+  dearest sessions, in the terminal's order. It printed the same seven keys
+  whatever was asked; those keep their values.
 
 ### Project
 

@@ -21,7 +21,7 @@ Usage:
     tokenmeter.py --import FILE        price events from any harness
     tokenmeter.py --list-adapters      what was found, and how far to trust it
     tokenmeter.py --check-prices       compare the tables with the live pages
-    tokenmeter.py --json               machine readable
+    tokenmeter.py --json               the same report as JSON, for scripts
 """
 
 from __future__ import annotations
@@ -1524,6 +1524,19 @@ def collect_views(paths, since=None, ledger=True, until=None, split=True):
     return whole, parts
 
 
+# How many sessions --sessions lists, in the terminal and in --json.
+SESSIONS_LISTED = 20
+
+
+def grouped(groups, by: str) -> list:
+    """One --by grouping's rows, [(key, row)], in the order the terminal
+    lists them and --json sends them: days oldest first, everything else
+    dearest first."""
+    if by == "day":
+        return sorted(groups[by].items())
+    return sorted(groups[by].items(), key=lambda kv: -kv[1]["total"])
+
+
 def harness_pages(parts, paths) -> dict:
     """What render_html needs to give each harness a page of its own:
     {source: (its tally, its covered line)}, or nothing when there is one."""
@@ -2033,9 +2046,7 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     elif by:
         print()
         print(f"  {BOLD}by {by}{RESET}")
-        items = sorted(groups[by].items(), key=lambda kv: -kv[1]["total"])
-        if by == "day":
-            items = sorted(groups[by].items())
+        items = grouped(groups, by)
         width = max((len(display_name(by, k)) for k, _ in items), default=10)
         width = min(width, 46)
         peak = max((v["total"] for _, v in items), default=0) or 1
@@ -2048,8 +2059,7 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     if sessions:
         print()
         print(f"  {BOLD}sessions, dearest first{RESET}")
-        items = sorted(groups["session"].items(), key=lambda kv: -kv[1]["total"])[:20]
-        for sid, v in items:
+        for sid, v in grouped(groups, "session")[:SESSIONS_LISTED]:
             m = meta.get(sid, {})
             when = m.get("last").astimezone().strftime("%d %b %H:%M") if m.get("last") else "?"
             proj = project_name(m.get("project") or "")[-30:]
@@ -3149,7 +3159,9 @@ def build_parser() -> argparse.ArgumentParser:
                              f"(default {DEFAULT_CURRENCY}, or set {CURRENCY_ENV})")
 
     output = ap.add_argument_group("Output", "Without one, the report is printed as text.")
-    output.add_argument("--json", action="store_true", help="machine readable")
+    output.add_argument("--json", action="store_true",
+                        help="the report as JSON, for scripts: totals, window, covered line and "
+                             "notes, and the groups or sessions with --by or --sessions")
     output.add_argument("--html", nargs="?", const="auto", default="", metavar="PATH",
                         help="write the dashboard to PATH (default "
                              "~/Downloads/Tokenmeter.html) and open it")
@@ -3285,9 +3297,23 @@ def report_label(args, project: str = "", session_label: str = "") -> str:
     return label
 
 
-def print_json(overall, label: str) -> None:
-    """--json: the run's totals as one JSON object, for scripts."""
-    print(json.dumps({
+def print_json(overall, groups, meta, unknown, label: str, by: str = "", sessions: bool = False,
+               covered: str = "", since=None, until=None) -> None:
+    """--json: the run as one JSON object, for scripts.
+
+    The totals first, as they always were, then what the terminal says around
+    them: the version, the window (ISO 8601, null for an open end), the covered
+    line, the notes as --summary-json sends them, any model with no price, and
+    what the run would have cost without cache reads. With --by, the groups,
+    and with --sessions, the dearest sessions, in the terminal's order. Keys
+    are only ever added, so a script written for an older version still works.
+    """
+    def figures(row):
+        return {"total_usd": round(row["total"], 6), "calls": row["calls"],
+                "components": {c: round(row[c], 6) for c in COMPONENTS},
+                "tokens": row["tokens"]}
+
+    out = {
         "total_usd": round(overall["total"], 6),
         "total_display": round(overall["total"] * DISPLAY["rate"], 6),
         "currency": DISPLAY["code"],
@@ -3295,7 +3321,26 @@ def print_json(overall, label: str) -> None:
         "components": {c: round(overall[c], 6) for c in COMPONENTS},
         "tokens": overall["tokens"],
         "label": label,
-    }))
+        "version": __version__,
+        "since": since.isoformat() if since else None,
+        "until": until.isoformat() if until else None,
+        "covered": covered,
+        "notes": [{"level": level, "text": text} for level, text in report_notes(groups, unknown)],
+        "unknown_models": sorted(unknown),
+        "without_cache_usd": round(caching_summary(overall)["without_cache"], 6),
+    }
+    if by:
+        out["groups"] = [{"key": k, "label": display_name(by, k), **figures(v)}
+                         for k, v in grouped(groups, by)]
+    if sessions:
+        out["sessions"] = []
+        for sid, v in grouped(groups, "session")[:SESSIONS_LISTED]:
+            m = meta.get(sid, {})
+            out["sessions"].append({
+                "id": sid, "project": project_name(m.get("project") or ""),
+                "last": m["last"].isoformat() if m.get("last") else None,
+                "total_usd": round(v["total"], 6), "calls": v["calls"]})
+    print(json.dumps(out))
 
 
 def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts) -> None:
@@ -3360,7 +3405,8 @@ def main(argv=None) -> None:
 
     label = report_label(args, project, session_label)
     if args.json:
-        print_json(overall, label)
+        print_json(overall, groups, meta, unknown, label, by=args.by, sessions=args.sessions,
+                   covered=covered_span(groups, paths), since=since, until=until)
     elif args.html:
         write_dashboard(overall, groups, meta, unknown, label, args.html, paths, parts)
     else:
