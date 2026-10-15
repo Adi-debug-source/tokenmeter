@@ -97,8 +97,9 @@ the dashboard and the menu bar.
   as Claude Code's. A Claude Code transcript now brings its agents' with it,
   an agent's transcript brings its whole session, so the figures are the same
   with or without the ledger, and the report is labelled with the session's
-  id. `--session` with a Gemini CLI session's whole id finds its file, which
-  is named after the id's first eight characters.
+  id, after the window when there is one. `--session` with a Gemini CLI
+  session's whole id finds its file, which is named after the id's first
+  eight characters.
 - `--project` finds a project by its folder's own name, its full path, or
   `.` for the current folder. Claude Code names a project's folder after its
   path with every character that is not a letter or digit turned into `-`,

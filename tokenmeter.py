@@ -3567,8 +3567,10 @@ def report_window(args) -> tuple:
 
 
 def report_label(args, project: str = "", session_label: str = "") -> str:
-    """What a report says it covers: its window, else its session, else "all
-    time"; then its project, and whether it was priced at today's rates.
+    """What a report says it covers: its window and its session, "all time"
+    when it has neither; then its project, and whether it was priced at
+    today's rates. A window used to take the session's place, so --session
+    with --since or --until did not say which session it was.
 
     project is --project with "." already read as the current folder, and
     session_label comes from logs_to_read(), which read the session's file."""
@@ -3580,10 +3582,9 @@ def report_label(args, project: str = "", session_label: str = "") -> str:
         label = f"last {args.since}"
     elif args.until:
         label = f"until {args.until}"
-    elif session_label:
-        label = session_label
     else:
-        label = "all time"
+        label = ""
+    label = " · ".join(part for part in (label, session_label) if part) or "all time"
     if project:
         label += f" · {project_name(project)}"
     if args.current_rates:

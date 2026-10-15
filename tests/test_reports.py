@@ -885,8 +885,10 @@ class TestCommandLine(Base):
 
     def test_the_label_says_what_the_run_covers(self):
         """report_label() builds every report's label from the parsed options:
-        the window first, then the session, else "all time", then the project
-        and today's rates. --until alone reads "until X", not "all time"."""
+        the window, then the session, "all time" for neither, then the
+        project and today's rates. --until alone reads "until X", not "all
+        time", and a window beside --session keeps the session in the label,
+        which it once replaced."""
         def label(*argv, project="", session=""):
             return tm.report_label(tm.build_parser().parse_args(list(argv)), project, session)
         self.assertEqual(label(), "all time")
@@ -896,7 +898,10 @@ class TestCommandLine(Base):
                          "2026-09-01 to 2026-09-03")
         self.assertEqual(label("--period", "lastmonth"), tm.period_label("lastmonth"))
         self.assertEqual(label(session="session abcdef12"), "session abcdef12")
-        self.assertEqual(label("--since", "7d", session="session abcdef12"), "last 7d")
+        self.assertEqual(label("--since", "7d", session="session abcdef12"),
+                         "last 7d · session abcdef12")
+        self.assertEqual(label("--until", "2026-10-20", session="session abcdef12"),
+                         "until 2026-10-20 · session abcdef12")
         project = "/Users/sam/code/app"
         self.assertEqual(label("--current-rates", project=project),
                          f"all time · {tm.project_name(project)} · at today's rates")
