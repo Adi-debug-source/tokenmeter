@@ -31,7 +31,7 @@ struct Window {
     // out of the breakdown made the four lines fail to add up to the total.
     var webSearch = 0.0
     // The window's total tokens, the engine's one definition (token_totals()),
-    // for the title when "Show tokens in the menu bar" is on.
+    // for the title and the window's row when Show tokens is on.
     var tokens = 0.0
 }
 
@@ -131,6 +131,13 @@ func padRight(_ s: String, _ width: Int) -> String {
 
 func padLeft(_ s: String, _ width: Int) -> String {
     s.count >= width ? s : String(repeating: " ", count: width - s.count) + s
+}
+
+// The font the padded rows are drawn in; the padding above counts on it.
+func monospaced(_ s: String) -> NSAttributedString {
+    NSAttributedString(string: s, attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    ])
 }
 
 // A long note, broken into lines at word boundaries rather than cut off.
@@ -255,6 +262,82 @@ func loadSnapshot() -> Snapshot {
     return snap
 }
 
+// The Show tokens row: its label and a small switch, set out like the menu's
+// plain rows, in the menu's font and the system's own colours, so it follows
+// the light or dark menu as they do. Clicking the switch leaves the menu open,
+// so the change shows at once. A view in a menu gets no keyboard events; its
+// menu item keeps the title and a key equivalent for that.
+final class SwitchRow: NSView {
+    // Where a plain item's title starts, where its key equivalent ends and
+    // how tall it is, in this macOS's menus, which have changed with its
+    // versions. AppKit has no call for these, but it gives a menu's size
+    // without showing it: a view item is the view plus the menu's border, a
+    // plain item its title plus the room around it, and a ticked one the
+    // checkmark column as well. The room is taken as even on both sides, the
+    // checkmark column on the left; this menu always has that column.
+    static let metrics: (leading: CGFloat, trailing: CGFloat, height: CGFloat) = {
+        func size(_ item: NSMenuItem) -> NSSize {
+            let menu = NSMenu()
+            menu.addItem(item)
+            return menu.size
+        }
+        let probe = NSMenuItem()
+        probe.view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        let border = NSSize(width: size(probe).width - 100, height: size(probe).height - 20)
+        let title = "Show tokens"
+        let text = (title as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width
+        let plain = size(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
+        let ticked = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        ticked.state = .on
+        let side = max(0, (plain.width - border.width - text) / 2)
+        let column = max(0, size(ticked).width - plain.width)
+        return ((side + column).rounded(), side.rounded(), max(22, plain.height - border.height))
+    }()
+    static let gap: CGFloat = 16
+
+    let label = NSTextField(labelWithString: "")
+    let toggle = NSSwitch()
+
+    init(title: String, on: Bool, tip: String, target: AnyObject, action: Selector) {
+        let m = SwitchRow.metrics
+        super.init(frame: .zero)
+        label.stringValue = title
+        label.font = NSFont.menuFont(ofSize: 0)
+        label.textColor = .labelColor
+        // The switch names itself; the label read out as well would say it twice.
+        label.setAccessibilityElement(false)
+        toggle.controlSize = .small
+        toggle.state = on ? .on : .off
+        toggle.target = target
+        toggle.action = action
+        toggle.setAccessibilityLabel(title)
+        toggle.setAccessibilityHelp(tip)
+        for v in [self, label, toggle] as [NSView] { v.toolTip = tip }
+        for v in [label, toggle] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
+        // The width the row asks of the menu, which widens it to its own.
+        // Outside a window a switch can give its regular size, larger than
+        // the small one it takes in the menu, so this is never too narrow.
+        // The constraints place the switch at whatever size it takes there.
+        frame = NSRect(x: 0, y: 0, width: m.leading + label.intrinsicContentSize.width.rounded(.up)
+                           + SwitchRow.gap + toggle.intrinsicContentSize.width + m.trailing,
+                       height: m.height)
+        autoresizingMask = [.width]
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m.leading),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor,
+                                            constant: SwitchRow.gap),
+            toggle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m.trailing),
+            toggle.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("SwitchRow is built in code") }
+}
+
 final class Controller: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     var timer: Timer?
@@ -273,8 +356,10 @@ final class Controller: NSObject, NSApplicationDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "breakdown") }
     }
 
-    // The window's total tokens beside its cost in the title. Off unless
-    // switched on from the menu, so the title is what it always was.
+    // Total tokens beside each cost, in the title and on every window row.
+    // Off unless switched on from the menu, so both are what they always
+    // were. Kept under the key it had as a checkmark item, so a Mac that
+    // turned it on then still has it on.
     var showTokens: Bool {
         get { UserDefaults.standard.bool(forKey: "showTokens") }
         set { UserDefaults.standard.set(newValue, forKey: "showTokens") }
@@ -312,6 +397,9 @@ final class Controller: NSObject, NSApplicationDelegate {
         "all":   ("All time", "all of it"),
     ]
 
+    // In the order the menu lists them.
+    static let windowKeys = ["today", "week", "month", "all"]
+
     func windowName(_ key: String) -> String {
         Controller.windowNames[key]?.long ?? "All time"
     }
@@ -320,8 +408,8 @@ final class Controller: NSObject, NSApplicationDelegate {
         Controller.windowNames[key]?.possessive ?? "all of it"
     }
 
-    func current() -> Window {
-        switch mode {
+    func window(_ key: String) -> Window {
+        switch key {
         case "week": return snap.week
         case "month": return snap.month
         case "all": return snap.all
@@ -329,7 +417,28 @@ final class Controller: NSObject, NSApplicationDelegate {
         }
     }
 
+    func current() -> Window { window(mode) }
+
+    // A window's row: its name and cost, and with Show tokens on its total
+    // tokens after the cost, as the title writes them, for example
+    // "All time         $1,024.50 · 1.62B tok". With it on, the cost and token
+    // columns are as wide as the widest of the four rows, so the dots and
+    // the counts line up; off, the row is the name and the cost alone.
+    func windowLine(_ key: String) -> String {
+        let w = window(key), keys = Controller.windowKeys
+        guard showTokens else { return padRight(windowName(key), 14) + padLeft(money(w.total), 12) }
+        let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)
+        let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0
+        return padRight(windowName(key), 14) + padLeft(money(w.total), costs)
+            + " · " + padLeft(toks(w.tokens), counts) + " tok"
+    }
+
     func render() {
+        showTitle()
+        buildMenu()
+    }
+
+    func showTitle() {
         if let err = snap.failed {
             // A plain hyphen: the project writes no en or em dash anywhere.
             // What went wrong is in the tooltip and the menu.
@@ -345,7 +454,6 @@ final class Controller: NSObject, NSApplicationDelegate {
                                             : "  \(money(w.total))"
             item.button?.toolTip = "\(windowName(mode)), at API rates"
         }
-        buildMenu()
     }
 
     @discardableResult
@@ -358,9 +466,7 @@ final class Controller: NSObject, NSApplicationDelegate {
         mi.isEnabled = enabled ?? (action != nil)
         if state { mi.state = .on }
         if mono {
-            mi.attributedTitle = NSAttributedString(string: title, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-            ])
+            mi.attributedTitle = monospaced(title)
         } else if title.contains("\n") {
             // A plain title draws on one line; an attributed one honours breaks.
             mi.attributedTitle = NSAttributedString(string: title, attributes: [
@@ -387,11 +493,9 @@ final class Controller: NSObject, NSApplicationDelegate {
         add(menu, "Tokenmeter at API rates")
 
         menu.addItem(.separator())
-        for (key, w) in [("today", snap.today), ("week", snap.week),
-                         ("month", snap.month), ("all", snap.all)] {
-            let label = windowName(key)
-            let line = padRight(label, 14) + padLeft(money(w.total), 12)
-            let mi = add(menu, line, #selector(setMode(_:)), enabled: true,
+        for key in Controller.windowKeys {
+            let w = window(key)
+            let mi = add(menu, windowLine(key), #selector(setMode(_:)), enabled: true,
                          mono: true, state: mode == key)
             mi.representedObject = key
             let calls = "\(w.calls) API call" + (w.calls == 1 ? "" : "s")
@@ -540,9 +644,18 @@ final class Controller: NSObject, NSApplicationDelegate {
         curMenu.addItem(src)
         curItem.submenu = curMenu
         menu.addItem(curItem)
-        add(menu, "Show tokens in the menu bar", #selector(toggleTokens), enabled: true,
-            state: showTokens).toolTip =
-            "Total tokens beside the cost: uncached input, cache writes, cache reads and output"
+        // One switch for the tokens in the title and on every window row. The
+        // item's own title and key equivalent are the keyboard's way to it,
+        // since the switch in its view never gets a key.
+        let tip = "Total tokens beside the cost, in the menu bar and on every row: uncached input, "
+            + "cache writes, cache reads and output. \u{2318}T switches it while this menu is open."
+        let tokensItem = NSMenuItem(title: "Show tokens", action: #selector(toggleTokens(_:)),
+                                    keyEquivalent: "t")
+        tokensItem.target = self
+        tokensItem.toolTip = tip
+        tokensItem.view = SwitchRow(title: "Show tokens", on: showTokens, tip: tip,
+                                    target: self, action: #selector(switchTokens(_:)))
+        menu.addItem(tokensItem)
 
         menu.addItem(.separator())
         add(menu, "Open the full dashboard", #selector(openDashboard))
@@ -570,9 +683,37 @@ final class Controller: NSObject, NSApplicationDelegate {
         render()
     }
 
-    @objc func toggleTokens() {
+    // The switch, clicked: the menu stays open.
+    @objc func switchTokens(_ sender: NSSwitch) {
+        showTokens = sender.state == .on
+        tokensChanged(sender.enclosingMenuItem?.menu)
+    }
+
+    // Command-T, the keyboard's way to the same setting.
+    @objc func toggleTokens(_ sender: NSMenuItem) {
         showTokens.toggle()
-        render()
+        tokensChanged(sender.menu)
+    }
+
+    // Show tokens takes effect at once: the title, and every window row and
+    // the switch of the menu as it stands. They are changed in place, since
+    // the menu may be open and one built afresh would only show the next
+    // time it opened. A refresh can build the status item a new menu while
+    // the old one is still open, so both are changed.
+    func tokensChanged(_ open: NSMenu?) {
+        showTitle()
+        var menus = [item.menu].compactMap { $0 }
+        if let open = open, open !== item.menu { menus.append(open) }
+        for menu in menus {
+            for mi in menu.items {
+                if mi.action == #selector(setMode(_:)), let key = mi.representedObject as? String {
+                    mi.title = windowLine(key)
+                    mi.attributedTitle = monospaced(mi.title)
+                } else if let row = mi.view as? SwitchRow {
+                    row.toggle.state = showTokens ? .on : .off
+                }
+            }
+        }
     }
 
     @objc func doRefresh() { refresh() }

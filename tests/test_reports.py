@@ -729,10 +729,11 @@ class TestVersion(Base):
 
 
 class TestMenuBarTokens(Base):
-    """The menu bar can give the total tokens of the window it shows beside
-    its cost, from a switch in its menu that is off until used and is kept
-    the way its other choices are. No Python test can run the app, so these
-    read its source, and check the summary it reads carries the figure."""
+    """The menu bar can give each window's total tokens beside its cost, in
+    its title and on every window row of its menu, from one Show tokens
+    switch that is off until used and is kept the way its other choices are.
+    No Python test can run the app, so these read its source, and check the
+    summary it reads carries the figure."""
 
     def swift(self):
         return slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
@@ -741,14 +742,71 @@ class TestMenuBarTokens(Base):
     def test_the_switch_is_off_until_used_and_kept_like_the_other_choices(self):
         swift = self.swift()
         # bool(forKey:) is false for a key never set: off on every Mac until used.
+        # The key is the one the checkmark item it replaced used, so a Mac that
+        # switched it on then still has it on.
         self.assertIn('get { UserDefaults.standard.bool(forKey: "showTokens") }', swift)
         self.assertIn('set { UserDefaults.standard.set(newValue, forKey: "showTokens") }', swift)
-        self.assertIn('add(menu, "Show tokens in the menu bar", #selector(toggleTokens), enabled: true,\n'
-                      '            state: showTokens)', swift)
         title = swift[swift.index("let w = current()\n            item.button?.title"):]
         title = title[:title.index("item.button?.toolTip")]
         self.assertIn('showTokens ? "  \\(money(w.total)) · \\(toks(w.tokens)) tok"', title)
         self.assertIn(': "  \\(money(w.total))"', title)     # off: the title it always had
+
+    def test_one_small_switch_replaces_the_checkmark_item(self):
+        """A switch in a custom view, at the small size, named for VoiceOver,
+        with the tooltip's account of what the tokens are. A view gets no
+        keyboard events, so its menu item keeps a title, an action and
+        Command-T."""
+        swift = self.swift()
+        self.assertNotIn("Show tokens in the menu bar", swift)
+        joined = re.sub(r'"\s*\n\s*\+\s*"', "", swift)
+        self.assertIn("Total tokens beside the cost, in the menu bar and on every row: uncached "
+                      "input, cache writes, cache reads and output.", joined)
+        self.assertIn('NSMenuItem(title: "Show tokens", action: #selector(toggleTokens(_:)),\n'
+                      '                                    keyEquivalent: "t")', swift)
+        self.assertIn('tokensItem.view = SwitchRow(title: "Show tokens", on: showTokens, tip: tip,\n'
+                      '                                    target: self, action: #selector(switchTokens(_:)))',
+                      swift)
+        row = swift[swift.index("final class SwitchRow: NSView {"):swift.index("final class Controller")]
+        for line in ("let toggle = NSSwitch()", "toggle.controlSize = .small",
+                     "toggle.setAccessibilityLabel(title)", "toggle.setAccessibilityHelp(tip)",
+                     "label.font = NSFont.menuFont(ofSize: 0)", "label.textColor = .labelColor",
+                     "autoresizingMask = [.width]"):
+            self.assertIn(line, row)
+
+    def test_every_window_row_gives_its_tokens_when_the_switch_is_on(self):
+        """Each of the four rows gives its cost and, with the switch on, its
+        total tokens in the title's shape, the columns as wide as the widest
+        row so the figures line up in the monospaced font. Off, a row is
+        exactly what it was."""
+        swift = self.swift()
+        line = swift[swift.index("func windowLine(_ key: String)"):swift.index("func render()")]
+        self.assertIn("guard showTokens else { return padRight(windowName(key), 14) "
+                      "+ padLeft(money(w.total), 12) }", line)
+        self.assertIn("let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)", line)
+        self.assertIn("let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0", line)
+        self.assertIn('return padRight(windowName(key), 14) + padLeft(money(w.total), costs)\n'
+                      '            + " · " + padLeft(toks(w.tokens), counts) + " tok"', line)
+        self.assertIn('static let windowKeys = ["today", "week", "month", "all"]', swift)
+        self.assertIn("for key in Controller.windowKeys {\n            let w = window(key)\n"
+                      "            let mi = add(menu, windowLine(key), #selector(setMode(_:))", swift)
+
+    def test_flipping_it_changes_the_open_menu_in_place(self):
+        """The switch changes the setting, the title, every window row and the
+        switch itself in the menu as it stands, and builds no new menu, which
+        would only show the next time the menu opened."""
+        swift = self.swift()
+        flip = swift[swift.index("@objc func switchTokens(_ sender: NSSwitch)"):
+                     swift.index("@objc func doRefresh()")]
+        self.assertIn("showTokens = sender.state == .on", flip)
+        self.assertIn("tokensChanged(sender.enclosingMenuItem?.menu)", flip)
+        self.assertIn("showTokens.toggle()\n        tokensChanged(sender.menu)", flip)
+        changed = flip[flip.index("func tokensChanged(_ open: NSMenu?)"):]
+        for step in ("showTitle()", "mi.title = windowLine(key)",
+                     "mi.attributedTitle = monospaced(mi.title)",
+                     "row.toggle.state = showTokens ? .on : .off"):
+            self.assertIn(step, changed)
+        for rebuild in ("render()", "buildMenu()"):
+            self.assertNotIn(rebuild, flip)
 
     def test_it_reads_each_windows_total_from_the_summary(self):
         swift = self.swift()

@@ -63,12 +63,13 @@ pricing page and formats nothing.
 
 `toks()`, which writes a token count (999, 1.0k, 1.00M, 1.00B), also exists
 three times, because `--summary-json` and the dashboard's payload send
-numbers. `toks()` in `costbar/main.swift` writes the menu bar's opt-in token
-figure; `String(format:)` rounds the same double as Python does. `toks()` in
-`dashboard/dashboard.js` writes the one count the browser adds up itself,
-the chart's running total over the series shown, and rounds an exact half
-to even, as Python does and `toFixed()` alone does not; a test runs it
-against the engine's wherever node is installed. Change all three together.
+numbers. `toks()` in `costbar/main.swift` writes the token figures the Show
+tokens switch adds to the menu bar's title and window rows; `String(format:)`
+rounds the same double as Python does. `toks()` in `dashboard/dashboard.js`
+writes the one count the browser adds up itself, the chart's running total
+over the series shown, and rounds an exact half to even, as Python does and
+`toFixed()` alone does not; a test runs it against the engine's wherever node
+is installed. Change all three together.
 
 ## When a harness updates
 
@@ -188,6 +189,23 @@ and reloads it with a full launchd `bootout` and `bootstrap`. Do not
 "simplify" that to `kickstart`: launchd caches the signature it registered,
 an ad hoc signature changes on every build, and the kernel kills the new
 binary with `OS_REASON_CODESIGNING`.
+
+## The menu bar's Show tokens switch
+
+One switch, kept under the `showTokens` key, adds each window's total tokens
+to the title and to the four window rows; `windowLine()` writes a row, and
+off it is the name and the cost exactly as before. The switch is an
+`NSSwitch` in a custom view, `SwitchRow`, which AppKit gives mouse events but
+no keys, so its menu item keeps the title and Command-T for the keyboard.
+Flipping it calls `tokensChanged()`, which changes the title, the rows and the
+switch of the menu in place: a menu built afresh only shows the next time it
+opens, and the switch leaves this one open. AppKit has no call for where a
+plain item's title starts or how tall it is, so `SwitchRow.metrics` works them
+out from the sizes AppKit gives a scratch menu, taking the room around a title
+as even on both sides; if a macOS update leaves the label or the switch out
+of line with the other rows, look there first. A switch reports its small
+size only once it is in a window, so constraints place it, not its size at
+build time.
 
 ## The dashboard's fonts
 
