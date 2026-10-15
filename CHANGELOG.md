@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0, unreleased
 
 Total tokens on every face, by one definition, beside the money, and the
 tokens the ledger has kept that the transcripts on disk no longer hold. Prices
