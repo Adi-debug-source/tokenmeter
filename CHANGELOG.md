@@ -189,10 +189,11 @@ the dashboard and the menu bar.
   the command: it left out every Codex session older than a week until a
   terminal run had recorded it, and said to install zstd. The command is now
   also looked for in `/opt/homebrew/bin` and `/usr/local/bin`.
-- Each compressed Codex session is decompressed once a run, not twice. Its
-  text is now split into lines as a plain session's is: a raw U+2028
-  character inside a line split it in two, and when that line named the model
-  its calls were priced as gpt-5.
+- Reading a compressed Codex session's calls decompresses it once, not
+  twice; `--project` still decompresses it first, to match it by its opening
+  lines. Its text is now split into lines as a plain session's is: a raw
+  U+2028 character inside a line split it in two, and when that line named
+  the model its calls were priced as gpt-5.
 - The note on Codex calls priced as gpt-5 counts each call once. A session
   from before Codex 0.36 in both `sessions` and `archived_sessions` was
   counted twice in the note, though once in the figures.
