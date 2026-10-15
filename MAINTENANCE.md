@@ -43,8 +43,8 @@ rather than keeping them per call.
 `--json` and `--summary-json` only ever gain keys, added after the ones
 already there: the menu bar and scripts read them by name.
 
-The one deliberate exception is `money()`, which exists three times, in
-Python, Swift and the dashboard's JavaScript (`fmt()` in
+The deliberate exceptions are two formatters. `money()` exists three
+times, in Python, Swift and the dashboard's JavaScript (`fmt()` in
 `dashboard/dashboard.js`), because each renders in its own runtime. All
 three carry the same comment. **Change one and you must change all three**,
 or the same figure reads differently in different places, which has
@@ -53,11 +53,14 @@ calls with the display currency and the terminal calls for the dollar figure
 beside another currency. `pricing/common.py` has a `money()` of its own, but
 it reads a figure off a pricing page and formats nothing.
 
-`toks()`, which writes a token count (999, 1.0k, 1.00M, 1.00B), has a copy
-in `dashboard/dashboard.js` for the one count the browser adds up itself,
-the chart's running total over the series shown. It rounds an exact half
-to even, as Python does, which `toFixed()` alone does not; a test runs it
-against the engine's wherever node is installed. Change both together.
+`toks()`, which writes a token count (999, 1.0k, 1.00M, 1.00B), also exists
+three times, because `--summary-json` and the dashboard's payload send
+numbers. `toks()` in `costbar/main.swift` writes the menu bar's opt-in token
+figure; `String(format:)` rounds the same double as Python does. `toks()` in
+`dashboard/dashboard.js` writes the one count the browser adds up itself,
+the chart's running total over the series shown, and rounds an exact half
+to even, as Python does and `toFixed()` alone does not; a test runs it
+against the engine's wherever node is installed. Change all three together.
 
 ## When a harness updates
 

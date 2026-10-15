@@ -700,6 +700,48 @@ class TestMenuBarFailure(Base):
             self.assertNotIn(dash, swift)
 
 
+class TestMenuBarTokens(Base):
+    """The menu bar can give the total tokens of the window it shows beside
+    its cost, from a switch in its menu that is off until used and is kept
+    the way its other choices are. No Python test can run the app, so these
+    read its source, and check the summary it reads carries the figure."""
+
+    def swift(self):
+        return slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                     encoding="utf-8")
+
+    def test_the_switch_is_off_until_used_and_kept_like_the_other_choices(self):
+        swift = self.swift()
+        # bool(forKey:) is false for a key never set: off on every Mac until used.
+        self.assertIn('get { UserDefaults.standard.bool(forKey: "showTokens") }', swift)
+        self.assertIn('set { UserDefaults.standard.set(newValue, forKey: "showTokens") }', swift)
+        self.assertIn('add(menu, "Show tokens in the menu bar", #selector(toggleTokens), enabled: true,\n'
+                      '            state: showTokens)', swift)
+        title = swift[swift.index("let w = current()\n            item.button?.title"):]
+        title = title[:title.index("item.button?.toolTip")]
+        self.assertIn('showTokens ? "  \\(money(w.total)) · \\(toks(w.tokens)) tok"', title)
+        self.assertIn(': "  \\(money(w.total))"', title)     # off: the title it always had
+
+    def test_it_reads_each_windows_total_from_the_summary(self):
+        swift = self.swift()
+        self.assertIn('w.tokens = (d["tokens"] as? [String: Any])?["total"] as? Double ?? 0', swift)
+        self.write("a.jsonl", record("msg_1", out=1500, read=4000))
+        s = tm.summary(ledger=False)
+        for key in ("today", "week", "month", "all"):
+            self.assertEqual(s[key]["tokens"]["total"], tm.token_totals(s[key]["tokens"])["total"])
+        self.assertEqual(s["all"]["tokens"]["total"], 5500)
+
+    def test_it_writes_a_count_as_the_engines_toks_does(self):
+        swift = self.swift()
+        body = swift[swift.index("func toks(_ n: Double)"):swift.index("func shownDifference")]
+        for size, places, unit in (("1_000_000_000", 2, "B"), ("1_000_000", 2, "M"), ("1000", 1, "k")):
+            self.assertIn('if n >= %s { return String(format: "%%.%df%s", n / %s) }'
+                          % (size, places, unit, size), body)
+        self.assertIn("return String(Int(n))", body)
+        self.assertEqual([tm.toks(n) for n in (999, 1000, 1_000_000, 1_000_000_000)],
+                         ["999", "1.0k", "1.00M", "1.00B"])
+
+
 class TestInstallerSystemPython(Base):
     """install.sh is never run by the tests. Its check of the Python the menu
     bar runs is cut out of it and run in bash under set -e, with stand-ins for

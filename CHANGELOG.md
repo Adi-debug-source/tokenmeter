@@ -320,6 +320,10 @@
   `1`. It is off by default, and without it the line is byte for byte what
   it was. The tokens are the engine's total, counted in the same pass as
   today's cost and kept in the same 90-second cache.
+- The menu bar can give the total tokens of the window it shows beside its
+  cost, `$4.56 · 1.20M tok`, from "Show tokens in the menu bar" in its
+  menu. It is off until switched on and is remembered as its currency is.
+  It reads each window's `tokens` object from `--summary-json`.
 
 ### Project
 

@@ -30,6 +30,9 @@ struct Window {
     // Billed per request, not per token. Zero for most people, but leaving it
     // out of the breakdown made the four lines fail to add up to the total.
     var webSearch = 0.0
+    // The window's total tokens, the engine's one definition (token_totals()),
+    // for the title when "Show tokens in the menu bar" is on.
+    var tokens = 0.0
 }
 
 struct Snapshot {
@@ -89,6 +92,15 @@ func money(_ usd: Double) -> String {
     if a < 0.00005 { return sign + "<" + s + "0.0001" }
     if a < 0.01 { return sign + s + String(format: "%.4f", a) }
     return sign + s + (groupedTwoDP.string(from: NSNumber(value: a)) ?? String(format: "%.2f", a))
+}
+
+// A token count as toks() in tokenmeter.py writes it: 999, 1.0k, 1.00M,
+// 1.00B. String(format:) rounds the same double the same way Python does.
+func toks(_ n: Double) -> String {
+    if n >= 1_000_000_000 { return String(format: "%.2fB", n / 1_000_000_000) }
+    if n >= 1_000_000 { return String(format: "%.2fM", n / 1_000_000) }
+    if n >= 1000 { return String(format: "%.1fk", n / 1000) }
+    return String(Int(n))
 }
 
 func shownDifference(_ big: Double, _ small: Double) -> Double {
@@ -188,6 +200,7 @@ func loadSnapshot() -> Snapshot {
         w.cacheRead = d["cache_read"] as? Double ?? 0
         w.output = d["output"] as? Double ?? 0
         w.webSearch = d["web_search"] as? Double ?? 0
+        w.tokens = (d["tokens"] as? [String: Any])?["total"] as? Double ?? 0
         return w
     }
 
@@ -260,6 +273,13 @@ final class Controller: NSObject, NSApplicationDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "breakdown") }
     }
 
+    // The window's total tokens beside its cost in the title. Off unless
+    // switched on from the menu, so the title is what it always was.
+    var showTokens: Bool {
+        get { UserDefaults.standard.bool(forKey: "showTokens") }
+        set { UserDefaults.standard.set(newValue, forKey: "showTokens") }
+    }
+
     func applicationDidFinishLaunching(_ note: Notification) {
         item.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         item.button?.title = "  ···"
@@ -316,10 +336,13 @@ final class Controller: NSObject, NSApplicationDelegate {
             item.button?.title = "  -"
             item.button?.toolTip = err
         } else {
-            // Just the amount. Which window it is was the user's own choice
-            // from this menu, so prefixing it says something already known
-            // and costs width in a crowded menu bar. The tooltip still says.
-            item.button?.title = "  \(money(current().total))"
+            // Just the amount, and its tokens only when switched on. Which
+            // window it is was the user's own choice from this menu, so
+            // prefixing it says something already known and costs width in a
+            // crowded menu bar. The tooltip still says.
+            let w = current()
+            item.button?.title = showTokens ? "  \(money(w.total)) · \(toks(w.tokens)) tok"
+                                            : "  \(money(w.total))"
             item.button?.toolTip = "\(windowName(mode)), at API rates"
         }
         buildMenu()
@@ -517,6 +540,9 @@ final class Controller: NSObject, NSApplicationDelegate {
         curMenu.addItem(src)
         curItem.submenu = curMenu
         menu.addItem(curItem)
+        add(menu, "Show tokens in the menu bar", #selector(toggleTokens), enabled: true,
+            state: showTokens).toolTip =
+            "Total tokens beside the cost: uncached input, cache writes, cache reads and output"
 
         menu.addItem(.separator())
         add(menu, "Open the full dashboard", #selector(openDashboard))
@@ -541,6 +567,11 @@ final class Controller: NSObject, NSApplicationDelegate {
             displayCurrency = code
             UserDefaults.standard.set(code, forKey: "currency")
         }
+        render()
+    }
+
+    @objc func toggleTokens() {
+        showTokens.toggle()
         render()
     }
 
