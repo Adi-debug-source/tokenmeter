@@ -5,7 +5,8 @@ opened and writes every name it is given as text.
 import json
 import os
 import re
-import unittest
+import shutil
+import unittest.mock
 
 from helpers import Base, payload_of, record, slurp, tm
 
@@ -94,7 +95,7 @@ class TestDashboard(Base):
     def test_the_script_escapes_what_it_writes_as_markup(self):
         """The chart's tooltip put each series' label into innerHTML as it
         was. Every payload string now goes through esc() first."""
-        js = tm.DASH_JS
+        js = tm.dashboard_asset("dashboard.js")
         self.assertIn("const esc = ", js)
         tip = js[js.index("const tip = host.querySelector('.tip');"):js.index("tip.classList.add('on')")]
         for raw in ("'<i>' + d.full", "+ s.label", "d.tokShort + ' tokens</i>"):
@@ -135,6 +136,35 @@ class TestDashboard(Base):
         overall, groups, meta, unknown = tm.collect([], ledger=False)
         tm.render_html(overall, groups, meta, unknown, "all time", out)
         self.assertIn("</html>", slurp(out, encoding="utf-8"))
+
+    def test_a_missing_stylesheet_or_script_says_which(self):
+        """The stylesheet and script moved out of the engine into dashboard/,
+        and a page without either does not work. An install missing one
+        stops with a single line naming the file and saying to reinstall,
+        and writes no page."""
+        self.write("a.jsonl", record("msg_1", out=900))
+        result = tm.collect(tm.transcripts(), ledger=False)
+        out = os.path.join(self.tmp, "d.html")
+        for present, missing in (((), "dashboard.css"), (("dashboard.css",), "dashboard.js")):
+            with self.subTest(missing=missing):
+                folder = os.path.join(self.tmp, "dashboard-" + missing)
+                os.makedirs(folder)
+                for name in present:
+                    shutil.copy(os.path.join(tm.DASH_DIR, name), folder)
+                with unittest.mock.patch.object(tm, "DASH_DIR", folder), \
+                        self.assertRaises(SystemExit) as e:
+                    tm.render_html(*result, "all time", out)
+                message = str(e.exception.code)
+                self.assertIn(os.path.join("dashboard-" + missing, missing) + " is missing", message)
+                self.assertIn("Reinstall Tokenmeter", message)
+                self.assertEqual(len(message.splitlines()), 1)
+                self.assertFalse(os.path.exists(out))
+        # Both in place, the page carries them as they are on disk.
+        tm.render_html(*result, "all time", out)
+        page = slurp(out, encoding="utf-8")
+        for name in ("dashboard.css", "dashboard.js"):
+            text = slurp(os.path.join(tm.DASH_DIR, name), encoding="utf-8")
+            self.assertIn(text.split("__PAYLOAD__")[-1], page)
 
 
 if __name__ == "__main__":

@@ -79,7 +79,7 @@ class TestMoneyOnEveryFace(Base):
         for line in ('f.locale = Locale(identifier: "en_US_POSIX")', 'f.groupingSeparator = ","',
                      'f.decimalSeparator = "."', "f.usesGroupingSeparator = true"):
             self.assertIn(line, formatter)
-        calls = re.findall(r"toLocaleString\(([^)]*)\)", tm.DASH_JS)
+        calls = re.findall(r"toLocaleString\(([^)]*)\)", tm.dashboard_asset("dashboard.js"))
         self.assertTrue(calls)
         for args in calls:
             self.assertTrue(args.startswith("'en-US'"), args)
@@ -89,7 +89,8 @@ class TestMoneyOnEveryFace(Base):
         make the same saving read two ways."""
         swift = self.swift()
         money_swift = swift[swift.index("func money("):swift.index("func shownDifference")]
-        fmt_js = tm.DASH_JS[tm.DASH_JS.index("function fmt("):tm.DASH_JS.index("let CUR")]
+        js = tm.dashboard_asset("dashboard.js")
+        fmt_js = js[js.index("function fmt("):js.index("let CUR")]
         for body in (money_swift, fmt_js):
             self.assertIn("sign + s + ", body)
             self.assertNotIn("return s + x", body)

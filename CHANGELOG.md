@@ -201,6 +201,13 @@
   reports, the dashboard and the status line, with what they share in
   `tests/helpers.py`. `python3 tests/test_tokenmeter.py` still runs them
   all, and one area runs on its own.
+- The dashboard's stylesheet and script are files of their own,
+  `dashboard/dashboard.css` and `dashboard/dashboard.js`, instead of about
+  550 lines of strings inside the engine. They are read when a page is
+  written, so the page is still one file that fetches nothing, and the
+  status line never reads them. `install.sh` copies the folder; an install
+  missing either file says so and to reinstall, rather than writing a page
+  that does not work.
 
 ## 1.1.2, 6 October 2026
 

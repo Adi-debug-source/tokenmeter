@@ -108,7 +108,7 @@ fi
 #    replaced whole so a renamed file cannot linger; the caches beside the
 #    engine (exchange rates, looked-up prices) are kept.
 mkdir -p "$TARGET"
-for d in adapters pricing fonts; do
+for d in adapters pricing fonts dashboard; do
     rm -rf "${TARGET:?}/$d"
     cp -R "$SRC/$d" "$TARGET/$d"
 done

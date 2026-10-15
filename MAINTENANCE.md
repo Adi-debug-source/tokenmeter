@@ -21,6 +21,7 @@ runs on its own, as `python3 tests/test_ledger.py`.
 | `tokenmeter.py` | the engine | merging, the ledger, pricing arithmetic, reports, the dashboard, the online lookup |
 | `adapters/` | one reader per harness | turning a log into calls; nothing else |
 | `pricing/` | one table per provider, and `common.py`, which their page readers share | rates, the evidence for them, reading the provider's page |
+| `dashboard/` | the dashboard's stylesheet and script, inlined into every page by `render_html()` | display only; converts and draws the engine's figures |
 | `costbar/` | menu bar app | display only; runs `--summary-json` |
 | `statusline.py` | Claude Code status line | display only; calls `session_totals()` |
 | `tests/` | the safety net | one module per area (`test_money.py`, `test_pricing.py`, `test_prices_pinned.py`, `test_ledger.py`, `test_adapters.py`, `test_lookup.py`, `test_reports.py`, `test_dashboard.py`, `test_statusline.py`), what they share in `helpers.py`, and `test_tokenmeter.py`, which runs them all |
@@ -35,10 +36,11 @@ helper each: the today, 7-day and 30-day windows from `rolling_windows()`, and
 what caching was worth from `caching_summary()`.
 
 The one deliberate exception is `money()`, which exists three times, in
-Python, Swift and the dashboard's JavaScript, because each renders in its own
-runtime. All three carry the same comment. **Change one and you must change
-all three**, or the same figure reads differently in different places, which
-has happened. In Python the rule itself is `format_money()`, which `money()`
+Python, Swift and the dashboard's JavaScript (`fmt()` in
+`dashboard/dashboard.js`), because each renders in its own runtime. All
+three carry the same comment. **Change one and you must change all three**,
+or the same figure reads differently in different places, which has
+happened. In Python the rule itself is `format_money()`, which `money()`
 calls with the display currency and the terminal calls for the dollar figure
 beside another currency. `pricing/common.py` has a `money()` of its own, but
 it reads a figure off a pricing page and formats nothing.
@@ -179,6 +181,8 @@ beside the fonts. The licence files are Google Fonts' own, unchanged. If a
 font's licence or copyright changes, replace its file too.
 
 ## Three things the chart gets wrong if you touch it
+
+The chart is drawn by `drawChart()` in `dashboard/dashboard.js`.
 
 1. **The SVG viewBox must match the pixel box the JavaScript draws in.** It
    was once a fixed `0 0 900 268` while the drawing used `clientWidth`, so the
