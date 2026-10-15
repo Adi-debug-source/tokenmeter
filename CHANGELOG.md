@@ -263,6 +263,10 @@
   saved) and `OPENCODE_DB` are listed, and `TOKENMETER_CURRENCY` says it sets
   the terminal, the dashboard and the status line, while the menu bar keeps
   the choice made in its Currency menu.
+- The README and the `/tokenmeter` command mention `--period yesterday` and
+  `--by provider`, which both worked already, and the README's harness table
+  names Gemini CLI's folder under the macOS sandbox, `~/.cache/.gemini/tmp`,
+  which was already read.
 
 ## 1.1.2, 6 October 2026
 

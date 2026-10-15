@@ -61,7 +61,7 @@ alias tokenmeter="python3 ~/.claude/tools/tokenmeter/tokenmeter.py"
 tokenmeter                      # everything found, all time
 tokenmeter --by model           # or project, day, session, hour, weekday, source, provider
 tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
-tokenmeter --period lastmonth   # a calendar period: today, week, lastweek, month, lastmonth, year
+tokenmeter --period lastmonth   # a calendar period: today, yesterday, week, lastweek, month, lastmonth, year
 tokenmeter --sessions           # the dearest sessions
 tokenmeter --html               # the dashboard, written to ~/Downloads and opened
 tokenmeter --currency GBP       # USD is the default; GBP, EUR, INR, CAD, AUD and JPY also work
@@ -84,7 +84,7 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 |---|---|---|
 | Claude Code | **verified** | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), subagents included |
 | OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) |
-| Gemini CLI | unverified | `~/.gemini/tmp/*/chats` |
+| Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox |
 | OpenCode | unverified | `~/.local/share/opencode/opencode.db` |
 | Anything else | your data | `--import FILE`, in the documented format |
 
