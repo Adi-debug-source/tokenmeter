@@ -239,6 +239,15 @@
   status line never reads them. `install.sh` copies the folder; an install
   missing either file says so and to reinstall, rather than writing a page
   that does not work.
+- CI uses `actions/checkout@v7` and `actions/setup-python@v7`, which run on
+  Node 24; GitHub removed Node 20 from its runners on 23 September 2026. The
+  engine is tested on Python 3.9, 3.13 and 3.14, the first with
+  `compression.zstd`, which the Codex reader tries first. That job runs on
+  `ubuntu-24.04` rather than `ubuntu-latest`, because Python 3.9 is not built
+  for Ubuntu 26.04.
+- CI also checks that every Python file compiles with warnings as errors,
+  that the Homebrew formula and both property lists parse, and that the
+  dashboard's script parses.
 
 ## 1.1.2, 6 October 2026
 

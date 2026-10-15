@@ -8,25 +8,36 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tests
         run: python3 tests/test_tokenmeter.py
       - name: Menu bar app compiles
         run: swiftc -typecheck costbar/main.swift && swiftc -typecheck costbar/icon.swift
       - name: Scripts parse
         run: bash -n install.sh && bash -n costbar/build.sh && bash -n costbar/install-login-item.sh
+      - name: Formula parses
+        run: ruby -c Formula/tokenmeter.rb
+      - name: Property lists are valid
+        run: plutil -lint costbar/Info.plist costbar/io.github.adi-debug-source.tokenmeter.plist
+      - name: Dashboard script parses
+        run: node --check dashboard/dashboard.js
 
   engine:
-    # The engine is plain Python; this proves it on the oldest supported
-    # version and a current one, and away from macOS.
-    runs-on: ubuntu-latest
+    # The engine is plain Python; this proves it away from macOS, on 3.9, the
+    # oldest supported, and on 3.13 and 3.14. 3.14 is also the first with
+    # compression.zstd, the Codex reader's first choice for .jsonl.zst files.
+    # Pinned to 24.04 because actions/python-versions builds 3.9 for it and not
+    # for 26.04, where ubuntu-latest will move.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
-        python: ["3.9", "3.13"]
+        python: ["3.9", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+      - name: Compiles with warnings as errors
+        run: python -W error -m py_compile tokenmeter.py statusline.py adapters/*.py pricing/*.py tests/*.py
       - name: Tests
         run: python tests/test_tokenmeter.py
