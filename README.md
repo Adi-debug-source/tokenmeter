@@ -195,6 +195,17 @@ tokenmeter --rebuild-ledger     # rewrite it from every log on disk (takes no fi
 
 Every API call in the logs on this Mac, plus every call the ledger remembers. Not your subscription, your account or when you installed anything; the tool knows none of those. The window it prints is the oldest and newest call it can see. Changing or pausing a plan changes nothing: everything is priced at public API rates, which is the point.
 
+### Total tokens
+
+One definition, used wherever a total is given: **total tokens = uncached input + cache writes + cache reads + output.** Thinking is already part of output, so it is not added again, and web searches are counted as requests, not as tokens. Each call is counted once, from its complete copy, however many times its log wrote it.
+
+The report gives the total under the cost, in the same shape:
+
+```
+  $1,024.50   8,120 API calls
+  1.62B tokens   8,120 API calls
+```
+
 ### Rolling windows and calendar periods
 
 `--since` is rolling and always the same length, so `--since 30d` is comparable with the thirty days before it. `--period` is the calendar, which is what you want when checking against a bill: `lastmonth` is whichever month just ended. Weeks start on Monday. The menu bar uses rolling windows, because "this week" on a Monday morning is an hour long.

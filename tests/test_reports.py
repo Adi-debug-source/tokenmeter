@@ -1028,6 +1028,62 @@ class TestEmptyAndNoMatch(Base):
                 self.assertEqual(text.count("docs/import-format.md"), text.count(url))
 
 
+class TestTokenTotals(Base):
+    """The report gave each kind of token a row of its own and never their
+    sum, so the only token total anyone saw was one counted another way, by
+    a tool that adds up every log line. Total tokens are now one definition,
+    token_totals(): uncached input, cache writes, cache reads and output."""
+
+    def report(self, *argv):
+        return cli("--no-ledger", *argv)
+
+    def headline(self, text):
+        lines = text.splitlines()
+        money = next(i for i, line in enumerate(lines) if "API call" in line)
+        return lines[money + 1]
+
+    def test_the_total_is_the_four_kinds_with_thinking_inside_output(self):
+        """Thinking is part of output, so adding it again would count it
+        twice, and web searches are billed per request, not as tokens."""
+        self.write("a.jsonl", record("msg_1", inp=10, out=1000, think=400, read=5000,
+                                     w5=300, w1=200, searches=3))
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=False)
+        got = tm.token_totals(overall["tokens"])
+        self.assertEqual(got, {"input": 10, "cache_write": 500, "cache_read": 5000,
+                               "output": 1000, "thinking": 400, "total": 6510, "fresh": 1510})
+        self.assertEqual(list(got), ["input", "cache_write", "cache_read", "output",
+                                     "thinking", "total", "fresh"])
+        self.assertEqual(self.headline(self.report()), "  6.5k tokens   1 API call")
+        # The dashboard's Tokens chart counts a day by the same definition.
+        page = os.path.join(self.tmp, "d.html")
+        tm.render_html(overall, groups, meta, unknown, "all time", page)
+        days = payload_of(slurp(page, encoding="utf-8"))["views"]["all"]["days"]
+        self.assertEqual([d["tokens"] for d in days], [6510])
+
+    def test_three_partial_copies_of_a_streamed_reply_count_once(self):
+        """A streamed reply is written once per content block, so one call
+        leaves three usage lines; summed line by line they come to 16,172
+        tokens, where the call itself is 6,160."""
+        self.write("a.jsonl", record("msg_1", out=4, read=5000), record("msg_1", out=8, read=5000),
+                   record("msg_1", out=1160, read=5000))
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(tm.token_totals(overall["tokens"])["total"], 6160)
+        self.assertEqual(self.headline(self.report()), "  6.2k tokens   1 API call")
+
+    def test_a_total_reads_as_the_rows_for_each_kind_do(self):
+        """999, then 1.0k, 1.00M and 1.00B, as toks() writes the rows for
+        each kind."""
+        self.assertEqual([tm.toks(n) for n in (999, 1000, 1_000_000, 1_000_000_000)],
+                         ["999", "1.0k", "1.00M", "1.00B"])
+        for out, shown in ((999, "999"), (1000, "1.0k"), (1_000_000, "1.00M"),
+                           (1_000_000_000, "1.00B")):
+            with self.subTest(out=out):
+                self.write("a.jsonl", record("msg_1", out=out))
+                text = self.report()
+                self.assertEqual(self.headline(text), f"  {shown} tokens   1 API call")
+                self.assertRegex(text, rf"\n    output +{re.escape(shown)} ")
+
+
 class TestPlainOutput(Base):
     """The report always carried colour codes, so a pipe, a file and Claude
     Code's /tokenmeter, which reads the output as text, got escape sequences

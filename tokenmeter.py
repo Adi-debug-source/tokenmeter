@@ -1636,6 +1636,30 @@ def cache_hit_pct(row) -> float:
     return t["cache_read"] / prompt * 100 if prompt else 0.0
 
 
+# The four kinds of token a call is billed for. Added up, they are its total
+# tokens (token_totals()).
+TOKEN_KINDS = ("input", "cache_write", "cache_read", "output")
+
+
+def token_totals(tokens: dict) -> dict:
+    """A set of calls' tokens as every face states them, from the counts a
+    totals row keeps (row["tokens"]): input (uncached), cache_write,
+    cache_read, output, thinking, total and fresh.
+
+    total is uncached input, cache writes, cache reads and output added up,
+    the one definition of total tokens. Thinking is already inside output, so
+    it is reported but never added again, and web searches are not tokens.
+    fresh is total less cache reads: cache reads are the context read again
+    on every turn, so fresh follows how much new work went in, where total
+    mostly measures re-reading.
+    """
+    total = sum(tokens[k] for k in TOKEN_KINDS)
+    return {"input": tokens["input"], "cache_write": tokens["cache_write"],
+            "cache_read": tokens["cache_read"], "output": tokens["output"],
+            "thinking": tokens["thinking"], "total": total,
+            "fresh": total - tokens["cache_read"]}
+
+
 def rolling_windows(groups, today) -> dict:
     """Today, the last 7 days and the last 30, as the menu bar shows them and
     the dashboard's tiles beside it: {"today", "week", "month"}, each with the
@@ -2046,6 +2070,11 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     if DISPLAY["code"] != "USD":
         alt = f"   {DIM}({format_money(overall['total'], '$')}){RESET}"
     print(f"  {BOLD}{YELLOW}{money(overall['total'])}{RESET}{alt}"
+          f"   {DIM}{plural(overall['calls'], 'API call')}{RESET}")
+    # Total tokens, by the one definition (token_totals()), in the money
+    # line's shape. The rows below gave each kind but never their sum.
+    tokens = token_totals(overall["tokens"])
+    print(f"  {BOLD}{toks(tokens['total'])} tokens{RESET}"
           f"   {DIM}{plural(overall['calls'], 'API call')}{RESET}")
     if covered:
         print(f"  {DIM}{covered}{RESET}")
@@ -2518,14 +2547,14 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
                     continue
                 k = n if n in named else "_other"
                 by[k] += v["total"]
-                tok[k] += sum(v["tokens"][c] for c in ("input", "cache_write", "cache_read", "output"))
+                tok[k] += token_totals(v["tokens"])["total"]
                 calls[k] += v["calls"]
             return dict(by), dict(tok), dict(calls)
 
         day_rows = []
         for day, v in chart_days:
             d = dt.datetime.strptime(day, "%Y-%m-%d")
-            tk = sum(v["tokens"][k] for k in ("input", "cache_write", "cache_read", "output"))
+            tk = token_totals(v["tokens"])["total"]
             row = {"total": v["total"], "calls": v["calls"], "tokens": tk,
                    "short": d.strftime("%d %b"), "full": d.strftime("%a %d %b %Y"),
                    "tokShort": toks(tk)}

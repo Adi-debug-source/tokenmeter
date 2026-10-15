@@ -33,9 +33,12 @@ second de-duplication key, a second currency table. When the menu bar needs a
 number it does not compute, add it to `--summary-json`. An adapter never
 prices; a price file never adds up. The figures every face shows come from one
 helper each: the today, 7-day and 30-day windows from `rolling_windows()`,
-what caching was worth from `caching_summary()`, and the rows `--by` and
-`--sessions` list, in the terminal and in `--json`, from `grouped()`, which
-sums the day rows into weeks and months rather than keeping them per call.
+what caching was worth from `caching_summary()`, total tokens from
+`token_totals()` (uncached input, cache writes, cache reads and output; the
+README states it once, and the terminal and the dashboard's Tokens chart
+both use it), and the rows `--by` and `--sessions` list, in the terminal and
+in `--json`, from `grouped()`, which sums the day rows into weeks and months
+rather than keeping them per call.
 
 The one deliberate exception is `money()`, which exists three times, in
 Python, Swift and the dashboard's JavaScript (`fmt()` in

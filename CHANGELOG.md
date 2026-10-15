@@ -277,6 +277,13 @@
 - On a first run, with no logs and no calls, the menu bar says where
   Tokenmeter looked and to run `tokenmeter --list-adapters`, instead of a
   bare $0.00. `--summary-json` sends it as the first of its notes.
+- The terminal report gives total tokens under the cost, in the same shape
+  ("1.62B tokens   8,120 API calls"). Total tokens have one definition,
+  stated in the README and used wherever a total is given: uncached input,
+  cache writes, cache reads and output. Thinking is already inside output,
+  so it is not added again, and web searches are not tokens. The report
+  listed each kind of token but never their sum, so the only total anyone
+  saw was one counted another way.
 
 ### Project
 
