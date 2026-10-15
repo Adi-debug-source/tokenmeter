@@ -53,6 +53,12 @@ calls with the display currency and the terminal calls for the dollar figure
 beside another currency. `pricing/common.py` has a `money()` of its own, but
 it reads a figure off a pricing page and formats nothing.
 
+`toks()`, which writes a token count (999, 1.0k, 1.00M, 1.00B), has a copy
+in `dashboard/dashboard.js` for the one count the browser adds up itself,
+the chart's running total over the series shown. It rounds an exact half
+to even, as Python does, which `toFixed()` alone does not; a test runs it
+against the engine's wherever node is installed. Change both together.
+
 ## When a harness updates
 
 The harness owns its log format, so an update can move the ground.

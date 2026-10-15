@@ -7,6 +7,21 @@ const D = __PAYLOAD__;
 const SLOW = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 const callsText = n => n.toLocaleString('en-US') + (n === 1 ? ' call' : ' calls');
+/* A token count as toks() in tokenmeter.py writes it: 999, 1.0k, 1.00M,
+   1.00B. The engine writes every count it sends; this is only for the
+   chart's running total, which depends on the series shown. */
+function toks(n) {
+  if (n < 1e3) return String(n);
+  const [unit, div, dp, fives] = n >= 1e9 ? ['B', 1e9, 2, 1953125]
+    : n >= 1e6 ? ['M', 1e6, 2, 15625] : ['k', 1e3, 1, 125];
+  /* Python rounds an exact half to even and toFixed() rounds it up. A half
+     is exact only when n / div is exact in binary, when fives divides n. */
+  const step = div / Math.pow(10, dp), q = Math.floor(n / step);
+  if (n % fives === 0 && (n - q * step) * 2 === step && q % 2 === 0) {
+    return (q / Math.pow(10, dp)).toFixed(dp) + unit;
+  }
+  return (n / div).toFixed(dp) + unit;
+}
 /* Text bound for markup. A provider's name comes from the logs or an import,
    and one holding markup ran when the tooltip showed it, so every string goes
    through here before it meets innerHTML; only numbers and the engine's fixed
@@ -236,8 +251,9 @@ function onMove(e, host) {
   knob.setAttribute('cx', cx); knob.setAttribute('cy', yc(cum[i])); knob.style.opacity = 1;
   host.querySelectorAll('.dbar').forEach(b => b.classList.toggle('dull', +b.dataset.i !== i));
 
-  const running = MODE === 'cost' ? fmt(cum[i] / rate, CUR)
-    : (cum[i] >= 1e9 ? (cum[i] / 1e9).toFixed(2) + 'B' : Math.round(cum[i] / 1e6) + 'M') + ' tokens';
+  /* A running total under half a million read "0M tokens", and every one
+     lost its decimals beside a day's count written by toks(). */
+  const running = MODE === 'cost' ? fmt(cum[i] / rate, CUR) : toks(cum[i]) + ' tokens';
   const tip = host.querySelector('.tip');
   if (stacked) {
     const usd = series.reduce((a, s) => a + (d.by[s.name] || 0), 0);

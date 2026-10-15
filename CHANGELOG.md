@@ -247,6 +247,10 @@
 - "Nothing to price", `--list-adapters` and `--help` link to the import
   format on GitHub. They named `docs/import-format.md`, which the installer
   does not copy, so the installed engine pointed at a file it did not have.
+- The Tokens view of the dashboard's Spend over time chart writes its
+  running total as every other token count is written (`950.0k`,
+  `1.62B`). Under half a million it read `0M tokens`, and above that it
+  dropped the decimals the day's own count beside it has.
 
 ### New
 

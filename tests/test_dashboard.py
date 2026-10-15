@@ -281,6 +281,30 @@ class TestDashboardTokens(Base):
         days = payload_of(self.page(ledger=False))["views"]["all"]["days"]
         self.assertEqual([d["tokens"] for d in days], [5100])
 
+    def test_the_charts_running_total_is_written_as_toks_writes_it(self):
+        """In the Tokens view the tooltip's running total read "0M tokens"
+        under half a million and dropped its decimals beside the day's own
+        count, which the engine writes with toks(). The script's copy of
+        toks() is checked against the engine's wherever node is installed."""
+        js = tm.dashboard_asset("dashboard.js")
+        tip = js[js.index("function onMove("):js.index("tip.classList.add('on')")]
+        self.assertIn("toks(cum[i]) + ' tokens'", tip)
+        self.assertNotIn("Math.round(cum[i] / 1e6)", tip)
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        import subprocess
+        counts = [0, 7, 999, 1000, 1049, 1050, 1250, 1350, 99_949, 99_950, 999_949, 999_950,
+                  999_999, 1_000_000, 1_125_000, 1_135_000, 1_124_999, 1_015_000,
+                  999_994_999, 999_995_000, 1_000_000_000, 1_125_000_000, 2_345_678_901]
+        fn = js[js.index("function toks("):js.index("\n}\n", js.index("function toks(")) + 3]
+        script = os.path.join(self.tmp, "toks.js")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(fn + "console.log(JSON.stringify(%s.map(toks)));\n" % json.dumps(counts))
+        got = subprocess.run([node, script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(json.loads(got.stdout), [tm.toks(n) for n in counts])
+
     def test_each_harness_page_gives_its_own_total(self):
         paths = lay_out_three_harnesses(self)
         whole, parts = tm.collect_views(paths, ledger=False)
