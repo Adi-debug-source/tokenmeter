@@ -248,6 +248,12 @@
 - CI also checks that every Python file compiles with warnings as errors,
   that the Homebrew formula and both property lists parse, and that the
   dashboard's script parses.
+- `install.sh` warns when `/usr/bin/python3` is older than 3.9. The menu bar
+  app runs that Python whatever your PATH says, while the installer checked
+  only the `python3` on your PATH, so a Mac with older command line tools
+  installed cleanly and then had a menu bar that could not run the engine.
+  It is a warning, not a failure, and it says to update the command line
+  tools.
 
 ## 1.1.2, 6 October 2026
 

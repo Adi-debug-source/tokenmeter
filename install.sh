@@ -16,6 +16,7 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 SETTINGS="$CLAUDE_DIR/settings.json"
 LABEL="io.github.adi-debug-source.tokenmeter"
 APP="$HOME/Applications/Tokenmeter.app"
+SYSTEM_PYTHON=/usr/bin/python3  # the one the menu bar app runs, whatever PATH says
 say() { printf '  %s\n' "$1"; }
 
 to_bin() {  # move, never delete, so anything removed can be put back. $2 = what to say
@@ -102,6 +103,17 @@ if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' 2
     echo "  python3 3.9 or later is needed. Install the command line tools:"
     echo "    xcode-select --install"
     exit 1
+fi
+# The menu bar app runs $SYSTEM_PYTHON, which on an older Mac can be older
+# than the python3 above. Only the menu bar needs it, so this warns and goes
+# on. Without developer tools that path only offers to install them, so it is
+# not run then.
+if [ -x "$SYSTEM_PYTHON" ] && xcode-select -p >/dev/null 2>&1; then
+    too_old="$("$SYSTEM_PYTHON" -c 'import sys; print(sys.version.split()[0] if sys.version_info < (3, 9) else "")' 2>/dev/null || true)"
+    if [ -n "$too_old" ]; then
+        say "warning: the menu bar app runs $SYSTEM_PYTHON, which is $too_old; it needs 3.9 or later."
+        say "  update the Xcode command line tools: softwareupdate --list, or xcode-select --install"
+    fi
 fi
 
 # 2. The engine, copied from this folder into its home. Code folders are

@@ -1,13 +1,16 @@
 """Reports and the command line: windows and periods, filters and labels,
-notes, several harnesses side by side, --summary-json for the menu bar, and
-a run starting afresh.
+notes, several harnesses side by side, --summary-json for the menu bar, the
+installer's check of the Python the menu bar runs, and a run starting afresh.
 """
 
 import datetime as dt
 import json
 import os
 import re
+import shlex
 import shutil
+import subprocess
+import sys
 import time
 import unittest.mock
 
@@ -562,6 +565,97 @@ class TestMenuBarFailure(Base):
         self.assertIn('add(menu, "Could not read usage: \\(err)")', swift)
         for dash in (chr(0x2013), chr(0x2014)):
             self.assertNotIn(dash, swift)
+
+
+class TestInstallerSystemPython(Base):
+    """install.sh is never run by the tests. Its check of the Python the menu
+    bar runs is cut out of it and run in bash under set -e, with stand-ins for
+    that Python and for xcode-select."""
+
+    def installer(self):
+        return slurp(os.path.join(os.path.dirname(FIXTURES), "..", "install.sh"),
+                     encoding="utf-8")
+
+    def stand_in(self, version=None, fails=False):
+        """A stand-in for /usr/bin/python3 that leaves a mark when run: this
+        Python, reporting `version` when one is given, or a developer tools
+        stub that only fails."""
+        path, mark = os.path.join(self.tmp, "python3"), os.path.join(self.tmp, "ran")
+        lines = ["#!/bin/sh", "touch %s" % shlex.quote(mark)]
+        if fails:
+            lines += ["echo 'xcode-select: note: No developer tools were found' >&2", "exit 1"]
+        elif version:
+            fake = os.path.join(self.tmp, "old.py")
+            with open(fake, "w") as f:
+                f.write("import sys\nsys.version_info = %r\nsys.version = %r\nexec(sys.argv[2])\n"
+                        % (version, "%d.%d.%d (stand-in)" % version))
+            lines.append('exec %s %s "$@"' % (shlex.quote(sys.executable), shlex.quote(fake)))
+        else:
+            lines.append('exec %s "$@"' % shlex.quote(sys.executable))
+        with open(path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.chmod(path, 0o755)
+        return path, mark
+
+    def run_check(self, python, tools=True):
+        """(exit status, output) of the check, with xcode-select answering as
+        if the developer tools were installed or not."""
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("no bash")
+        script = self.installer()
+        say = re.search(r"^say\(\) \{.*\}$", script, re.M).group(0)
+        start = script.index('if [ -x "$SYSTEM_PYTHON" ]')
+        check = script[start:script.index("\n# 2.", start)]
+        bin_dir = os.path.join(self.tmp, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        tool = os.path.join(bin_dir, "xcode-select")
+        with open(tool, "w") as f:
+            f.write("#!/bin/sh\nexit %d\n" % (0 if tools else 2))
+        os.chmod(tool, 0o755)
+        env = {"PATH": bin_dir + os.pathsep + "/usr/bin:/bin", "SYSTEM_PYTHON": python}
+        done = subprocess.run([bash, "-c", "set -e\n%s\n%s\necho finished\n" % (say, check)],
+                              env=env, capture_output=True, text=True, timeout=60)
+        return done.returncode, done.stdout
+
+    def test_an_old_system_python_is_a_warning_not_a_failure(self):
+        """The menu bar app runs /usr/bin/python3, but install.sh checked only
+        the python3 on PATH, so a Mac whose /usr/bin/python3 was 3.8 installed
+        cleanly and its menu bar could not run the engine. It now warns, names
+        the fix and carries on."""
+        python, mark = self.stand_in(version=(3, 8, 9))
+        status, out = self.run_check(python)
+        self.assertEqual(status, 0)
+        self.assertTrue(os.path.exists(mark))
+        self.assertIn("warning: the menu bar app runs %s, which is 3.8.9; it needs 3.9 or later."
+                      % python, out)
+        self.assertIn("softwareupdate --list, or xcode-select --install", out)
+        self.assertTrue(out.endswith("finished\n"))
+
+    def test_a_current_or_unusable_system_python_says_nothing(self):
+        """No warning for 3.9 or later, for a stub that cannot run, for a
+        missing path, or without developer tools, when the path is not run at
+        all because it would only offer to install them. None stops the
+        install."""
+        for name, version, fails, tools, runs in (
+                ("this python", None, False, True, True),
+                ("3.9.0", (3, 9, 0), False, True, True),
+                ("a failing stub", None, True, True, True),
+                ("no developer tools", (3, 8, 9), False, False, False)):
+            with self.subTest(name):
+                python, mark = self.stand_in(version=version, fails=fails)
+                if os.path.exists(mark):
+                    os.remove(mark)
+                self.assertEqual(self.run_check(python, tools=tools), (0, "finished\n"))
+                self.assertEqual(os.path.exists(mark), runs)
+        self.assertEqual(self.run_check(os.path.join(self.tmp, "missing")), (0, "finished\n"))
+
+    def test_it_checks_the_python_the_menu_bar_runs(self):
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        path = re.search(r"^SYSTEM_PYTHON=(\S+)", self.installer(), re.M).group(1)
+        self.assertIn('URL(fileURLWithPath: "%s")' % path, swift)
+        self.assertNotIn("/usr/bin/python3", swift.replace('"%s"' % path, ""))
 
 
 class TestCommandLine(Base):
