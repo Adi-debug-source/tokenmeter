@@ -197,6 +197,18 @@ The chart is drawn by `drawChart()` in `dashboard/dashboard.js`.
    each page draws its own chart, and a gradient id shared between them can
    resolve to one inside a hidden page, which does not paint.
 
+## Printing the dashboard
+
+Sections stay at opacity 0 until they scroll into view, which paper never
+does, so the stylesheet's `@media print` block shows every part that starts
+hidden as it ends, and a `beforeprint` handler in `dashboard/dashboard.js`
+gives the headline and the chart their final state. An element added hidden
+until revealed needs a line in that block too: a test in
+`tests/test_dashboard.py` fails for any element the stylesheet hides,
+shrinks or blurs at rest that the block does not show. To check by eye, print a
+dashboard made from synthetic data with headless Chrome (`--headless
+--print-to-pdf=out.pdf file://...`).
+
 ## Several harnesses
 
 The views for mixing tools appear only when `is_multi()` is true: more than

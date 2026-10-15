@@ -231,3 +231,26 @@ tr.grp td{color:var(--ink);font-weight:600;background:#ffffff05;border-bottom-co
   #sweep{display:none}
   .big.settling{filter:none;opacity:1}
 }
+
+/* ---------- print ----------
+   Paper never scrolls a section into view, so every section waited at
+   opacity 0 and the dashboard printed blank pages. Each animated part is
+   drawn as it ends, the controls that only work on a screen go, and the page
+   stays dark: exact colour, or the browser drops the backgrounds. With no
+   page margin the dark reaches the paper's edges and no header or footer
+   prints the file's path; the body's padding repeats on every page instead.
+   Nothing here reaches the screen. */
+@media print{
+  @page{margin:0}
+  *,*::before,*::after{animation:none!important;transition:none!important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{padding:12mm 0;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+  body::before,#sweep,.pills,.toggles{display:none!important}
+  .top{margin-top:-12mm;padding-bottom:30px}   /* the masthead meets the paper's top edge */
+  .fade,tbody tr,h1 .ln>span,.big.settling{opacity:1!important;transform:none!important;filter:none!important}
+  .win-bar,.rule,.seg,.bar-cell i{transform:scaleX(1)!important}
+  .col{transform:scaleY(1)!important}
+  .cum{stroke-dasharray:none!important}
+  .card,tr,.win,.lg,.chart,.stack,.cols,footer p{break-inside:avoid;page-break-inside:avoid}
+  .hd,.lede,.chart-head,.slegend,.sub-h{break-after:avoid;page-break-after:avoid}
+}

@@ -13,7 +13,7 @@ It has four faces over one engine:
 | Face | What it is |
 |---|---|
 | Terminal report | The full breakdown, grouped however you like |
-| Dashboard | One offline HTML page with charts, tables and a currency switcher |
+| Dashboard | One offline HTML page with charts, tables and a currency switcher, which prints every section on dark pages |
 | Menu bar app | The running figure, always visible, with four time windows |
 | Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, and today's, inside Claude Code |
 

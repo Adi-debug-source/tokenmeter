@@ -228,6 +228,14 @@
   where, with no error. It ran `open` everywhere, so on Linux the run
   ended in a traceback after writing the page. With no `~/Downloads`
   folder, its default path is `Tokenmeter.html` in the current folder.
+- The dashboard prints. Every section below the first screen waited at
+  opacity 0 to be scrolled into view, so a print or a PDF of it was blank
+  pages; a page printed straight after opening also caught the headline
+  part way through counting up to its total. On paper every section,
+  table row, bar and chart line is drawn as it ends, the headline shows its
+  total, the currency and harness menus and the chart's toggles are left
+  out, cards and table rows are not split across pages, and the page stays
+  dark to its edges with no header or footer carrying the file's path.
 - A `--project`, `--session` or `--adapter` that matches no call stops with
   "no calls match" and the filters as given, and for `--project` lists up to
   five projects that do have calls, latest first. It said "nothing to price.

@@ -314,6 +314,15 @@ let stored = null;
 try { stored = localStorage.getItem('cur'); } catch (e) {}
 paint(stored && D.rates[stored] ? stored : D.current, false);
 
+/* Printing straight after opening caught the headline part way through its
+   count and the chart still drawing. Before a print every figure takes its
+   final value and the chart its last frame; the print stylesheet shows the
+   rest as it ends. */
+window.addEventListener('beforeprint', function () {
+  tweenAll(0);
+  document.querySelectorAll('.chart svg').forEach(s => { if (s.setCurrentTime) s.setCurrentTime(60); });
+});
+
 /* headline settles out of a blur as it counts */
 const hero = view(ACTIVE) && view(ACTIVE).querySelector('.headline');
 if (hero && !SLOW) {

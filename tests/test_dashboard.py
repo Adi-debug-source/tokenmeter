@@ -130,6 +130,54 @@ class TestDashboard(Base):
         self.assertIn('<div class="win-k">All time</div>', got)
         self.assertIn("Local time, all time. Spend", got)
 
+    def test_it_prints_every_section(self):
+        """The dashboard printed blank pages: every section waits at opacity
+        0 for the observer that reveals it as it scrolls into view, and
+        paper never scrolls. A print block shows each part that starts
+        hidden as it ends, hides what only works on a screen, keeps the page
+        dark and keeps cards and rows whole. Printed straight after opening,
+        the headline was part way through its count, so before a print every
+        figure takes its final value."""
+        page = self.render()
+        self.assertTrue("@media print{" in page, "no print block")
+        css = slurp(os.path.join(tm.DASH_DIR, "dashboard.css"), encoding="utf-8")
+        screen, printed = css.split("@media print{")
+        self.assertTrue(printed in page)
+        screen, printed = (re.sub(r"/\*.*?\*/", "", part, flags=re.S) for part in (screen, printed))
+        rules = {sel.strip(): decls for sel, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", printed)}
+
+        def rule_for(selector):
+            return next((d for s, d in rules.items()
+                         if selector in [p.strip() for p in s.split(",")]), "")
+
+        # Every element the screen stylesheet starts hidden, shrunk or
+        # blurred until a script or a scroll reveals it; the tooltip and the
+        # crosshair only ever appear under the pointer.
+        at_rest = set()
+        for sel, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", screen):
+            if re.fullmatch(r"\s*(from|to|[\d.%,\s]+)\s*", sel):
+                continue                                   # a keyframe
+            if re.search(r"opacity:0(?![.\d])|scale[XY]\(0\)|translateY\(105%\)|blur\(", decls):
+                at_rest.update(s.strip() for s in sel.split(","))
+        at_rest -= {".tip", ".cross", ".knob"}
+        self.assertTrue({".fade", "tbody tr", ".seg", ".win-bar", ".col", ".bar-cell i",
+                         "h1 .ln>span", ".rule", "#sweep", ".big.settling"} <= at_rest, at_rest)
+        for selector in sorted(at_rest):
+            with self.subTest(selector=selector):
+                decls = rule_for(selector)
+                self.assertRegex(decls, r"display:none|opacity:1|scale[XY]\(1\)|transform:none")
+        self.assertIn("display:none", rule_for("body::before"))
+        for hidden in ("#sweep", ".pills", ".toggles"):       # .pills holds the harness picker
+            self.assertIn("display:none", rule_for(hidden))
+        self.assertIn("stroke-dasharray:none", rule_for(".cum"))
+        everything = rule_for("*")
+        self.assertIn("animation:none!important", everything)
+        self.assertRegex(everything, r"(?<!-)print-color-adjust:exact")
+        self.assertIn("-webkit-print-color-adjust:exact", everything)
+        for whole in (".card", "tr"):
+            self.assertIn("break-inside:avoid", rule_for(whole))
+        self.assertTrue("addEventListener('beforeprint'" in page, "no beforeprint")
+
     def test_renders_with_no_history_at_all(self):
         """A fresh install opens the dashboard before it has priced anything."""
         out = os.path.join(self.tmp, "empty.html")
