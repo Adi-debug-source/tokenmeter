@@ -5,7 +5,7 @@ Line 1: model | context % | this session at API rates | today at API rates
 Line 2: context window bar
 
 With TOKENMETER_STATUS_TOKENS=1, today's figure also gives today's total
-tokens, "$4.56 · 1.20M tok today". Off by default, so the line is exactly
+tokens, "$4.56 · 1.20M today". Off by default, so the line is exactly
 what it always was unless asked.
 
 "This session" is the session's transcript and every subagent and workflow
@@ -203,7 +203,7 @@ def main() -> None:
          else f"{RED}pricing unavailable{RESET}"),
     ]
     if day_usd is not None and show_tokens and day_tokens is not None:
-        parts.append(f"{fmt_usd(day_usd)}{DIM} · {RESET}{toks(day_tokens)}{DIM} tok today{RESET}")
+        parts.append(f"{fmt_usd(day_usd)}{DIM} · {RESET}{toks(day_tokens)}{DIM} today{RESET}")
     elif day_usd is not None:
         parts.append(f"{fmt_usd(day_usd)}{DIM} today{RESET}")
     line1 = f" {sep} ".join(parts)

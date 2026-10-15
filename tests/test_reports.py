@@ -748,7 +748,7 @@ class TestMenuBarTokens(Base):
         self.assertIn('set { UserDefaults.standard.set(newValue, forKey: "showTokens") }', swift)
         title = swift[swift.index("let w = current()\n            item.button?.title"):]
         title = title[:title.index("item.button?.toolTip")]
-        self.assertIn('showTokens ? "  \\(money(w.total)) · \\(toks(w.tokens)) tok"', title)
+        self.assertIn('showTokens ? "  \\(money(w.total)) · \\(toks(w.tokens))"', title)
         self.assertIn(': "  \\(money(w.total))"', title)     # off: the title it always had
 
     def test_one_small_switch_replaces_the_checkmark_item(self):
@@ -785,7 +785,7 @@ class TestMenuBarTokens(Base):
         self.assertIn("let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)", line)
         self.assertIn("let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0", line)
         self.assertIn('return padRight(windowName(key), 14) + padLeft(money(w.total), costs)\n'
-                      '            + " · " + padLeft(toks(w.tokens), counts) + " tok"', line)
+                      '            + " · " + padLeft(toks(w.tokens), counts)', line)
         self.assertIn('static let windowKeys = ["today", "week", "month", "all"]', swift)
         self.assertIn("for key in Controller.windowKeys {\n            let w = window(key)\n"
                       "            let mi = add(menu, windowLine(key), #selector(setMode(_:))", swift)

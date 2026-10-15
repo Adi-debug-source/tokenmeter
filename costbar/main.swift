@@ -421,7 +421,7 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     // A window's row: its name and cost, and with Show tokens on its total
     // tokens after the cost, as the title writes them, for example
-    // "All time         $1,024.50 · 1.62B tok". With it on, the cost and token
+    // "All time         $1,024.50 · 1.62B". With it on, the cost and token
     // columns are as wide as the widest of the four rows, so the dots and
     // the counts line up; off, the row is the name and the cost alone.
     func windowLine(_ key: String) -> String {
@@ -430,7 +430,7 @@ final class Controller: NSObject, NSApplicationDelegate {
         let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)
         let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0
         return padRight(windowName(key), 14) + padLeft(money(w.total), costs)
-            + " · " + padLeft(toks(w.tokens), counts) + " tok"
+            + " · " + padLeft(toks(w.tokens), counts)
     }
 
     func render() {
@@ -450,7 +450,7 @@ final class Controller: NSObject, NSApplicationDelegate {
             // prefixing it says something already known and costs width in a
             // crowded menu bar. The tooltip still says.
             let w = current()
-            item.button?.title = showTokens ? "  \(money(w.total)) · \(toks(w.tokens)) tok"
+            item.button?.title = showTokens ? "  \(money(w.total)) · \(toks(w.tokens))"
                                             : "  \(money(w.total))"
             item.button?.toolTip = "\(windowName(mode)), at API rates"
         }

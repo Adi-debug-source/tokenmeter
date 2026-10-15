@@ -262,7 +262,7 @@ class TestStatusLine(Base):
                 self.assertEqual(done.returncode, 0, done.stderr)
                 line1 = done.stdout.splitlines()[0]
                 # 1,000 + 500 + 200,000 + 3,000 + 2,500 = 207,000
-                self.assertTrue(line1.endswith(f" {tm.money(today_usd)}{D} · {R}207.0k{D} tok today{R}"),
+                self.assertTrue(line1.endswith(f" {tm.money(today_usd)}{D} · {R}207.0k{D} today{R}"),
                                 line1)
                 saved = json.loads(slurp(os.path.join(self.tmp, "statusline", ".today_cost.json")))
                 self.assertEqual(saved["tokens"], 207_000)
@@ -271,8 +271,8 @@ class TestStatusLine(Base):
         # for, and still used when they are not.
         today = dt.date.today().isoformat()
         for cache, setting, want in (
-                ({"day": today, "total": 999.0, "tokens": 1_234_567}, "1", "{saved}{D} · {R}1.23M{D} tok today"),
-                ({"day": today, "total": 999.0}, "1", "{cost}{D} · {R}207.0k{D} tok today"),
+                ({"day": today, "total": 999.0, "tokens": 1_234_567}, "1", "{saved}{D} · {R}1.23M{D} today"),
+                ({"day": today, "total": 999.0}, "1", "{cost}{D} · {R}207.0k{D} today"),
                 ({"day": today, "total": 999.0}, "", "{saved}{D} today")):
             with self.subTest(cache=cache, setting=setting):
                 shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)

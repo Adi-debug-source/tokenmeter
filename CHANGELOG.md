@@ -309,13 +309,13 @@ the dashboard and the menu bar.
   time chart was checked and already counted each day by the same
   definition, the days only the ledger still has included.
 - The status line can give today's total tokens beside today's cost,
-  `$4.56 · 1.20M tok today`, when `TOKENMETER_STATUS_TOKENS` is set to
+  `$4.56 · 1.20M today`, when `TOKENMETER_STATUS_TOKENS` is set to
   `1`. It is off by default, and without it the line is byte for byte what
   it was. The tokens are the engine's total, counted in the same pass as
   today's cost and kept in the same 90-second cache.
 - The menu bar can give each window's total tokens beside its cost, from one
   Show tokens switch in its menu: in the menu bar for the window shown,
-  `$4.56 · 1.20M tok`, whichever window it is set to, and in the same shape
+  `$4.56 · 1.20M`, whichever window it is set to, and in the same shape
   on all four window rows of the menu, the columns lined up. Flipping the
   switch changes the menu bar and every row at once and leaves the menu
   open. From the keyboard, Command-T toggles it while the menu is open. It is off until
