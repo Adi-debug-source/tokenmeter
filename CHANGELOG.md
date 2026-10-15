@@ -77,11 +77,12 @@ the dashboard and the menu bar.
 - A call written to several transcripts, as a resumed or forked session
   copies its earlier calls, is filed under its earliest copy's time, session
   and project, and copies made at the same moment, which a resume's always
-  are, go to the copy whose project and session sort first. It went to the
+  are, go to the copy in the transcript that ends first: a resume copies the
+  calls of the session it resumes, so that one ends sooner. A tie left after
+  that goes to the copy whose project and session sort first. It went to the
   first copy read, and the order files are listed in differs from one machine
-  to the next. Nothing in the copies says which session made the call, so the
-  rule is fixed rather than found. No total moves; some calls move between
-  sessions of the same project.
+  to the next, so now and then a resumed session took calls it only copied.
+  No total moves.
 - Calls made by workflow agents, whose transcripts lie in
   `<session>/subagents/workflows/<id>/`, are filed under the session that
   started them and its project, as subagents' calls are. They were filed under

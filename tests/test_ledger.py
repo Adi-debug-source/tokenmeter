@@ -52,12 +52,36 @@ class TestDeduplication(Base):
                 _, groups, *_ = tm.collect(order, ledger=False)
                 self.assertEqual(set(groups["session"]), {"sess-a"})
 
-    def test_a_tie_goes_to_the_same_copy_whatever_the_order(self):
-        """A resumed or forked session copies its earlier calls with their
-        timestamps, so every copy ties, and a tie kept the first sighting:
-        the order files were read in still decided, though the earliest-copy
-        rule above was meant to end that. The copy whose project and session
-        sort first now keeps it, read in either order."""
+    def test_a_resumed_sessions_copies_stay_with_the_session_that_made_them(self):
+        """A resumed session copies the calls of the one it resumes, with
+        their timestamps, so every copy ties on time. A tie kept the first
+        sighting, so the order files were read in decided; then the copy
+        whose session sorted first, which was the continuation as often as
+        not. The original's calls are a subset of the continuation's, so its
+        transcript ends first, and that copy now keeps the call, read in
+        either order. The continuation keeps the calls it made itself."""
+        first, second = "2026-09-01T12:00:00.000Z", "2026-09-01T12:05:00.000Z"
+        # sess-b made msg_1 and msg_2; sess-a, which sorts first, resumed it
+        # the next day and made msg_3.
+        original = self.write("sess-b.jsonl", record("msg_1", ts=first, out=10),
+                              record("msg_2", ts=second, out=10))
+        resumed = self.write("sess-a.jsonl", record("msg_1", ts=first, out=10),
+                             record("msg_2", ts=second, out=10),
+                             record("msg_3", ts="2026-09-02T09:00:00.000Z", out=10))
+        for order in ([original, resumed], [resumed, original]):
+            with self.subTest(first=os.path.basename(order[0])):
+                best = tm.scan_transcripts(order)
+                self.assertEqual({k: ev["session"] for k, ev in best.items()},
+                                 {"msg_1": "sess-b", "msg_2": "sess-b", "msg_3": "sess-a"})
+                _, groups, *_ = tm.collect(order, ledger=False)
+                self.assertEqual(groups["session"]["sess-b"]["calls"], 2)
+                self.assertEqual(groups["session"]["sess-a"]["calls"], 1)
+
+    def test_a_tie_the_transcripts_cannot_settle_goes_to_the_same_copy_whatever_the_order(self):
+        """Copies made at the same moment in transcripts that end at the same
+        moment, so nothing says which came first: the copy whose project and
+        session sort first keeps the call, read in any order, rather than the
+        first copy read."""
         same = "2026-09-01T12:00:00.000Z"
         a = self.write("sess-a.jsonl", record("msg_1", ts=same, out=10))
         b = self.write("sess-b.jsonl", record("msg_1", ts=same, out=10))

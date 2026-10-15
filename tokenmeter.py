@@ -838,14 +838,17 @@ def attribution_rank(ev: dict) -> tuple:
 
     The earliest first, and a dated copy before an undated one. Copies made
     at the same moment, which is every copy a resumed or forked session
-    makes, go to the one whose project, session, working folder and sidechain
-    flag sort first. Nothing in such copies says which session made the call
-    (they differ only in the session id), so this is a fixed rule rather
-    than a finding, and its point is that every machine gives the same
+    makes, go to the one in the transcript that ends first (_end, its last
+    call's time, stamped by scan_transcripts()). The copies themselves differ
+    only in the session id, but the transcripts do not: a resume copies the
+    calls of the session it resumes, so the original's calls are a subset of
+    the continuation's and the original ends sooner. Any tie left goes to
+    the copy whose project, session, working folder and sidechain flag sort
+    first, a fixed rule whose point is that every machine gives the same
     answer."""
-    when = ev["when"]
-    return (when is None, when, ev["project"] or "", ev["session"] or "",
-            ev["cwd"] or "", bool(ev["sidechain"]))
+    when, end = ev["when"], ev.get("_end")
+    return (when is None, when, end is None, end, ev["project"] or "",
+            ev["session"] or "", ev["cwd"] or "", bool(ev["sidechain"]))
 
 
 def merge(best: dict, key, ev: dict) -> None:
@@ -854,11 +857,12 @@ def merge(best: dict, key, ev: dict) -> None:
     One copy keeps the attribution, timestamp, session, project, working
     folder and sidechain flag, by attribution_rank(): the earliest, so a call
     keeps the time it was made rather than that of a session resumed or
-    forked from it later, and on a tie the one that sorts first. The result
-    is the same whatever order the files are read in. Keeping the first
-    sighting on a tie, as this did, left every copy a resume makes to the
-    order the filesystem listed the files in, which differs from one machine
-    to the next.
+    forked from it later, and on a tie the one in the transcript that ends
+    first, which is the session a resume copied it from. The result is the
+    same whatever order the files are read in. Keeping the first sighting on
+    a tie, as this did, left every copy a resume makes to the order the
+    filesystem listed the files in, which differs from one machine to the
+    next.
 
     The largest usage block wins, because a streamed reply is written once per
     content block and every copy but the last carries an output count that is
@@ -872,6 +876,7 @@ def merge(best: dict, key, ev: dict) -> None:
         if attribution_rank(ev) < attribution_rank(prev):
             for field in ATTRIBUTION:
                 prev[field] = ev[field]
+            prev["_end"] = ev.get("_end")
         return
     ev["_size"] = size
     best[key] = ev
@@ -1237,9 +1242,9 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     the one kept: on one real three-month history, taking the first lost 212k
     output tokens, 7% of all output.
 
-    A response is attributed to its earliest sighting, a tie settled by a
-    fixed rule (see merge()), so its timestamp, session and project are the
-    same whatever order the files are read in.
+    A response is attributed to its earliest sighting, a tie going to the
+    transcript that ends first (see merge()), so its timestamp, session and
+    project are the same whatever order the files are read in.
 
     With ledger=True this also reconciles against the ledger: anything the
     transcripts know and the ledger does not gets written there, and anything
@@ -1274,6 +1279,7 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
             continue
         usage = ev.pop("_usage")
         ev.pop("_size")
+        ev.pop("_end", None)
         ev["cost"] = price_record(ev["model"], usage, usage.get("speed") or "standard",
                                   ev["when"], ev["provider"])
         yield ev
@@ -1305,11 +1311,18 @@ def scan_transcripts(paths) -> dict:
     yields is folded in by merge(), so de-duplication is one rule for every
     harness. Split out from iter_events so the ledger rebuild can reach the
     call ids, which the priced events deliberately do not carry.
+
+    A file's records are read in full before any is merged, so each can carry
+    the time of the file's last call (_end), which settles a tie between
+    copies of one call (see attribution_rank()).
     """
     reset_adapters()
     best = {}
     for path in paths:
-        for key, ev in adapter_for(path).records(path):
+        found = list(adapter_for(path).records(path))
+        end = max((ev["when"] for _, ev in found if ev["when"] is not None), default=None)
+        for key, ev in found:
+            ev["_end"] = end
             merge(best, key, ev)
     return best
 
