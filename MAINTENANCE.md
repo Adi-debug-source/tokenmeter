@@ -272,6 +272,10 @@ In order, because each step rules out the one below:
 5. The headline figure has not moved unless you meant it to.
 6. Update `CHANGELOG.md`, commit with what changed and why.
 
+New screenshots of the terminal: output that does not go straight to a
+terminal is plain text, so captured output (piped, redirected, or recorded by
+a tool) needs `FORCE_COLOR=1` to keep its colours.
+
 A public release is that, plus a tag and the formula pointed at it:
 
 1. Push `main` and the tag `vX.Y.Z`. Never move or re-push a published tag:

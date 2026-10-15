@@ -232,6 +232,11 @@
   moment it names, where `--html` writes by default and everything
   `--summary-json` carries, and it writes the ledger's default path with `~`
   rather than with the username in it.
+- The command line prints plain text when its output is not a terminal, so a
+  pipe, a file and Claude Code's `/tokenmeter` no longer get colour codes
+  among the figures. `NO_COLOR` turns colour off anywhere, and `FORCE_COLOR`
+  or `CLICOLOR_FORCE` keeps it in a pipe; `NO_COLOR` wins over both. The
+  status line keeps its colours, which Claude Code shows.
 
 ### Project
 

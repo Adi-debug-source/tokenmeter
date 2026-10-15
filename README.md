@@ -216,6 +216,8 @@ The two answer different questions and will not match. The Stats tab counts ever
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
+| `NO_COLOR` | Any value but an empty one turns colour off in everything `tokenmeter` prints. Without it, colour is used only when the output goes to a terminal, so a pipe, a file and Claude Code's `/tokenmeter` get plain text. The status line keeps its colours, which Claude Code shows |
+| `FORCE_COLOR` | Any value but `0` or an empty one keeps the colour when the output is piped or saved, as a screenshot of captured output needs; `CLICOLOR_FORCE` does the same. `NO_COLOR` wins over both |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME` | Respected, as each harness uses them |
 
 The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there. The installer (`costbar/install-login-item.sh`) writes that file afresh when it sets the login item up, so anything added there must be added again after an uninstall and reinstall.

@@ -776,6 +776,75 @@ class TestCommandLine(Base):
             self.assertIn(name, names)
 
 
+class TestPlainOutput(Base):
+    """The report always carried colour codes, so a pipe, a file and Claude
+    Code's /tokenmeter, which reads the output as text, got escape sequences
+    among the figures. Only a terminal gets colour now; NO_COLOR turns it off,
+    FORCE_COLOR or CLICOLOR_FORCE keep it in a pipe, and NO_COLOR wins."""
+
+    COLOUR_VARS = ("NO_COLOR", "FORCE_COLOR", "CLICOLOR_FORCE")
+
+    def report(self, stdout=None, **env):
+        """main() with these colour settings alone (the environment running
+        the tests may set any of them), printing into stdout, a pipe-like
+        StringIO unless a test gives another."""
+        import contextlib, io
+        self.write("a.jsonl", record("msg_1", out=1000, read=5000))
+        clean = {k: v for k, v in os.environ.items() if k not in self.COLOUR_VARS}
+        clean.update(env)
+        buf = io.StringIO() if stdout is None else stdout
+        with unittest.mock.patch.dict(os.environ, clean, clear=True), as_a_new_run():
+            with contextlib.redirect_stdout(buf):
+                tm.main(["--no-ledger", "--currency", "USD", "--by", "model", "--sessions"])
+        return buf.getvalue()
+
+    def test_a_pipe_gets_plain_text(self):
+        out = self.report()
+        self.assertIn("1 API call", out)
+        self.assertNotIn("\x1b", out)
+        for var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
+            for value in ("", "0"):
+                with self.subTest(**{var: value}):
+                    self.assertNotIn("\x1b", self.report(**{var: value}))
+
+    def test_a_terminal_gets_colour(self):
+        import io
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        self.assertIn("\x1b[1m", self.report(stdout=Terminal()))
+        self.assertNotIn("\x1b", self.report(stdout=Terminal(), NO_COLOR="1"))
+
+    def test_force_color_keeps_it_in_a_pipe(self):
+        for var in ("FORCE_COLOR", "CLICOLOR_FORCE"):
+            with self.subTest(var=var):
+                out = self.report(**{var: "1"})
+                self.assertIn("\x1b[1m", out)
+                # The same report, colour aside.
+                self.assertEqual(re.sub(r"\x1b\[[0-9;]*m", "", out), self.report())
+
+    def test_no_color_wins(self):
+        self.assertNotIn("\x1b", self.report(NO_COLOR="1", FORCE_COLOR="1"))
+        self.assertNotIn("\x1b", self.report(NO_COLOR="1", CLICOLOR_FORCE="1"))
+        # Set but empty is not set, as https://no-color.org has it.
+        self.assertIn("\x1b[1m", self.report(NO_COLOR="", FORCE_COLOR="1"))
+
+    def test_the_next_run_and_the_functions_have_it_back(self):
+        """Blanked for one run, the codes come back with reset_run(), so a
+        function called on its own still writes them."""
+        import contextlib, io
+        self.report()
+        self.assertEqual(tm.BOLD, "")
+        tm.reset_run()
+        self.assertEqual((tm.BOLD, tm.DIM, tm.RESET, tm.CYAN, tm.GREEN, tm.YELLOW),
+                         tm.COLOUR_CODES)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            tm.print_report(*tm.collect(tm.transcripts(), ledger=False), "", "all time")
+        self.assertIn("\x1b[1m", buf.getvalue())
+
+
 class TestRunState(Base):
     """A run's options and findings are module globals, and nothing put them
     back between runs in one process: the tests reset thirteen of them by
@@ -830,6 +899,7 @@ class TestRunState(Base):
                 tm.importer.PROBLEMS["/Users/sam/trial.jsonl"] = {"skipped": 1, "examples": []}
                 tm.codex._STATE["guessed"].add("call")
                 tm.codex._STATE["compressed_unread"] = 2
+                tm.set_colour(False)
                 with unittest.mock.patch.dict(os.environ, {tm.OFFLINE_ENV: offline}):
                     tm.reset_run()
                 for name in names:
@@ -847,6 +917,8 @@ class TestRunState(Base):
                                                    "data": {"fetched": {}, "misses": {}}})
                 self.assertEqual(tm.codex._STATE, {"guessed": set(), "compressed_unread": 0,
                                                    "compressed_damaged": 0})
+                self.assertEqual((tm.BOLD, tm.DIM, tm.RESET, tm.CYAN, tm.GREEN, tm.YELLOW),
+                                 tm.COLOUR_CODES)
 
     def test_each_command_line_run_starts_afresh(self):
         """main() set these only from the options it was given, so in one

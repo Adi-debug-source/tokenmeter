@@ -1887,8 +1887,39 @@ def toks(n: int) -> str:
     return str(n)
 
 
-BOLD, DIM, RESET = "\x1b[1m", "\x1b[2m", "\x1b[0m"
-CYAN, GREEN, YELLOW = "\x1b[36m", "\x1b[32m", "\x1b[33m"
+# The terminal's colour codes: BOLD, DIM, RESET, CYAN, GREEN, YELLOW. main()
+# blanks them when the output is not for a terminal and reset_run() puts them
+# back. Every function reads them as it prints, so one called on its own, as
+# the tests call print_report(), has them.
+COLOUR_CODES = ("\x1b[1m", "\x1b[2m", "\x1b[0m", "\x1b[36m", "\x1b[32m", "\x1b[33m")
+BOLD, DIM, RESET, CYAN, GREEN, YELLOW = COLOUR_CODES
+
+
+def colour_wanted(stream=None) -> bool:
+    """Whether what is printed to stream (standard output) gets colour codes.
+
+    Only a terminal does, so a pipe, a file and Claude Code's /tokenmeter,
+    which reads the output as text, get it plain; they were sent the escape
+    sequences among the figures. NO_COLOR set to anything but an empty string
+    turns colour off (https://no-color.org). FORCE_COLOR or CLICOLOR_FORCE set
+    to anything but 0 or an empty string keeps it in a pipe, as a screenshot
+    of captured output needs. NO_COLOR wins over both.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    if any(os.environ.get(v, "") not in ("", "0") for v in ("FORCE_COLOR", "CLICOLOR_FORCE")):
+        return True
+    try:
+        return (sys.stdout if stream is None else stream).isatty()
+    except (AttributeError, ValueError):
+        # No stream, one without isatty(), or a closed one: not a terminal.
+        return False
+
+
+def set_colour(on: bool) -> None:
+    """Every colour code its escape sequence, or every one empty."""
+    global BOLD, DIM, RESET, CYAN, GREEN, YELLOW
+    BOLD, DIM, RESET, CYAN, GREEN, YELLOW = COLOUR_CODES if on else ("",) * len(COLOUR_CODES)
 
 
 def project_name(project: str) -> str:
@@ -3028,20 +3059,23 @@ def reset_run() -> None:
     where they are needed: the folders to read (_ROOTS, ADAPTER_ROOTS), what to
     keep (_ONLY, _IMPORTS, _PROJECT, _SESSION), the ledger (_LEDGER,
     LEDGER_STATE), how to price (CURRENT_RATES, ONLINE_LOOKUP), the display
-    currency (DISPLAY), and what was read, looked up and skipped (_OWNER,
-    _PRICE_STATE, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS and each
-    adapter's own). A second run in the same process started with some of the
-    first one's still set: its --import or --session, or its ledger's figures
-    in a covered line that never read the ledger. main() calls this first.
+    currency (DISPLAY), the colour codes (BOLD and the rest), and what was
+    read, looked up and skipped (_OWNER, _PRICE_STATE, LOOKUPS, FETCHED_USED,
+    _FX_MEMO, importer.PROBLEMS and each adapter's own). A second run in the
+    same process started with some of the first one's still set: its --import
+    or --session, or its ledger's figures in a covered line that never read
+    the ledger. main() calls this first.
 
     Each global keeps its name and stays the same object, emptied in place,
-    because the status line and other scripts import them by name.
+    because the status line and other scripts import them by name. The colour
+    codes are strings, so they are bound afresh; nothing imports them.
     """
     for value in (_ROOTS, ADAPTER_ROOTS, _ONLY, _IMPORTS, _OWNER, _PROJECT, _SESSION, _LEDGER,
                   CURRENT_RATES, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS):
         value.clear()
     ONLINE_LOOKUP[0] = online_by_default()
     set_currency("USD")
+    set_colour(True)
     LEDGER_STATE.update(LEDGER_UNUSED)
     _PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
     reset_adapters()
@@ -3278,9 +3312,11 @@ def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts) ->
 
 def main(argv=None) -> None:
     """The command line. argv defaults to sys.argv[1:]; tests pass their own.
-    Every call starts afresh (reset_run()), as a new process would, then
-    parses, applies the options and runs one mode."""
+    Every call starts afresh (reset_run()), as a new process would, decides
+    on colour for where its output goes, then parses, applies the options and
+    runs one mode."""
     reset_run()
+    set_colour(colour_wanted())
     args = build_parser().parse_args(argv)
     apply_options(args)
 

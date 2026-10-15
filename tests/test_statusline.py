@@ -140,6 +140,15 @@ class TestStatusLine(Base):
                 self.assertEqual(len(out.splitlines()), 2, out)
                 self.assertIn(f"{tm.money(cost)} session", out)
 
+    def test_it_keeps_its_colours_in_a_pipe(self):
+        """The command line now prints plain text into a pipe. Claude Code
+        reads the status line through one and renders its colours, so the
+        status line keeps them."""
+        path = self.write("sess.jsonl", record("msg_1", out=1000))
+        done = self.run_statusline({"model": {"display_name": "Opus"}, "transcript_path": path})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("\x1b[", done.stdout)
+
     def test_it_makes_no_network_request(self):
         """It runs on every prompt, and fetched exchange rates (as many times
         as it asked for them) whenever none were saved, so a slow network held
