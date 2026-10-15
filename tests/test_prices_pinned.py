@@ -14,7 +14,8 @@ from helpers import FIXTURES, Base, cost_of, slurp, tm, usage
 
 class TestPublishedRates(Base):
     """The whole table against platform.claude.com, checked 11 September 2026.
-    Sonnet 5.5 added from the same page on 6 October 2026.
+    Sonnet 5.5 added from the same page on 6 October 2026, and its cheaper
+    cache reads read off it on 15 October 2026.
 
     Every figure here was read off Anthropic's pricing page, not recalled. If
     one of these fails, either a rate moved (add a dated entry, do not edit the
@@ -30,7 +31,7 @@ class TestPublishedRates(Base):
         "claude-opus-4-7": (5, 25, 0.50), "claude-opus-4-6": (5, 25, 0.50),
         "claude-opus-4-5": (5, 25, 0.50), "claude-opus-4-1": (15, 75, 1.50),
         "claude-opus-4": (15, 75, 1.50), "claude-sonnet-5": (2, 10, 0.20),
-        "claude-sonnet-5-5": (2, 10, 0.20),
+        "claude-sonnet-5-5": (2, 10, 0.10),
         "claude-sonnet-4-6": (3, 15, 0.30), "claude-sonnet-4-5": (3, 15, 0.30),
         "claude-sonnet-4": (3, 15, 0.30), "claude-haiku-4-5": (1, 5, 0.10),
         "claude-haiku-3-5": (0.8, 4, 0.08),
@@ -44,6 +45,26 @@ class TestPublishedRates(Base):
                 self.assertEqual(row["in"], inp)
                 self.assertEqual(row["out"], out)
                 self.assertAlmostEqual(row["in"] * row["cache_read_mult"], hit, places=9)
+
+    def test_sonnet_5_5_cache_reads_were_halved_on_7_october_2026(self):
+        """Anthropic's release notes, 7 October 2026: Sonnet 5.5 cache reads
+        cut from $0.20 to $0.10 per million, 0.05x input instead of 0.1x.
+        Cache writes and every other price unchanged. A call keeps the price
+        of its own day, and a lookup with no date gives today's."""
+        u = usage(inp=1_000_000, read=1_000_000, w5=1_000_000, w1=1_000_000, out=1_000_000)
+        before = tm.price_record("claude-sonnet-5-5", u,
+                                 when=dt.datetime(2026, 10, 6, 12, tzinfo=dt.timezone.utc))
+        after = tm.price_record("claude-sonnet-5-5", u,
+                                when=dt.datetime(2026, 10, 7, 12, tzinfo=dt.timezone.utc))
+        self.assertAlmostEqual(before["cache_read"], 0.20, places=9)
+        self.assertAlmostEqual(after["cache_read"], 0.10, places=9)
+        for c in (before, after):
+            self.assertAlmostEqual(c["input"], 2.00, places=9)
+            self.assertAlmostEqual(c["cache_write"], 2.50 + 4.00, places=9)
+            self.assertAlmostEqual(c["output"], 10.00, places=9)
+        row, known = tm.lookup("claude-sonnet-5-5")
+        self.assertTrue(known)
+        self.assertAlmostEqual(row["in"] * row["cache_read_mult"], 0.10, places=9)
 
     def test_cache_write_multipliers(self):
         """1.25x for 5-minute, 2x for 1-hour, per the pricing page."""

@@ -21,7 +21,8 @@ Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verifie
 | `claude-opus-4-7` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
 | `claude-opus-4-6` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
 | `claude-sonnet-5` | $2 | $0.20 | $2.50 | $10 | 1-hour cache write $4 |
-| `claude-sonnet-5-5` | $2 | $0.20 | $2.50 | $10 | 1-hour cache write $4 |
+| `claude-sonnet-5-5` | $2 | $0.20 | $2.50 | $10 | until 2026-10-07; 1-hour cache write $4 |
+| `claude-sonnet-5-5` | $2 | $0.10 | $2.50 | $10 | from 2026-10-07; 1-hour cache write $4 |
 | `claude-sonnet-4-6` | $3 | $0.30 | $3.75 | $15 | 1-hour cache write $6 |
 | `claude-haiku-4-5` | $1 | $0.10 | $1.25 | $5 | 1-hour cache write $2 |
 | `claude-opus-4-5` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |

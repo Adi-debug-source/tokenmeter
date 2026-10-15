@@ -16,6 +16,8 @@ Verified three ways, most recently on 6 October 2026.
    the per-model `costUSD` summaries Claude Code writes into transcripts.
    Sonnet 5.5 was added on 6 October 2026 and measured the same way:
    $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
+   Its cheaper cache reads from 7 October 2026 come from the page and the
+   release notes, and are not yet measured against Claude Code.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
@@ -47,11 +49,12 @@ Row fields:
   fast              (input, output) when speed == "fast", None if unsupported
 
 Rates are dated, and a call is priced at the rate in force on the day it was
-made. Anthropic has so far priced each model for its life and released a new
-one rather than moving an old one (Sonnet 4.6 is $3/$15 and Sonnet 5 is $2/$10:
-a cheaper Sonnet arrived, Sonnet did not get cheaper), so every model has one
-entry. The dating is insurance. When a rate changes, add an entry with the date
-it took effect and leave the old one alone.
+made. Anthropic mostly prices a model for its life and releases a new one
+rather than moving an old one (Sonnet 4.6 is $3/$15 and Sonnet 5 is $2/$10:
+a cheaper Sonnet arrived, Sonnet did not get cheaper). The exception so far is
+Sonnet 5.5, whose cache reads were cut on 7 October 2026, so it has two
+entries. When a rate changes, add an entry with the date it took effect and
+leave the old one alone.
 """
 
 import re
@@ -92,8 +95,11 @@ PRICES = {
     # the standard price, per the page's own footnote. One entry, not two.
     "claude-sonnet-5":   [{"from": "", "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,   "fast": None}],
     # Added 6 October 2026: the same rates as Sonnet 5, no fast mode. Matched
-    # Claude Code's own cost to ten decimal places the same day.
-    "claude-sonnet-5-5": [{"from": "", "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,   "fast": None}],
+    # Claude Code's own cost to ten decimal places the same day. Anthropic's
+    # release notes of 7 October 2026 cut its cache reads from $0.20 to $0.10
+    # per million, 0.05x input; cache writes and every other price unchanged.
+    "claude-sonnet-5-5": [{"from": "",           "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,  "fast": None},
+                          {"from": "2026-10-07", "in":  2.0, "out": 10.0, "cache_read_mult": 0.05, "fast": None}],
     "claude-sonnet-4-6": [{"from": "", "in":  3.0, "out": 15.0, "cache_read_mult": 0.1,   "fast": None}],
     "claude-haiku-4-5":  [{"from": "", "in":  1.0, "out":  5.0, "cache_read_mult": 0.1,   "fast": None}],
     # Older and retired models. Cheap to carry, and the alternative is the

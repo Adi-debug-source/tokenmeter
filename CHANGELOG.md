@@ -11,6 +11,14 @@
   the same price). Google's and Mistral's tables re-read in full and marked
   verified on 6 October 2026.
 
+### Prices
+
+- Claude Sonnet 5.5 cache reads cost $0.10 per million from 7 October 2026,
+  0.05x input instead of 0.1x, per Anthropic's release notes of that day and
+  the pricing page, read on 15 October 2026. Cache writes and every other
+  price are unchanged. A call made before 7 October keeps the $0.20 it cost
+  then; until now every Sonnet 5.5 cache read was priced at $0.20.
+
 ### Fixes
 
 - `--rebuild-ledger` refuses `--project`, `--session`, `--adapter`, a window
