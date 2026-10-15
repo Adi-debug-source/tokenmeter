@@ -265,6 +265,32 @@ class TestImport(Base):
         self.assertEqual(overall["calls"], 2)
         self.assertEqual(tm.importer.PROBLEMS["-"]["examples"], ["line 2: not valid UTF-8"])
 
+    def test_a_byte_order_mark_does_not_cost_the_first_line(self):
+        """A file saved by an editor that starts it with a byte order mark
+        lost its first line as "not valid JSON", from a file or from standard
+        input. A mark anywhere else is still a bad line."""
+        import io
+        lines = [json.dumps(dict(self.GOOD, id="e%d" % i)).encode() for i in range(3)]
+        data = b"\xef\xbb\xbf" + b"\r\n".join(lines) + b"\r\n"
+        p = os.path.join(self.tmp, "bom.jsonl")
+        with open(p, "wb") as f:
+            f.write(data)
+        overall, *_ = self.run_import(p)
+        self.assertEqual(overall["calls"], 3)
+        self.assertNotIn(p, tm.importer.PROBLEMS)
+        stdin = sys.stdin
+        sys.stdin = io.TextIOWrapper(io.BytesIO(data), encoding="utf-8")
+        try:
+            overall, *_ = self.run_import("-")
+        finally:
+            sys.stdin = stdin
+        self.assertEqual(overall["calls"], 3)
+        with open(p, "wb") as f:
+            f.write(lines[0] + b"\n\xef\xbb\xbf" + lines[1] + b"\n")
+        overall, *_ = self.run_import(p)
+        self.assertEqual(overall["calls"], 1)
+        self.assertEqual(tm.importer.PROBLEMS[p]["examples"], ["line 2: not valid JSON"])
+
     def test_a_timestamp_reads_the_same_on_every_python(self):
         """Python 3.9's fromisoformat refuses a short offset, the basic format
         and a comma before the fraction, which 3.11 and later read, so the same

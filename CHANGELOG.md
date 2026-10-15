@@ -199,6 +199,8 @@ the dashboard and the menu bar.
   large to price, or with a byte that is not UTF-8, is skipped and explained
   like any other bad line. One such line ended the whole run in a traceback,
   from a file or from standard input.
+- An import file that starts with a byte order mark, which some Windows
+  editors write, keeps its first line. It was skipped as not valid JSON.
 - Import timestamps in the basic form (`20260920T100211Z`), with a comma
   before the fraction of a second, or with an offset written `+0100` or `+01`
   are read on every Python version. Python 3.9, which the menu bar runs,

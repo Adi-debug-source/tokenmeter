@@ -27,6 +27,9 @@ FILE = "import file"
 TOKEN_FIELDS = ("input", "output", "cache_read", "cache_write", "cache_write_5m",
                 "cache_write_1h", "thinking", "web_searches")
 
+# UTF-8's byte order mark, which some editors write at the start of a file.
+BOM = b"\xef\xbb\xbf"
+
 # What went wrong, per file, for the report to say out loud. A bad line is
 # skipped rather than fatal, so one typo cannot cost a whole import.
 PROBLEMS: dict = {}
@@ -118,7 +121,11 @@ def records(path: str):
         return
     # Read as bytes and decoded a line at a time, so a line that is not UTF-8
     # is skipped like any other bad line. bytes.splitlines() splits where a
-    # text file would: at \n, \r and \r\n.
+    # text file would: at \n, \r and \r\n. A byte order mark, which Windows
+    # editors put first, is not part of the first line: kept, it made that
+    # line invalid JSON.
+    if data.startswith(BOM):
+        data = data[len(BOM):]
     for n, raw in enumerate(data.splitlines(), 1):
         try:
             line = raw.decode("utf-8").strip()
