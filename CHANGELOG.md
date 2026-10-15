@@ -295,6 +295,12 @@
   the ledger's does not, and the report now says so in tokens as well as in
   calls. Windows and filters apply to all three figures as to the money.
   With `--no-ledger` the total says it covers the transcripts on disk only.
+- `--summary-json` gives tokens: a `tokens` object (`input`, `cache_write`,
+  `cache_read`, `output`, `thinking`, `total` and `fresh`) in `today`,
+  `week`, `month` and `all`, and `tokens_on_disk` and `tokens_ledger_only`
+  in `all`. `--json` adds `total` and `fresh` to each of its tokens objects,
+  gives each listed session its tokens, and sends `tokens_on_disk` and
+  `tokens_ledger_only`. Every key already there keeps its value.
 
 ### Project
 

@@ -136,6 +136,74 @@ class TestSummaryJson(Base):
             tm.main(["--summary-json"])
         self.assertEqual(json.loads(buf.getvalue())["all"]["calls"], 1)
 
+    def lay_out_a_month(self):
+        """Calls today, 3, 20 and 45 days ago, all in the ledger, then the
+        3-day-old one's transcript deleted."""
+        today = dt.date.today()
+
+        def noon(days_ago):
+            local = dt.datetime.combine(today - dt.timedelta(days=days_ago), dt.time(12)).astimezone()
+            return local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        self.write("a.jsonl", record("msg_1", ts=noon(0), inp=10, out=1000, think=300, read=50000),
+                   record("msg_3", ts=noon(20), out=500, read=9000, w1=700),
+                   record("msg_4", ts=noon(45), out=100, w5=40, searches=2))
+        gone = self.write("b.jsonl", record("msg_2", ts=noon(3), inp=5, out=2000, w5=4000))
+        tm.collect(tm.transcripts(), ledger=True)
+        os.remove(gone)
+
+    def test_the_tokens_add_up_and_every_old_key_keeps_its_value(self):
+        """The menu bar had money and calls for each window and no tokens.
+        Each window and all time gain a tokens object by token_totals(), and
+        all time the on-disk split; nothing it read before moves."""
+        self.lay_out_a_month()
+        got = json.loads(cli("--summary-json"))
+        overall, groups, _meta, _unknown = tm.collect(tm.transcripts(), ledger=True)
+        windows = tm.rolling_windows(groups, dt.date.today())
+        kinds = ["input", "cache_write", "cache_read", "output", "thinking", "total", "fresh"]
+        for k in ("today", "week", "month"):
+            with self.subTest(window=k):
+                self.assertEqual(list(got[k]), list(tm.COMPONENTS) + ["total", "calls", "tokens"])
+                self.assertEqual({key: got[k][key] for key in got[k] if key != "tokens"},
+                                 {key: windows[k][key] for key in windows[k] if key != "tokens"})
+        self.assertEqual(list(got["all"]), list(tm.COMPONENTS) + [
+            "total", "calls", "tokens", "tokens_on_disk", "tokens_ledger_only"])
+        self.assertAlmostEqual(got["all"]["total"], overall["total"], places=12)
+        self.assertEqual(got["all"]["calls"], 4)
+        self.assertEqual(got["tokens"], overall["tokens"])     # unchanged, searches and all
+        self.assertNotIn("total", got["tokens"])
+        for k in ("today", "week", "month", "all"):
+            with self.subTest(period=k):
+                t = got[k]["tokens"]
+                self.assertEqual(list(t), kinds)
+                self.assertEqual(t["total"], t["input"] + t["cache_write"] + t["cache_read"]
+                                 + t["output"])
+                self.assertEqual(t["fresh"], t["total"] - t["cache_read"])
+        self.assertEqual([got[k]["tokens"]["total"] for k in ("today", "week", "month", "all")],
+                         [51010, 57015, 67215, 67355])
+        self.assertEqual(got["all"]["tokens"]["thinking"], 300)
+        self.assertEqual({k: got["all"]["tokens"][k] for k in kinds[:5]},
+                         {k: got["tokens"][k] for k in kinds[:5]})
+        self.assertEqual((got["all"]["tokens_on_disk"], got["all"]["tokens_ledger_only"]),
+                         (61350, 6005))
+        self.assertEqual(got["all"]["tokens_on_disk"] + got["all"]["tokens_ledger_only"],
+                         got["all"]["tokens"]["total"])
+
+    def test_no_ledger_gives_the_on_disk_figure(self):
+        """--summary-json once ignored --no-ledger, which would have made its
+        on-disk figure the ledger's. Without the ledger, all time is what the
+        transcripts hold, none of it is ledger only, and the ledger is left
+        as it was."""
+        self.lay_out_a_month()
+        before = slurp(self.ledger, mode="rb")
+        kept = json.loads(cli("--summary-json"))["all"]
+        on_disk = json.loads(cli("--summary-json", "--no-ledger"))["all"]
+        self.assertEqual(on_disk["tokens"]["total"], kept["tokens_on_disk"])
+        self.assertEqual((on_disk["tokens_on_disk"], on_disk["tokens_ledger_only"]),
+                         (on_disk["tokens"]["total"], 0))
+        self.assertEqual(on_disk["calls"], kept["calls"] - 1)
+        self.assertEqual(slurp(self.ledger, mode="rb"), before)
+
     def test_days_are_the_last_30_calendar_days(self):
         """The menu bar's "Daily spend, last 30 days" sparkline was sent the
         last 30 days that had calls, so after any quiet spell it reached back
@@ -1198,7 +1266,9 @@ class TestJson(Base):
         self.assertEqual(got["currency"], "USD")
         self.assertEqual(got["calls"], 4)
         self.assertEqual(got["components"], {c: round(overall[c], 6) for c in tm.COMPONENTS})
-        self.assertEqual(got["tokens"], overall["tokens"])
+        # The counts it always had, in their order, then total and fresh.
+        self.assertEqual({k: got["tokens"][k] for k in overall["tokens"]}, overall["tokens"])
+        self.assertEqual(list(got["tokens"]), list(overall["tokens"]) + ["total", "fresh"])
         self.assertEqual(got["label"], "all time")
         for argv in (["--by", "model"], ["--sessions"], ["--by", "day", "--sessions"]):
             with self.subTest(argv=argv):
@@ -1282,13 +1352,14 @@ class TestJson(Base):
         totals = [r["total_usd"] for r in rows]
         self.assertEqual(totals, sorted(totals, reverse=True))
         first = rows[0]
-        self.assertEqual(list(first), ["id", "project", "last", "total_usd", "calls"])
+        self.assertEqual(list(first), ["id", "project", "last", "total_usd", "calls", "tokens"])
         self.assertEqual(first["id"], "many-21")
         self.assertEqual(first["project"], tm.project_name(meta["many-21"]["project"]))
         self.assertEqual(dt.datetime.fromisoformat(first["last"]),
                          dt.datetime(2026, 9, 5, 12, tzinfo=dt.timezone.utc))
         self.assertEqual((first["total_usd"], first["calls"]),
                          (round(groups["session"]["many-21"]["total"], 6), 1))
+        self.assertEqual((first["tokens"]["total"], first["tokens"]["fresh"]), (220000, 220000))
         text = cli("--sessions", "--no-ledger")
         for r in rows:
             self.assertIn(r["id"][:8], text)

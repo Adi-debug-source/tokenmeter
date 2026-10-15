@@ -229,7 +229,7 @@ class TestWindowsAndCaching(Base):
         s = tm.summary(ledger=False)
         page = slurp(self.page, encoding="utf-8")
         for k in ("today", "week", "month"):
-            self.assertEqual(list(w[k]), list(tm.COMPONENTS) + ["total", "calls"])
+            self.assertEqual(list(w[k]), list(tm.COMPONENTS) + ["total", "calls", "tokens"])
             self.assertAlmostEqual(sum(w[k][c] for c in tm.COMPONENTS), w[k]["total"], places=12)
             self.assertEqual(s[k], w[k])
             self.assertIn(f'<div class="win-v"><span class="m" data-usd="{w[k]["total"]:.8f}"', page)

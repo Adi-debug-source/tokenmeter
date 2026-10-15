@@ -323,6 +323,17 @@ class TestKeptAndOnDisk(Base):
         self.assertEqual(gone, 2)
         self.assertIn("ledger holds 3, 2 of them no longer in any transcript", cli())
 
+    def test_json_sends_the_same_split(self):
+        got = json.loads(cli("--json"))
+        self.assertEqual((got["tokens"]["total"], got["tokens_on_disk"], got["tokens_ledger_only"]),
+                         (17000, 5000, 12000))
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual((got["tokens"]["total"], got["tokens_on_disk"], got["tokens_ledger_only"]),
+                         (5000, 5000, 0))
+        # Added after every key that was there before, the groups and sessions too.
+        got = json.loads(cli("--json", "--by", "model", "--sessions"))
+        self.assertEqual(list(got)[-4:], ["groups", "sessions", "tokens_on_disk", "tokens_ledger_only"])
+
     def test_without_the_ledger_it_counts_whats_on_disk_and_says_so(self):
         text = cli("--no-ledger")
         self.assertEqual(self.line(text, "5.0k tokens"),

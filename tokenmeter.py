@@ -1673,13 +1673,14 @@ def token_totals(tokens: dict) -> dict:
 def rolling_windows(groups, today) -> dict:
     """Today, the last 7 days and the last 30, as the menu bar shows them and
     the dashboard's tiles beside it: {"today", "week", "month"}, each with the
-    five components, total and calls. Each window counts today, so the week
-    starts 6 days back and the month 29. The dashboard and summary() each
-    worked these out for themselves."""
+    five components, total, calls and tokens (token_totals()). Each window
+    counts today, so the week starts 6 days back and the month 29. The
+    dashboard and summary() each worked these out for themselves."""
     def window(first_day):
         acc = {c: 0.0 for c in COMPONENTS}
         acc["total"] = 0.0
         acc["calls"] = 0
+        tokens = defaultdict(int)
         for day, v in groups["day"].items():
             try:
                 d = dt.datetime.strptime(day, "%Y-%m-%d").date()
@@ -1690,6 +1691,9 @@ def rolling_windows(groups, today) -> dict:
                     acc[c] += v[c]
                 acc["total"] += v["total"]
                 acc["calls"] += v["calls"]
+                for k, n in v["tokens"].items():
+                    tokens[k] += n
+        acc["tokens"] = token_totals(tokens)
         return acc
 
     return {"today": window(today),
@@ -2855,8 +2859,8 @@ def summary(ledger: bool = True) -> dict:
     """Everything the menu bar needs, from a single pass over the logs.
 
     Always today, the last 7 and 30 days and all time, in dollars with the
-    rates beside them, so main() refuses a window, --project and --session
-    here. --adapter and --import narrow or add to what is read; with
+    rates beside them and with their tokens (token_totals()), so main()
+    refuses a window, --project and --session here. --adapter and --import narrow or add to what is read; with
     ledger=False (--no-ledger) the ledger is neither read nor written. With
     no logs and no calls, as on a first run, the notes start with where it
     looked (first_run_note()).
@@ -2869,6 +2873,7 @@ def summary(ledger: bool = True) -> dict:
     today = dt.date.today()
     windows = rolling_windows(groups, today)
     caching = caching_summary(overall)
+    split = kept_and_on_disk(overall, groups)
     notes = [{"level": level, "text": text} for level, text in report_notes(groups, unknown)]
     if not overall["calls"] and not paths:
         # A first run: say where it looked, so $0.00 is not the whole menu.
@@ -2883,8 +2888,13 @@ def summary(ledger: bool = True) -> dict:
         "today": windows["today"],
         "week": windows["week"],
         "month": windows["month"],
+        # Each window's tokens and all time's by token_totals(), and all
+        # time's split as the report's "kept by the ledger" line splits it.
+        # Added after the keys the menu bar has always read.
         "all": {**{c: overall[c] for c in COMPONENTS},
-                "total": overall["total"], "calls": overall["calls"]},
+                "total": overall["total"], "calls": overall["calls"],
+                "tokens": token_totals(overall["tokens"]),
+                "tokens_on_disk": split["on_disk"], "tokens_ledger_only": split["ledger_only"]},
         "models": [{"name": k, "total": v["total"], "calls": v["calls"],
                     "provider": priced_by.get(k, (DEFAULT_PROVIDER,))[0]}
                    for k, v in sorted(groups["model"].items(), key=lambda kv: -kv[1]["total"])],
@@ -3521,21 +3531,30 @@ def print_json(overall, groups, meta, unknown, label: str, by: str = "", session
     them: the version, the window (ISO 8601, null for an open end), the covered
     line, the notes as --summary-json sends them, any model with no price, and
     what the run would have cost without cache reads. With --by, the groups,
-    and with --sessions, the dearest sessions, in the terminal's order. Keys
-    are only ever added, so a script written for an older version still works.
+    and with --sessions, the dearest sessions, in the terminal's order. Last,
+    its total tokens split as the "kept by the ledger" line splits them
+    (tokens_on_disk and tokens_ledger_only). Keys are only ever added, after
+    the ones already there, so a script written for an older version still
+    works: each tokens object keeps the counts it always had and gains total
+    and fresh (token_totals()) after them.
     """
+    def tokens(counts):
+        both = token_totals(counts)
+        return {**counts, "total": both["total"], "fresh": both["fresh"]}
+
     def figures(row):
         return {"total_usd": round(row["total"], 6), "calls": row["calls"],
                 "components": {c: round(row[c], 6) for c in COMPONENTS},
-                "tokens": row["tokens"]}
+                "tokens": tokens(row["tokens"])}
 
+    split = kept_and_on_disk(overall, groups)
     out = {
         "total_usd": round(overall["total"], 6),
         "total_display": round(overall["total"] * DISPLAY["rate"], 6),
         "currency": DISPLAY["code"],
         "calls": overall["calls"],
         "components": {c: round(overall[c], 6) for c in COMPONENTS},
-        "tokens": overall["tokens"],
+        "tokens": tokens(overall["tokens"]),
         "label": label,
         "version": __version__,
         "since": since.isoformat() if since else None,
@@ -3555,7 +3574,11 @@ def print_json(overall, groups, meta, unknown, label: str, by: str = "", session
             out["sessions"].append({
                 "id": sid, "project": project_name(m.get("project") or ""),
                 "last": m["last"].isoformat() if m.get("last") else None,
-                "total_usd": round(v["total"], 6), "calls": v["calls"]})
+                "total_usd": round(v["total"], 6), "calls": v["calls"],
+                "tokens": tokens(v["tokens"])})
+    # After every key that was here before, groups and sessions included.
+    out["tokens_on_disk"] = split["on_disk"]
+    out["tokens_ledger_only"] = split["ledger_only"]
     print(json.dumps(out))
 
 

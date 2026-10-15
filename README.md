@@ -77,7 +77,7 @@ tokenmeter --json               # machine readable
 
 Every report says what window it covers, when each price table was last checked, and anything it had to estimate. Nothing is estimated quietly.
 
-`--json` gives a script the same run: the totals with their components and tokens, the version, the window, the covered line, the notes, any model with no price, and the cost without cache reads. With `--by` or `--sessions` it adds the groups or the dearest sessions, in the terminal's order. New keys are only ever added, so a script written for an older version keeps working.
+`--json` gives a script the same run: the totals with their components and tokens, the version, the window, the covered line, the notes, any model with no price, the cost without cache reads, and the tokens on disk and held only by the ledger. Each tokens object gives every kind of token and then the total and fresh tokens (see [Total tokens](#total-tokens)). With `--by` or `--sessions` it adds the groups or the dearest sessions, in the terminal's order. New keys are only ever added, so a script written for an older version keeps working.
 
 ## Supported harnesses
 
@@ -210,6 +210,8 @@ The report gives the total under the cost, in the same shape, and under that the
 ```
 
 The last line splits the same total by where its calls are now. Deleting a session deletes its transcript, so a total read from the transcripts goes down; the on-disk figure falls with it, while the kept figure does not, because the ledger keeps every call. A window or a filter applies to all three figures as it does to the money. With `--no-ledger` there is no such line, and the total, which is then only what the transcripts on disk hold, says so: `transcripts on disk only`.
+
+`--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
 ### Rolling windows and calendar periods
 
