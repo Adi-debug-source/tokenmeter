@@ -2904,10 +2904,10 @@ def summary(ledger: bool = True) -> dict:
 
     Always today, the last 7 and 30 days and all time, in dollars with the
     rates beside them and with their tokens (token_totals()), so main()
-    refuses a window, --project and --session here. --adapter and --import narrow or add to what is read; with
-    ledger=False (--no-ledger) the ledger is neither read nor written. With
-    no logs and no calls, as on a first run, the notes start with where it
-    looked (first_run_note()).
+    refuses a window, --project and --session here. --adapter and --import
+    narrow or add to what is read; with ledger=False (--no-ledger) the
+    ledger is neither read nor written. With no logs and no calls, as on a
+    first run, the notes start with where it looked (first_run_note()).
     """
     paths = transcripts()
     overall, groups, _meta, unknown = collect(paths, ledger=ledger)
@@ -3396,7 +3396,8 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--session", default="",
                       help="a session id, or the path of a session's log file from any harness")
     read.add_argument("--project", default="",
-                      help="part of a project's folder name or path, or . for the current folder")
+                      help="part of a project's folder name or path, or . for the current "
+                           "folder; either finds every project whose path contains it")
     read.add_argument("--adapter", action="append", default=[], metavar="NAME",
                       choices=sorted(ALL_SOURCES),
                       help=f"read only this source: {', '.join(sorted(ALL_SOURCES))}; "
@@ -3455,7 +3456,8 @@ def build_parser() -> argparse.ArgumentParser:
     prices.add_argument("--offline", action="store_true",
                         help="make no network requests: unknown models get a flagged "
                              "stand-in rate, and the last saved exchange rate is used at any "
-                             f"age, else a built-in estimate (or set {OFFLINE_ENV}=1)")
+                             f"age, else a built-in estimate (or set {OFFLINE_ENV}=1). "
+                             "--check-prices still reads the pages it checks")
     prices.add_argument("--list-prices", action="store_true",
                         help="every model with a checked price, and its rates")
     prices.add_argument("--markdown", action="store_true", help=argparse.SUPPRESS)
