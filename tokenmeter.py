@@ -3357,17 +3357,18 @@ def reset_run() -> None:
     LEDGER_STATE), how to price (CURRENT_RATES, ONLINE_LOOKUP), the display
     currency (DISPLAY), the colour codes (BOLD and the rest), and what was
     read, looked up and skipped (_OWNER, _PRICE_STATE, LOOKUPS, FETCHED_USED,
-    _FX_MEMO, importer.PROBLEMS and each adapter's own). A second run in the
-    same process started with some of the first one's still set: its --import
-    or --session, or its ledger's figures in a covered line that never read
-    the ledger. main() calls this first.
+    _FX_MEMO, importer.PROBLEMS and importer.STDIN, and each adapter's own). A
+    second run in the same process started with some of the first one's still
+    set: its --import or --session, or its ledger's figures in a covered line
+    that never read the ledger. main() calls this first.
 
     Each global keeps its name and stays the same object, emptied in place,
     because the status line and other scripts import them by name. The colour
     codes are strings, so they are bound afresh; nothing imports them.
     """
     for value in (_ROOTS, ADAPTER_ROOTS, _ONLY, _IMPORTS, _OWNER, _PROJECT, _SESSION, _LEDGER,
-                  CURRENT_RATES, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS):
+                  CURRENT_RATES, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS,
+                  importer.STDIN):
         value.clear()
     ONLINE_LOOKUP[0] = online_by_default()
     set_currency("USD")

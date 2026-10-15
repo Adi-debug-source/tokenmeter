@@ -1175,6 +1175,31 @@ class TestEmptyAndNoMatch(Base):
         self.assertIn("no calls match --project p1",
                       self.refused("--project", "p1", "--until", "2026-01-01", "--no-ledger"))
 
+    def test_standard_input_is_read_once_however_often_a_run_looks(self):
+        """A filtered run whose window keeps nothing looks again for any call
+        its filters keep, and one whose filter keeps nothing scans every log
+        for the projects to name. Standard input can be read only once, so
+        with --import - each second look found it empty: a filter that
+        matched said "no calls match" and exited 1, where the same import
+        from a file printed the empty report, and the projects listed left
+        out the import's. Without the ledger nothing covered it up."""
+        import io
+        line = json.dumps(dict(GOOD_IMPORT, project="/Users/sam/code/zeta")).encode() + b"\n"
+
+        def from_stdin(*argv):
+            stdin = io.TextIOWrapper(io.BytesIO(line), encoding="utf-8")
+            with unittest.mock.patch.object(sys, "stdin", stdin):
+                return cli("--import", "-", "--no-ledger", *argv)
+
+        for argv in (("--adapter", "import"), ("--project", "zeta")):
+            with self.subTest(argv=argv):
+                self.assertIn("0 API calls", from_stdin("--since", "1h", *argv))
+        with self.assertRaises(SystemExit) as e:
+            from_stdin("--project", "zzz")
+        self.assertEqual(str(e.exception.code).splitlines(), [
+            "no calls match --project zzz",
+            "Projects with calls, latest first: " + tm.project_name("/Users/sam/code/zeta")])
+
     def test_nothing_anywhere_still_says_where_it_looked(self):
         for argv in ((), ("--project", "zzz"), ("--session", "nosuch"), ("--adapter", "codex")):
             with self.subTest(argv=argv):
@@ -1547,6 +1572,7 @@ class TestRunState(Base):
                 tm.FETCHED_USED[("openai", "x")] = "LiteLLM"
                 tm._FX_MEMO.append(({"USD": 1.0}, "cached", False))
                 tm.importer.PROBLEMS["/Users/sam/trial.jsonl"] = {"skipped": 1, "examples": []}
+                tm.importer.STDIN["-"] = b"{}\n"
                 tm.codex._STATE["guessed"].add("call")
                 tm.codex._STATE["compressed_unread"] = 2
                 tm.set_colour(False)
@@ -1556,7 +1582,8 @@ class TestRunState(Base):
                     self.assertIs(getattr(tm, name), same[name], name)
                 for box in (tm._ROOTS, tm.ADAPTER_ROOTS, tm._ONLY, tm._IMPORTS, tm._OWNER,
                             tm._PROJECT, tm._SESSION, tm._LEDGER, tm.CURRENT_RATES, tm.LOOKUPS,
-                            tm.FETCHED_USED, tm._FX_MEMO, tm.importer.PROBLEMS):
+                            tm.FETCHED_USED, tm._FX_MEMO, tm.importer.PROBLEMS,
+                            tm.importer.STDIN):
                     self.assertFalse(box, box)
                 self.assertEqual(tm.ONLINE_LOOKUP, [online])
                 self.assertEqual(tm.DISPLAY, {"code": "USD", "symbol": "$", "rate": 1.0,

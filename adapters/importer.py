@@ -34,6 +34,12 @@ BOM = b"\xef\xbb\xbf"
 # skipped rather than fatal, so one typo cannot cost a whole import.
 PROBLEMS: dict = {}
 
+# Standard input, kept once read. It can be read only once, and a run may read
+# its logs again: a filter that keeps nothing in a window looks for any call it
+# keeps at all, and found standard input empty the second time. Emptied as
+# each run starts, by the engine's reset_run().
+STDIN: dict = {}
+
 
 def default_roots() -> list:
     return []
@@ -112,7 +118,9 @@ def records(path: str):
     PROBLEMS.pop(path, None)
     try:
         if path == "-":
-            data = sys.stdin.buffer.read()
+            if path not in STDIN:
+                STDIN[path] = sys.stdin.buffer.read()
+            data = STDIN[path]
         else:
             with open(path, "rb") as fh:
                 data = fh.read()
