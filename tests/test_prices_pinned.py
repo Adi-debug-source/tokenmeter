@@ -309,6 +309,42 @@ class TestPublishedPriceList(Base):
             for model in table.PRICES:
                 self.assertIn(f"`{model}`", text)
 
+    def test_readme_price_table_matches_the_tables(self):
+        """README's price table said 18 and 38 models, checked 26 Sep 2026,
+        while the tables held 19 and 39, checked on 6 October, and the
+        sentence above it already said 19: nothing tied it to the tables. Each
+        row is now built here from TABLES and verification(), in the tables'
+        order: the provider's name (the README may add a word in brackets),
+        its models with any retired ones noted, the date its page was checked,
+        and whether it was measured against real bills. So are the Anthropic
+        count above the table and the providers the second level names."""
+        readme = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "README.md"),
+                       encoding="utf-8")
+        head = "| Provider | Models | Page checked | Against real bills |"
+        self.assertIn(head, readme)
+        rows = []
+        for line in readme.split(head, 1)[1].splitlines()[2:]:
+            if not line.startswith("|"):
+                break
+            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        self.assertEqual(len(rows), len(tm.TABLES), "one row per price table")
+
+        for row, (provider, table) in zip(rows, tm.TABLES.items()):
+            v = tm.verification(provider)
+            retired = len(getattr(table, "RETIRED", {}))
+            models = (f"{len(table.PRICES)} ({retired} retired)" if retired
+                      else str(len(table.PRICES)))
+            want = [models, v["pretty"], "**yes**" if v["measured"] else "not yet"]
+            self.assertTrue(row[0] == table.NAME or row[0].startswith(table.NAME + " ("),
+                            f"README's row {row[0]!r} should be {table.NAME}'s")
+            self.assertEqual(row[1:], want, f"README's {table.NAME} row")
+
+        anthropic = f"Anthropic: all {len(tm.TABLES['anthropic'].PRICES)} models"
+        self.assertTrue(anthropic in readme, f"README should say {anthropic!r}")
+        names = [t.NAME for t in tm.TABLES.values() if not t.MEASURED]
+        second = ", ".join(names[:-1]) + " and " + names[-1] + "."
+        self.assertTrue(second in readme, f"README's second level should name {second!r}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
