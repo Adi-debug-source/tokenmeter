@@ -1380,6 +1380,8 @@ def join_words(items) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
+# ---------------------------------------------------------------- tallies
+
 def empty_row() -> dict:
     """A totals row with nothing in it yet: every component, the total, the
     no-cache total, the calls and the tokens at zero."""
@@ -1692,6 +1694,96 @@ def trust_summary(groups, unknown, fetched=None) -> dict:
     }
 
 
+# ---------------------------------------------------------------- notes
+
+UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet checked "
+                   "against real logs. If a figure looks wrong, please open an issue "
+                   "with a sample.")
+
+
+def report_notes(groups, unknown, fetched=None, only=None) -> list:
+    """What every face must say alongside the figures, as (level, text).
+
+    The same list feeds the terminal, the dashboard and the menu bar, so the
+    three never disagree about how far a number can be trusted. "warn" is
+    something to act on; "info" is the provenance every report carries.
+
+    For one harness's page of the dashboard, fetched is that view's own
+    looked-up models and only names the harness, so its notes speak for it
+    alone.
+    """
+    fetched = FETCHED_USED if fetched is None else fetched
+    notes = []
+    sources = groups.get("source", {})
+    unverified = [n for n in sorted(sources)
+                  if getattr(ALL_SOURCES.get(n), "STATUS", "") == "unverified"]
+    if unverified:
+        # One line naming them all, not one per harness saying the same thing.
+        # Beside another source it also says how much of the total they carry,
+        # which is the figure that decides how far to trust the whole.
+        names = join_words(ALL_SOURCES[n].LABEL for n in unverified)
+        share = ""
+        whole = sum(v["total"] for v in sources.values())
+        if len(sources) > 1 and whole:
+            share = f", {share_text(sum(sources[n]['total'] for n in unverified) / whole)} of this total,"
+        notes.append(("warn", f"{names} figures{share} are {UNVERIFIED_NOTE}"))
+    for a in ALL_SOURCES.values():
+        if only and a.NAME != only:
+            continue
+        for text in (a.notes() if hasattr(a, "notes") else []):
+            notes.append(("warn", text))
+    for path, p in sorted(importer.PROBLEMS.items()):
+        shown = "standard input" if path == "-" else os.path.basename(path)
+        notes.append(("warn", f"{p['skipped']:,} line{'' if p['skipped'] == 1 else 's'} "
+                              f"skipped in {shown}: " + "; ".join(p["examples"])))
+    for (provider, model), via in sorted(fetched.items()):
+        row = fetched_row(provider, model) or {}
+        checked = row.get("_checked", "")
+        when = dt.date.fromisoformat(checked).strftime("%d %b %Y").lstrip("0") if checked else ""
+        notes.append(("warn", f"{model_label(model, provider)} is priced at "
+                              f"${row.get('in', 0):g} in and ${row.get('out', 0):g} out per million "
+                              f"from {via}, looked up online {when}, not checked by hand"))
+    if unknown:
+        # A model looked up online and found nowhere is the same problem as one
+        # with no price on file, so it is one note, which says both. A lookup
+        # that could not reach its sources found out nothing, and says that.
+        def tried(error):
+            return sorted(set(unknown) & {unknown_label(i["model"], i["provider"])
+                                          for i in LOOKUPS
+                                          if not i["found"] and bool(i.get("error")) == error})
+        missed, unreached = tried(False), tried(True)
+        said = []
+        if missed:
+            said.append(f"none published online for {join_words(missed)}")
+        if unreached:
+            said.append("the online lookup could not reach its price lists "
+                        f"for {join_words(unreached)}")
+        online = ""
+        if missed and len(missed) == len(unknown):
+            online = ", and none published online either"
+        elif unreached and len(unreached) == len(unknown):
+            online = ", and the online lookup could not reach its price lists (offline?)"
+        elif said:
+            online = f" (and {'; '.join(said)})"
+        notes.append(("warn", f"no price on file for {join_words(sorted(unknown))}{online}. "
+                              "Priced at that provider's flagship rate as a stand-in "
+                              "(zero where there is no table at all). "
+                              f"Add {'it' if len(unknown) == 1 else 'them'} under pricing/."
+                              + ("" if ONLINE_LOOKUP[0] else " The online lookup is off.")))
+    for provider in sorted(groups.get("provider", {})):
+        v = verification(provider)
+        if not v["verified_on"]:
+            continue
+        how = "verified against real usage" if v["measured"] else "published rates, not yet checked against a real bill"
+        if v["stale"]:
+            notes.append(("warn", f"{v['name']} rates were last checked {v['pretty']}, "
+                                  f"{v['age_days']} days ago. Prices may have moved; "
+                                  f"run --check-prices or compare with {v['source']}"))
+        else:
+            notes.append(("info", f"{v['name']} rates checked {v['pretty']} ({how})"))
+    return notes
+
+
 # ---------------------------------------------------------------- rendering
 
 def money(usd: float) -> str:
@@ -1837,94 +1929,6 @@ def share_text(fraction: float) -> str:
     if 99.95 <= pct < 100:
         return "over 99.9%"
     return f"{pct:.1f}%"
-
-
-UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet checked "
-                   "against real logs. If a figure looks wrong, please open an issue "
-                   "with a sample.")
-
-
-def report_notes(groups, unknown, fetched=None, only=None) -> list:
-    """What every face must say alongside the figures, as (level, text).
-
-    The same list feeds the terminal, the dashboard and the menu bar, so the
-    three never disagree about how far a number can be trusted. "warn" is
-    something to act on; "info" is the provenance every report carries.
-
-    For one harness's page of the dashboard, fetched is that view's own
-    looked-up models and only names the harness, so its notes speak for it
-    alone.
-    """
-    fetched = FETCHED_USED if fetched is None else fetched
-    notes = []
-    sources = groups.get("source", {})
-    unverified = [n for n in sorted(sources)
-                  if getattr(ALL_SOURCES.get(n), "STATUS", "") == "unverified"]
-    if unverified:
-        # One line naming them all, not one per harness saying the same thing.
-        # Beside another source it also says how much of the total they carry,
-        # which is the figure that decides how far to trust the whole.
-        names = join_words(ALL_SOURCES[n].LABEL for n in unverified)
-        share = ""
-        whole = sum(v["total"] for v in sources.values())
-        if len(sources) > 1 and whole:
-            share = f", {share_text(sum(sources[n]['total'] for n in unverified) / whole)} of this total,"
-        notes.append(("warn", f"{names} figures{share} are {UNVERIFIED_NOTE}"))
-    for a in ALL_SOURCES.values():
-        if only and a.NAME != only:
-            continue
-        for text in (a.notes() if hasattr(a, "notes") else []):
-            notes.append(("warn", text))
-    for path, p in sorted(importer.PROBLEMS.items()):
-        shown = "standard input" if path == "-" else os.path.basename(path)
-        notes.append(("warn", f"{p['skipped']:,} line{'' if p['skipped'] == 1 else 's'} "
-                              f"skipped in {shown}: " + "; ".join(p["examples"])))
-    for (provider, model), via in sorted(fetched.items()):
-        row = fetched_row(provider, model) or {}
-        checked = row.get("_checked", "")
-        when = dt.date.fromisoformat(checked).strftime("%d %b %Y").lstrip("0") if checked else ""
-        notes.append(("warn", f"{model_label(model, provider)} is priced at "
-                              f"${row.get('in', 0):g} in and ${row.get('out', 0):g} out per million "
-                              f"from {via}, looked up online {when}, not checked by hand"))
-    if unknown:
-        # A model looked up online and found nowhere is the same problem as one
-        # with no price on file, so it is one note, which says both. A lookup
-        # that could not reach its sources found out nothing, and says that.
-        def tried(error):
-            return sorted(set(unknown) & {unknown_label(i["model"], i["provider"])
-                                          for i in LOOKUPS
-                                          if not i["found"] and bool(i.get("error")) == error})
-        missed, unreached = tried(False), tried(True)
-        said = []
-        if missed:
-            said.append(f"none published online for {join_words(missed)}")
-        if unreached:
-            said.append("the online lookup could not reach its price lists "
-                        f"for {join_words(unreached)}")
-        online = ""
-        if missed and len(missed) == len(unknown):
-            online = ", and none published online either"
-        elif unreached and len(unreached) == len(unknown):
-            online = ", and the online lookup could not reach its price lists (offline?)"
-        elif said:
-            online = f" (and {'; '.join(said)})"
-        notes.append(("warn", f"no price on file for {join_words(sorted(unknown))}{online}. "
-                              "Priced at that provider's flagship rate as a stand-in "
-                              "(zero where there is no table at all). "
-                              f"Add {'it' if len(unknown) == 1 else 'them'} under pricing/."
-                              + ("" if ONLINE_LOOKUP[0] else " The online lookup is off.")))
-    for provider in sorted(groups.get("provider", {})):
-        v = verification(provider)
-        if not v["verified_on"]:
-            continue
-        how = "verified against real usage" if v["measured"] else "published rates, not yet checked against a real bill"
-        if v["stale"]:
-            notes.append(("warn", f"{v['name']} rates were last checked {v['pretty']}, "
-                                  f"{v['age_days']} days ago. Prices may have moved; "
-                                  f"run --check-prices or compare with {v['source']}"))
-        else:
-            notes.append(("info", f"{v['name']} rates checked {v['pretty']} ({how})"))
-    return notes
 
 
 def print_report(overall, groups, meta, unknown, by, label, sessions=False, covered=""):
@@ -3279,6 +3283,8 @@ def summary(ledger: bool = True) -> dict:
     }
 
 
+# ---------------------------------------------------------------- checking prices
+
 def fetch_text(url: str, timeout: int = 20) -> str:
     """One page, as text. Used by --check-prices and by the online lookup
     (resolve_prices), which passes a shorter timeout."""
@@ -3407,6 +3413,8 @@ def check_prices(fetch=None) -> int:
     return worst
 
 
+# ---------------------------------------------------------------- the price listing
+
 def price_listing(markdown: bool = False) -> str:
     """Every model in every table, with its rates and how they were checked.
 
@@ -3481,6 +3489,8 @@ def price_listing(markdown: bool = False) -> str:
             out.append("")
     return "\n".join(out).rstrip("\n") + "\n"
 
+
+# ---------------------------------------------------------------- the command line
 
 def tilde(path: str) -> str:
     """A path with the home folder written as ~, for anything printed.
