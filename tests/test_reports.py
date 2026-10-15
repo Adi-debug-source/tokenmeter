@@ -2,7 +2,8 @@
 notes, several harnesses side by side, --summary-json for the menu bar,
 --json and plain text for scripts and pipes, opening the dashboard, what a
 first run and a filter that matches nothing say, the installer's check of
-the Python the menu bar runs, and a run starting afresh.
+the Python the menu bar runs, the one version every part names, and a run
+starting afresh.
 """
 
 import datetime as dt
@@ -698,6 +699,25 @@ class TestMenuBarFailure(Base):
         self.assertIn('add(menu, "Could not read usage: \\(err)")', swift)
         for dash in (chr(0x2013), chr(0x2014)):
             self.assertNotIn(dash, swift)
+
+
+class TestVersion(Base):
+    def test_the_engine_the_app_and_the_changelog_name_one_version(self):
+        """A version is stated in three places, each set by hand at a release:
+        __version__ in the engine, the menu bar app's Info.plist and the
+        CHANGELOG's newest version heading. Setting two and missing the third
+        would ship an app or a changelog that names another version."""
+        import plistlib
+        root = os.path.join(os.path.dirname(FIXTURES), "..")
+        self.assertRegex(tm.__version__, r"^\d+\.\d+\.\d+$")
+        with open(os.path.join(root, "costbar", "Info.plist"), "rb") as fh:
+            app = plistlib.load(fh)
+        self.assertEqual(app["CFBundleShortVersionString"], tm.__version__)
+        self.assertRegex(app["CFBundleVersion"], r"^\d+$")
+        changelog = slurp(os.path.join(root, "CHANGELOG.md"), encoding="utf-8")
+        newest = re.search(r"^## (\d+\.\d+\.\d+),", changelog, re.M)
+        self.assertIsNotNone(newest)
+        self.assertEqual(newest.group(1), tm.__version__)
 
 
 class TestMenuBarTokens(Base):

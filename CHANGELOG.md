@@ -348,7 +348,7 @@ the dashboard and the menu bar.
   published rates, the ledger, the adapters, the network lookups, reports, the
   dashboard and the status line, with what they share in `tests/helpers.py`.
   `python3 tests/test_tokenmeter.py` still runs them all, and one area runs on
-  its own. 294 tests in all.
+  its own. 295 tests in all.
 - The dashboard's stylesheet and script are files of their own,
   `dashboard/dashboard.css` and `dashboard/dashboard.js`, instead of about
   550 lines of strings inside the engine. They are read when a page is
