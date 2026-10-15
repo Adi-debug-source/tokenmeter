@@ -259,14 +259,24 @@ class TestPageRows(Base):
 
 class TestCheckPrices(Base):
     def anthropic_page(self, tweak=None):
+        """The page as the table implies it. A model priced by prompt length
+        is two rows, as the real page writes Haiku 5.5. tweak is (model id,
+        column, figure), with a fourth item, True, for the higher tier."""
         lines = ["| Model | Base input tokens | 5m cache writes | 1h cache writes | "
                  "Cache hits and refreshes | Output tokens |", "| :-- | :-- | :-- | :-- | :-- | :-- |"]
         for name, mid in tm._anthropic.PAGE_NAMES.items():
             r = tm.PRICES[mid][-1]
-            vals = [r["in"], r["in"] * 1.25, r["in"] * 2, r["in"] * r["cache_read_mult"], r["out"]]
-            if tweak and tweak[0] == mid:
-                vals[tweak[1]] = tweak[2]
-            lines.append(f"| {name} | " + " | ".join(f"${v:g} / MTok" for v in vals) + " |")
+            tiers = [("", r["in"], r["out"], False)]
+            if r.get("long"):
+                lg = r["long"]
+                tiers = [(f" (for prompts up to {lg['over']:,} tokens)", r["in"], r["out"], False),
+                         (f" (for prompts over {lg['over']:,} tokens)",
+                          r["in"] * lg["in"], r["out"] * lg["out"], True)]
+            for suffix, inp, out, over in tiers:
+                vals = [inp, inp * 1.25, inp * 2, inp * r["cache_read_mult"], out]
+                if tweak and tweak[0] == mid and (tweak[3] if len(tweak) > 3 else False) == over:
+                    vals[tweak[1]] = tweak[2]
+                lines.append(f"| {name}{suffix} | " + " | ".join(f"${v:g} / MTok" for v in vals) + " |")
         return "\n".join(lines) + "\n"
 
     def run_check(self, page):
@@ -287,13 +297,53 @@ class TestCheckPrices(Base):
         before = json.dumps(tm.PRICES, sort_keys=True, default=str)
         code, out = self.run_check(lambda url: self.anthropic_page())
         self.assertEqual(code, 0)
-        self.assertIn("19 of 19", out)
+        self.assertIn("20 of 20", out)
+        self.assertNotIn("not in the table", out)
         self.assertEqual(before, json.dumps(tm.PRICES, sort_keys=True, default=str))
 
     def test_a_moved_rate_is_reported(self):
         code, out = self.run_check(lambda url: self.anthropic_page(("claude-sonnet-5", 4, 15.0)))
         self.assertEqual(code, 1)
         self.assertIn("claude-sonnet-5 out: table has $10, page says $15", out)
+
+    def test_both_of_haiku_5_5s_tiers_are_read_as_one_model(self):
+        """The page lists Haiku 5.5 as two rows, one per prompt length, and
+        the reader named both as models the table lacked. Rows typed from the
+        page on 15 October 2026."""
+        page = ("| Model | Base input tokens | 5m cache writes | 1h cache writes | "
+                "Cache hits and refreshes | Output tokens |\n| :-- | :-- | :-- | :-- | :-- | :-- |\n"
+                "| Claude Haiku 5.5 (for prompts up to 100,000 tokens) | $0.10 / MTok | $0.125 / MTok "
+                "| $0.20 / MTok | $0.01 / MTok | $0.50 / MTok |\n"
+                "| Claude Haiku 5.5 (for prompts over 100,000 tokens) | $0.50 / MTok | $0.625 / MTok "
+                "| $1 / MTok | $0.05 / MTok | $2.50 / MTok |\n"
+                "| Claude Haiku 9 (for prompts up to 50,000 tokens) | $1 / MTok | $1.25 / MTok "
+                "| $2 / MTok | $0.10 / MTok | $5 / MTok |\n"
+                "| Claude Haiku 9 (for prompts over 50,000 tokens) | $2 / MTok | $2.50 / MTok "
+                "| $4 / MTok | $0.20 / MTok | $10 / MTok |\n")
+        rates, unknown = tm._anthropic.page_rates(lambda url: page, tm.md_tables,
+                                                  want=("claude-haiku-9",))
+        self.assertEqual(rates["claude-haiku-5-5"], {
+            "in": 0.10, "write_5m": 0.125, "write_1h": 0.20, "cached": 0.01, "out": 0.50,
+            "long_in": 0.50, "long_write_5m": 0.625, "long_write_1h": 1.0, "long_cached": 0.05,
+            "long_out": 2.50, "long_over": 100_000})
+        # A tiered model no table has is one unknown name, and a lookup of it
+        # keeps the page's own threshold.
+        self.assertEqual(unknown, ["Claude Haiku 9"])
+        row, = tm.rows_from_page(rates["claude-haiku-9"], tm.TABLES["anthropic"])
+        self.assertEqual(row["long"], {"over": 50_000, "in": 2.0, "out": 2.0})
+        exp = tm.expected_rates(tm.PRICES["claude-haiku-5-5"][-1], tm._anthropic)
+        for field, value in rates["claude-haiku-5-5"].items():
+            with self.subTest(field=field):
+                self.assertAlmostEqual(exp[field], value, places=12)
+
+    def test_a_moved_figure_in_the_higher_tier_is_reported(self):
+        code, out = self.run_check(lambda url: self.anthropic_page(("claude-haiku-5-5", 4, 3.0, True)))
+        self.assertEqual(code, 1)
+        self.assertIn("claude-haiku-5-5 long_out: table has $2.5, page says $3", out)
+        page = self.anthropic_page().replace("100,000 tokens", "200,000 tokens")
+        code, out = self.run_check(lambda url: page)
+        self.assertEqual(code, 1)
+        self.assertIn("claude-haiku-5-5 long_over: table has 100000, page says 200000", out)
 
     def test_a_model_missing_from_the_page_is_named(self):
         page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
@@ -309,7 +359,7 @@ class TestCheckPrices(Base):
             del tm._anthropic.RETIRED
         self.assertEqual(code, 0)
         self.assertNotIn("not found", out)
-        self.assertIn("18 of 18", out)
+        self.assertIn("19 of 19", out)
         self.assertIn("1 retired, kept at the last published price", out)
 
     def test_every_retired_model_is_still_priced(self):

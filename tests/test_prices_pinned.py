@@ -14,8 +14,8 @@ from helpers import FIXTURES, Base, cost_of, slurp, tm, usage
 
 class TestPublishedRates(Base):
     """The whole table against platform.claude.com, checked 11 September 2026.
-    Sonnet 5.5 added from the same page on 6 October 2026, and its cheaper
-    cache reads read off it on 15 October 2026.
+    Sonnet 5.5 added from the same page on 6 October 2026; its cheaper cache
+    reads and Haiku 5.5 read off it on 15 October 2026.
 
     Every figure here was read off Anthropic's pricing page, not recalled. If
     one of these fails, either a rate moved (add a dated entry, do not edit the
@@ -33,11 +33,12 @@ class TestPublishedRates(Base):
         "claude-opus-4": (15, 75, 1.50), "claude-sonnet-5": (2, 10, 0.20),
         "claude-sonnet-5-5": (2, 10, 0.10),
         "claude-sonnet-4-6": (3, 15, 0.30), "claude-sonnet-4-5": (3, 15, 0.30),
-        "claude-sonnet-4": (3, 15, 0.30), "claude-haiku-4-5": (1, 5, 0.10),
-        "claude-haiku-3-5": (0.8, 4, 0.08),
+        "claude-sonnet-4": (3, 15, 0.30), "claude-haiku-5-5": (0.10, 0.50, 0.01),
+        "claude-haiku-4-5": (1, 5, 0.10), "claude-haiku-3-5": (0.8, 4, 0.08),
     }
 
     def test_every_rate_matches_the_pricing_page(self):
+        self.assertEqual(set(tm.PRICES), set(self.OFFICIAL), "table and pinned list differ")
         for model, (inp, out, hit) in self.OFFICIAL.items():
             with self.subTest(model=model):
                 row, known = tm.lookup(model)
@@ -65,6 +66,29 @@ class TestPublishedRates(Base):
         row, known = tm.lookup("claude-sonnet-5-5")
         self.assertTrue(known)
         self.assertAlmostEqual(row["in"] * row["cache_read_mult"], 0.10, places=9)
+
+    def test_haiku_5_5_is_priced_by_prompt_length(self):
+        """Claude Haiku 5.5, launched 7 October 2026, typed from the page on
+        15 October 2026. Up to 100,000 prompt tokens: $0.10 in, $0.125 a
+        5-minute write, $0.20 a 1-hour write, $0.01 a cache hit, $0.50 out.
+        Over 100,000: $0.50, $0.625, $1, $0.05 and $2.50. A request's prompt
+        length counts all of its input tokens, cache reads and writes too."""
+        up_to = {"in": 0.10, "w5": 0.125, "w1": 0.20, "hit": 0.01, "out": 0.50}
+        over = {"in": 0.50, "w5": 0.625, "w1": 1.00, "hit": 0.05, "out": 2.50}
+        # 90,000 of each prompt is cache: exactly 100,000, then 100,001.
+        for inp, rate in ((10_000, up_to), (10_001, over)):
+            with self.subTest(prompt=inp + 90_000):
+                c = tm.price_record("claude-haiku-5-5",
+                                    usage(inp=inp, read=60_000, w5=20_000, w1=10_000, out=1_000))
+                self.assertFalse(c["_unknown_model"])
+                self.assertAlmostEqual(c["input"], inp * rate["in"] / 1e6, places=12)
+                self.assertAlmostEqual(c["cache_read"], 60_000 * rate["hit"] / 1e6, places=12)
+                self.assertAlmostEqual(c["cache_write"],
+                                       (20_000 * rate["w5"] + 10_000 * rate["w1"]) / 1e6, places=12)
+                self.assertAlmostEqual(c["output"], 1_000 * rate["out"] / 1e6, places=12)
+        # Cache reads alone can carry a request over the line.
+        c = tm.price_record("claude-haiku-5-5", usage(inp=1, read=100_000, out=1_000_000))
+        self.assertAlmostEqual(c["output"], 2.50, places=9)
 
     def test_cache_write_multipliers(self):
         """1.25x for 5-minute, 2x for 1-hour, per the pricing page."""

@@ -18,6 +18,18 @@
   the pricing page, read on 15 October 2026. Cache writes and every other
   price are unchanged. A call made before 7 October keeps the $0.20 it cost
   then; until now every Sonnet 5.5 cache read was priced at $0.20.
+- Claude Haiku 5.5, launched on 7 October 2026 per Anthropic's release notes,
+  is in the table, read off the pricing page on 15 October 2026. It is priced
+  by prompt length: up to 100,000 tokens, $0.10 in, $0.50 out, $0.01 a cache
+  hit, $0.125 and $0.20 for 5-minute and 1-hour cache writes; over 100,000
+  tokens (cache reads and writes count towards it), five times each. Until
+  now it was priced by the online lookup, and the status line, which never
+  looks anything up, priced it at the Opus 5 stand-in rate until a report
+  had saved a lookup.
+- `--check-prices` reads a model the page lists as two prompt-length rows as
+  one model, and checks every column of both tiers and the threshold.
+  Anthropic's table is marked verified on 15 October 2026, all 20 models
+  matching.
 
 ### Fixes
 

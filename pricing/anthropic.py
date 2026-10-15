@@ -1,6 +1,6 @@
 """Anthropic's first-party API rates, in dollars per million tokens.
 
-Verified three ways, most recently on 6 October 2026.
+Verified three ways, most recently on 15 October 2026.
 
 1. By measurement, 10 September 2026, against Claude Code's own
    `total_cost_usd`: controlled calls through `claude -p --output-format json`,
@@ -16,14 +16,18 @@ Verified three ways, most recently on 6 October 2026.
    the per-model `costUSD` summaries Claude Code writes into transcripts.
    Sonnet 5.5 was added on 6 October 2026 and measured the same way:
    $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
-   Its cheaper cache reads from 7 October 2026 come from the page and the
-   release notes, and are not yet measured against Claude Code.
+   Haiku 5.5, and Sonnet 5.5's cheaper cache reads, both from 7 October
+   2026, come from the page and the release notes, and are not yet measured
+   against Claude Code.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
    write multipliers, the three cache read multipliers, both fast-mode rates
    and web search. Every figure matched. On 6 October 2026 --check-prices
-   read all nineteen rows, Sonnet 5.5 included, and every column matched.
+   read all nineteen rows, Sonnet 5.5 included, and every column matched. On
+   15 October 2026 the page and Anthropic's release notes were re-read by
+   hand, and --check-prices matched all twenty models, both of Haiku 5.5's
+   price tiers in every column.
 
 3. By the test suite. TestPublishedRates holds the published figure for every
    model and fails if this table drifts from it.
@@ -35,11 +39,14 @@ of a typical total.
 What the page lists and this table deliberately leaves out:
 
   - Long context is not surcharged. Claude 4.6 and later bill the full 1M
-    window at standard rates.
+    window at standard rates, except Claude Haiku 5.5, which is priced by
+    prompt length and is modelled: a request whose prompt is over 100,000
+    tokens, cache reads and writes included, pays its higher prices.
   - The Batch API's 50% discount never applies to an interactive harness.
   - Web fetch is free. Only web search is billed, at $10 per 1,000.
-  - `inference_geo: "us"` multiplies everything by 1.1x. Claude Code has never
-    set it (every record seen says "not_available"), so it is not modelled.
+  - `inference_geo`: the page says global routing, the default, is standard
+    pricing, and `"us"` multiplies everything by 1.1x. Not modelled: every
+    record seen says "not_available" or "global".
 
 Row fields:
 
@@ -47,6 +54,8 @@ Row fields:
   in / out          base input and output
   cache_read_mult   multiple of base input for a cache hit
   fast              (input, output) when speed == "fast", None if unsupported
+  long (optional)   {"over": tokens, "in": mult, "out": mult}: a request whose
+                    prompt is over that many tokens pays those multiples
 
 Rates are dated, and a call is priced at the rate in force on the day it was
 made. Anthropic mostly prices a model for its life and releases a new one
@@ -66,7 +75,7 @@ NAME = "Anthropic"
 SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
 # The markdown form of the same page, which --check-prices reads.
 SOURCE_MD = "https://platform.claude.com/docs/en/about-claude/pricing.md"
-VERIFIED_ON = "2026-10-06"
+VERIFIED_ON = "2026-10-15"
 # "measured" means checked against real bills or the harness's own cost
 # figures, not only against the pricing page.
 MEASURED = True
@@ -101,6 +110,11 @@ PRICES = {
     "claude-sonnet-5-5": [{"from": "",           "in":  2.0, "out": 10.0, "cache_read_mult": 0.1,  "fast": None},
                           {"from": "2026-10-07", "in":  2.0, "out": 10.0, "cache_read_mult": 0.05, "fast": None}],
     "claude-sonnet-4-6": [{"from": "", "in":  3.0, "out": 15.0, "cache_read_mult": 0.1,   "fast": None}],
+    # Launched 7 October 2026 and priced by prompt length: a request whose
+    # prompt is over 100,000 tokens, cache reads and writes included, pays
+    # 5x every rate ($0.50 in, $2.50 out, $0.05 a cache hit).
+    "claude-haiku-5-5":  [{"from": "", "in":  0.1, "out":  0.5, "cache_read_mult": 0.1,   "fast": None,
+                           "long": {"over": 100_000, "in": 5.0, "out": 5.0}}],
     "claude-haiku-4-5":  [{"from": "", "in":  1.0, "out":  5.0, "cache_read_mult": 0.1,   "fast": None}],
     # Older and retired models. Cheap to carry, and the alternative is the
     # fallback quietly pricing an Opus 4.1 call at a third of its real rate,
@@ -137,6 +151,7 @@ PAGE_NAMES = {
     "Claude Sonnet 4.6": "claude-sonnet-4-6",
     "Claude Sonnet 4.5": "claude-sonnet-4-5",
     "Claude Sonnet 4": "claude-sonnet-4",
+    "Claude Haiku 5.5": "claude-haiku-5-5",
     "Claude Haiku 4.5": "claude-haiku-4-5",
     "Claude Haiku 3.5": "claude-haiku-3-5",
 }
@@ -146,6 +161,11 @@ def _name(cell: str) -> str:
     """"Claude Opus 4.1 ([retired, ...](...))" -> "Claude Opus 4.1"."""
     cell = re.sub(r"<sup>.*?</sup>", "", cell)
     return re.sub(r"\s*\(\[.*$", "", cell).strip()
+
+
+# A model priced by prompt length is two rows on the page, "Claude Haiku 5.5
+# (for prompts up to 100,000 tokens)" and "(for prompts over 100,000 tokens)".
+_TIER = re.compile(r"^(.*?)\s*\(for prompts (up to|over) ([\d,]+) tokens\)$")
 
 
 def page_id(name: str) -> str:
@@ -160,22 +180,36 @@ def page_rates(fetch, tables, want=()):
 
     Used by --check-prices, which reports differences and never edits this
     file, and by the startup lookup for a model the table lacks (`want`),
-    which is saved separately and labelled as fetched."""
+    which is saved separately and labelled as fetched.
+
+    A model priced by prompt length is read as one id: the "up to N tokens"
+    row gives its base figures, the "over N tokens" row the same five with
+    long_ in front (long_in, long_cached and so on), and long_over is N."""
     rates, unknown = {}, []
     for title, header, rows in tables(fetch(SOURCE_MD)):
         h = [c.strip().lower() for c in header]
         if "base input tokens" in h:
             for r in rows:
                 name = _name(r[0])
+                tier = _TIER.match(name)
+                if tier:
+                    name = tier.group(1)
                 mid = PAGE_NAMES.get(name)
                 if mid is None:
-                    unknown.append(name)
+                    if name not in unknown:
+                        unknown.append(name)
                     mid = page_id(name)
                     if mid not in want:
                         continue
-                rates[mid] = {"in": money(r[1]), "write_5m": money(r[2]),
-                              "write_1h": money(r[3]), "cached": money(r[4]),
-                              "out": money(r[5])}
+                figures = {"in": money(r[1]), "write_5m": money(r[2]),
+                           "write_1h": money(r[3]), "cached": money(r[4]),
+                           "out": money(r[5])}
+                got = rates.setdefault(mid, {})
+                if tier and tier.group(2) == "over":
+                    got.update({"long_" + k: v for k, v in figures.items()})
+                    got["long_over"] = int(tier.group(3).replace(",", ""))
+                else:
+                    got.update(figures)
         elif h == ["model", "input", "output"]:
             # Fast mode, where one row can name two models.
             for r in rows:

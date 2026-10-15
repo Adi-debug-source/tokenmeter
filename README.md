@@ -128,13 +128,13 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic, all 19 models.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 20 models read from the page, and the table measured against Claude Code's own cost figures on seven of them.
 2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; `--check-prices` re-confirms them against the live page at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot and Z.ai.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
-| Anthropic | 18 | 26 Sep 2026 | **yes** |
+| Anthropic | 20 | 15 Oct 2026 | **yes** |
 | OpenAI | 38 | 26 Sep 2026 | not yet |
 | Google (Gemini API) | 12 | 26 Sep 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |

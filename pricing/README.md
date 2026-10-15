@@ -46,9 +46,11 @@ A row:
 `page_rates()` returns `({model id: figures}, [page ids the table lacks])`.
 The figures are dollars per million tokens, under whichever of these names
 the page gives: `in`, `out`, `cached`, `write` or `write_5m`, `write_1h`,
-`fast_in` and `fast_out`, `long_in` and `long_out`, and optionally
-`long_over` (the threshold, when the page states its own) and `_history`
-(dated prices, oldest first, each with `from`, `in`, `out` and `cached`).
+`fast_in` and `fast_out`, `long_in` and `long_out` (with `long_cached`,
+`long_write_5m` and `long_write_1h` when the page lists the higher tier in
+full, as Anthropic's does for Haiku 5.5), and optionally `long_over` (the
+threshold in tokens, when the page states its own) and `_history` (dated
+prices, oldest first, each with `from`, `in`, `out` and `cached`).
 `--check-prices` compares every field it finds; the startup lookup turns
 them into rows, one per dated price.
 

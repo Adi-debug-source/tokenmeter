@@ -2770,7 +2770,11 @@ def md_tables(text: str) -> list:
 
 
 def expected_rates(row: dict, table) -> dict:
-    """What a table row implies the pricing page should say, per field."""
+    """What a table row implies the pricing page should say, per field.
+
+    A long-context row also gives its threshold and the higher tier's cache
+    rates, which take the input multiple as price_record() charges them, so
+    a page that lists both tiers in full is checked column by column."""
     inp = row["in"]
     m5, m1 = write_mults(row, table)
     exp = {"in": inp, "out": row["out"], "cached": inp * row["cache_read_mult"],
@@ -2780,8 +2784,13 @@ def expected_rates(row: dict, table) -> dict:
         exp["fast_in"], exp["fast_out"] = row["fast"]
     long = row.get("long")
     if long:
-        exp["long_in"] = inp * long["in"]
+        long_in = inp * long["in"]
+        exp["long_over"] = long["over"]
+        exp["long_in"] = long_in
         exp["long_out"] = row["out"] * long["out"]
+        exp["long_cached"] = long_in * row["cache_read_mult"]
+        exp["long_write_5m"] = long_in * m5
+        exp["long_write_1h"] = long_in * m1
     return exp
 
 
@@ -2849,9 +2858,11 @@ def check_prices(fetch=None) -> int:
         print(f"    {GREEN}{matched} of {len(table.PRICES) - len(retired)} models match{RESET} "
               f"the page in every column it lists{kept}")
         for model, field, want, value in diffs:
-            have = "nothing" if want is None else f"${want:g}"
+            # Every field is dollars per million but the threshold, in tokens.
+            unit = "" if field == "long_over" else "$"
+            have = "nothing" if want is None else f"{unit}{want:g}"
             print(f"    {YELLOW}differs{RESET}  {model} {field}: table has {have}, "
-                  f"page says ${value:g}")
+                  f"page says {unit}{value:g}")
         if absent:
             print(f"    {DIM}not found on the page: {', '.join(absent)}{RESET}")
         if unlisted:

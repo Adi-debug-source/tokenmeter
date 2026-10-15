@@ -7,7 +7,7 @@ online lookup at startup, and labelled as looked up rather than checked.
 
 ## Anthropic
 
-Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 6 Oct 2026, checked against the published page and against real usage.
+Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 15 Oct 2026, checked against the published page and against real usage.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
@@ -24,6 +24,7 @@ Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verifie
 | `claude-sonnet-5-5` | $2 | $0.20 | $2.50 | $10 | until 2026-10-07; 1-hour cache write $4 |
 | `claude-sonnet-5-5` | $2 | $0.10 | $2.50 | $10 | from 2026-10-07; 1-hour cache write $4 |
 | `claude-sonnet-4-6` | $3 | $0.30 | $3.75 | $15 | 1-hour cache write $6 |
+| `claude-haiku-5-5` | $0.10 | $0.01 | $0.125 | $0.50 | 1-hour cache write $0.20; over 100K prompt tokens: input x5, output x5 |
 | `claude-haiku-4-5` | $1 | $0.10 | $1.25 | $5 | 1-hour cache write $2 |
 | `claude-opus-4-5` | $5 | $0.50 | $6.25 | $25 | 1-hour cache write $10 |
 | `claude-opus-4-1` | $15 | $1.50 | $18.75 | $75 | 1-hour cache write $30 |
