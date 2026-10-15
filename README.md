@@ -15,7 +15,7 @@ It has four faces over one engine:
 | Terminal report | The full breakdown, grouped however you like |
 | Dashboard | One offline HTML page with charts, tables and a currency switcher, which prints every section on dark pages |
 | Menu bar app | The running figure, always visible, with four time windows, and its tokens if you switch them on |
-| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, and today's, inside Claude Code, with today's tokens if you ask |
+| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, today's cost, and how full the context window is, as Claude Code reports it, with today's tokens if you ask; `/tokenmeter` gives any report in the conversation |
 
 <img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="420">
 
@@ -62,6 +62,8 @@ tokenmeter                      # everything found, all time
 tokenmeter --by model           # or project, day, week, month, session, hour, weekday, source, provider
 tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
 tokenmeter --period lastmonth   # a calendar period: today, yesterday, week, lastweek, month, lastmonth, year
+tokenmeter --project myapp      # one project: part of its folder's name or path, or . for the current folder
+tokenmeter --session ID         # one session, by its id or the path of its log
 tokenmeter --sessions           # the dearest sessions
 tokenmeter --html               # the dashboard, written to ~/Downloads and opened
 tokenmeter --html --no-open     # the dashboard, written but not opened
@@ -85,10 +87,10 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 
 | Harness | Status | What it reads |
 |---|---|---|
-| Claude Code | **verified** | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), subagents included |
-| OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) |
+| Claude Code | **verified** | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), subagents and workflow agents included |
+| OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`); the sessions Codex compresses after a week need Python 3.14, the `zstd` command or the `zstandard` package |
 | Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox |
-| OpenCode | unverified | `~/.local/share/opencode/opencode.db` |
+| OpenCode | unverified | `~/.local/share/opencode/opencode*.db` (or under `$XDG_DATA_HOME`) |
 | Anything else | your data | `--import FILE`, in the documented format |
 
 **Verified** means checked against real logs and against the harness's own cost figures. Claude Code's figures match its own `total_cost_usd` to ten decimal places.
@@ -156,7 +158,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 **Other providers are best-effort.** Their tables were read from each provider's own pricing pages, figure by figure, and `--check-prices` confirms they still match those pages. What has not been done is comparing them with a real bill from someone who uses those models daily. If you do, please check a month against your invoice and open an issue whether it matches or not.
 
-**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date it was last verified, shown in every report, with a warning once it is more than 90 days old. `tokenmeter --check-prices` fetches every provider's page and reports any difference, but never changes a table: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made. The one thing that is fetched automatically is a price for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
+**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date it was last verified, shown in every report, with a warning once it is more than 90 days old. `tokenmeter --check-prices` fetches every provider's page and reports any difference, but never changes a table: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The one thing that is fetched automatically is a price for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
@@ -181,7 +183,7 @@ Claude Code deletes transcripts after 30 days by default, and Codex compresses t
 
 - **Tokens, never money.** A ledger of dollars would be frozen at the prices on the day it was written; a ledger of tokens reprices the whole history whenever a table changes.
 - **Append only.** A row that supersedes an earlier one is appended, never edited, so the file is safe to keep in git and every diff is only the new lines.
-- **Updated on every full read, never on a schedule.** The menu bar's 60-second refresh keeps it current.
+- **Updated by every run that uses it, never on a schedule.** The menu bar's 60-second refresh keeps it current.
 - **Small.** About 220 bytes a call, a couple of megabytes a year.
 - **Losing it degrades, it does not break.** Without it the tool falls back to the logs on disk.
 
@@ -227,7 +229,7 @@ The status line can give today's total beside today's cost, `$4.56 · 1.20M tok 
 
 ### What orchestration costs
 
-A session that spawns subagents costs more because every subagent makes its own API calls. Tokenmeter reads subagent transcripts too, so that cost is counted. On one real history a quarter of all spend was subagents. `--by session` and the dashboard show where it went. Effort settings change how many tokens a model produces, never the price per token, so they need no special handling.
+A session that spawns subagents costs more because every subagent makes its own API calls. Tokenmeter reads subagents' and workflow agents' transcripts too, and files their calls under the session that started them, so that cost is counted. On one real history a quarter of all spend was subagents. `--by session` and the dashboard show where it went. Effort settings change how many tokens a model produces, never the price per token, so they need no special handling.
 
 ### Reading it next to Claude Code's Stats tab
 
@@ -269,7 +271,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 
 - A new harness: [adapters/README.md](adapters/README.md)
 - A new or changed price: [pricing/README.md](pricing/README.md)
-- Before anything else: `python3 tests/test_tokenmeter.py` (standard library only, well under a second)
+- Before anything else: `python3 tests/test_tokenmeter.py` (standard library only, a few seconds)
 - How it is kept correct: [MAINTENANCE.md](MAINTENANCE.md)
 
 ## Licence
