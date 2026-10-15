@@ -138,10 +138,11 @@ def adapter_for(path: str):
     return claude_code
 
 
-# Everything is computed in dollars, because that is what both providers bill
-# in. Display happens in whatever currency is selected; only the last step
-# converts. TOKENMETER_CURRENCY changes the default everywhere at once: the
-# command line, the status line and the dashboard.
+# Everything is computed in dollars, because every table in pricing/ is in
+# dollars, as each provider publishes its rates. Display happens in whatever
+# currency is selected; only the last step converts. TOKENMETER_CURRENCY
+# changes the default for the command line, the status line and the dashboard
+# at once; the menu bar keeps the choice made in its own Currency menu.
 CURRENCY_ENV = "TOKENMETER_CURRENCY"
 DEFAULT_CURRENCY = (os.environ.get(CURRENCY_ENV, "").strip() or "USD").upper()
 
@@ -897,7 +898,9 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
     out = int(usage.get("output_tokens") or 0)
     read = int(usage.get("cache_read_input_tokens") or 0)
 
-    # Prefer the TTL breakdown; a 1 hour write costs 2x, a 5 minute write 1.25x.
+    # Prefer the TTL breakdown. Each table sets what a write costs as a
+    # multiple of input (write_mults()); Anthropic's defaults are 2x for a
+    # 1 hour write and 1.25x for a 5 minute one.
     w5, w1 = cache_writes(usage)
 
     searches = int((usage.get("server_tool_use") or {}).get("web_search_requests") or 0)
@@ -959,7 +962,7 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
 #
 # It stores tokens, never money. Rates change, and a ledger of dollars would be
 # frozen at the price on the day it was written; a ledger of tokens reprices
-# the whole history the moment the table above changes.
+# the whole history the moment a table in pricing/ changes.
 #
 # Append only, one JSON object per line, sorted by time. It is versioned in
 # git, so rewriting the file would put the whole thing in every diff. A row
