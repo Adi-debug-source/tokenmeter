@@ -224,6 +224,15 @@
   be one of them to count this Mac as well as a copied folder. It called them
   "extra" folders, and following it left this Mac's own transcripts out.
 
+### New
+
+- `--help` groups its options under headings (what to read, the window, the
+  report, the output, prices and the ledger) and ends with examples from the
+  README. It says what `--by` groups by, that `--until` stops just before the
+  moment it names, where `--html` writes by default and everything
+  `--summary-json` carries, and it writes the ledger's default path with `~`
+  rather than with the username in it.
+
 ### Project
 
 - `--summary-json` sends `saved_pct` and `multiple`, the figures behind the

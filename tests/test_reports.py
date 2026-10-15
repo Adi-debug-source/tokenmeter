@@ -714,6 +714,52 @@ class TestCommandLine(Base):
         run.assert_called_once_with(["open", out], check=False)
         self.assertEqual(list(payload_of(slurp(out, encoding="utf-8"))["views"]), ["all"])
 
+    def test_help_is_grouped_and_names_what_the_readme_uses(self):
+        """--help printed the ledger's default with the username in it, gave
+        --by no help, called --until's end nothing and --summary-json "today,
+        week and all time". Its options now sit in named groups, the home folder
+        is written as ~, every option the README's usage blocks use is in it,
+        and its examples are commands the README shows."""
+        import contextlib, io
+        buf = io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"COLUMNS": "200"}), as_a_new_run():
+            with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as done:
+                tm.main(["--help"])
+        self.assertEqual(done.exception.code, 0)
+        # Python 3.14 colours help written to a terminal.
+        text = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+
+        for title in ("About", "What to read", "Window", "Report", "Output",
+                      "Prices and the ledger", "Examples"):
+            self.assertIn("\n%s:\n" % title, text)
+        self.assertNotIn("/Users/", text)
+        home = os.path.expanduser("~").rstrip(os.sep)
+        if home:
+            self.assertNotIn(home + os.sep, text)
+        self.assertIn("(default ~/.claude/cost-ledger.jsonl, or set TOKENMETER_LEDGER)", text)
+        self.assertIn("--html [PATH]", text)
+        self.assertIn("(default ~/Downloads/Tokenmeter.html)", text)
+        self.assertIn("up to but not including", text)
+        self.assertIn("today, the last 7 and 30 days, all time, models and notes", text)
+        self.assertIn(", ".join(tm.BY_CHOICES[:-1]), text)
+
+        readme = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "README.md"),
+                       encoding="utf-8")
+        commands = [line.split("#")[0].strip()
+                    for block in re.findall(r"```bash\n(.*?)```", readme, re.S)
+                    for line in block.splitlines() if re.match(r"tokenmeter( |$)", line)]
+        options = {o for c in commands for o in re.findall(r"--[a-z][a-z-]*", c)}
+        self.assertTrue({"--by", "--html", "--rebuild-ledger"} <= options, options)
+        for option in sorted(options):
+            with self.subTest(option=option):
+                self.assertRegex(text, r"[\s\[]%s[\s\]]" % re.escape(option))
+        examples = [re.split(r"\s{2,}", line.strip())[0]
+                    for line in tm.HELP_EXAMPLES.splitlines() if line.startswith("  tokenmeter")]
+        self.assertGreaterEqual(len(examples), 4)
+        for example in examples:
+            with self.subTest(example=example):
+                self.assertIn(example, commands)
+
     def test_the_settings_table_names_every_variable(self):
         """README's Settings table left out TOKENMETER_PRICE_CACHE, which the
         engine read under its bare name. Every TOKENMETER_ variable now has a

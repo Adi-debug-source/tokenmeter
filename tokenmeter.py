@@ -3047,65 +3047,104 @@ def reset_run() -> None:
     reset_adapters()
 
 
+# The examples --help ends with: commands from the README's usage block, which
+# a test holds them to.
+HELP_EXAMPLES = """\
+Examples:
+  tokenmeter --by model           the report by model, or by another GROUP
+  tokenmeter --since 30d          the last 30 days
+  tokenmeter --period lastmonth   the month just ended, as a bill covers it
+  tokenmeter --html               the dashboard, saved to ~/Downloads and shown
+  tokenmeter --currency GBP       in pounds; USD is the default
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Every option, with its default and its help; main() parses with it."""
+    """Every option, with its default and its help, grouped as --help shows
+    them; main() parses with it."""
     ap = argparse.ArgumentParser(
-        prog="tokenmeter",
-        description="What your AI coding would have cost at API rates.")
-    ap.add_argument("--version", action="version", version=f"tokenmeter {__version__}")
-    ap.add_argument("--since", default="",
-                    help="rolling window: 24h, 7d, 30d, 2w, or a date or time such as "
-                         "2026-09-01 or 2026-09-01T10:00 (local unless an offset is given)")
-    ap.add_argument("--until", default="",
-                    help="stop at this moment, in the same forms, for a closed range")
-    ap.add_argument("--period", default="", metavar="NAME",
-                    help="calendar period: today, yesterday, week, lastweek, "
-                         "month, lastmonth, year")
-    ap.add_argument("--session", default="",
-                    help="a session id, or the path of a session's log file from any harness")
-    ap.add_argument("--project", default="",
-                    help="part of a project's folder name or path, or . for the current folder")
-    ap.add_argument("--ledger", default="", metavar="FILE",
-                    help=f"ledger file (default {DEFAULT_LEDGER}, or set {LEDGER_ENV})")
-    ap.add_argument("--current-rates", action="store_true",
-                    help="price the whole history at today's rates instead of "
-                         "the rates in force at the time")
-    ap.add_argument("--no-ledger", action="store_true",
-                    help="price only the transcripts; do not read or write the ledger")
-    ap.add_argument("--rebuild-ledger", action="store_true",
-                    help="rewrite the ledger from every log on disk, keeping the "
-                         "old file as a backup; takes no filters")
-    ap.add_argument("--projects-dir", action="append", default=[], metavar="DIR",
-                    help="a Claude Code projects folder to read; repeat to combine "
-                         f"machines (or set {PROJECTS_ENV}, colon separated)")
-    ap.add_argument("--import", dest="imports", action="append", default=[], metavar="FILE",
-                    help="price events in the import format (docs/import-format.md), "
-                         "from any harness; - reads standard input; repeatable")
-    ap.add_argument("--adapter", action="append", default=[], metavar="NAME",
-                    choices=sorted(ALL_SOURCES),
-                    help="read only this source; repeatable. Default: every adapter "
-                         "whose folders exist, plus any --import")
-    ap.add_argument("--list-adapters", action="store_true",
-                    help="show each adapter, what it found, and how far to trust it")
-    ap.add_argument("--list-prices", action="store_true",
-                    help="every model with a checked price, and its rates")
-    ap.add_argument("--markdown", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--offline", action="store_true",
-                    help="make no network requests: unknown models get a flagged stand-in "
-                         "rate, and the last saved exchange rate is used at any age, else "
-                         f"a built-in estimate (or set {OFFLINE_ENV}=1)")
-    ap.add_argument("--check-prices", action="store_true",
-                    help="fetch each provider's pricing page and report any difference "
-                         "from the tables; changes nothing")
-    ap.add_argument("--by", choices=BY_CHOICES, default="")
-    ap.add_argument("--sessions", action="store_true", help="list the dearest sessions")
-    ap.add_argument("--html", nargs="?", const="auto", default="",
-                    help="write the dashboard and open it")
-    ap.add_argument("--currency", default=None,
-                    help=f"display currency: {', '.join(CURRENCIES)} (default {DEFAULT_CURRENCY})")
-    ap.add_argument("--json", action="store_true", help="machine readable")
-    ap.add_argument("--summary-json", action="store_true",
-                    help="today, week and all time plus a model split, in one scan")
+        prog="tokenmeter", add_help=False, epilog=HELP_EXAMPLES,
+        description="What your AI coding would have cost at API rates.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    # add_help=False only so -h sits in a group named like the others; it
+    # behaves as argparse's own.
+    about = ap.add_argument_group("About")
+    about.add_argument("-h", "--help", action="help", help="show this help and exit")
+    about.add_argument("--version", action="version", version=f"tokenmeter {__version__}",
+                       help="show the version and exit")
+
+    read = ap.add_argument_group("What to read")
+    read.add_argument("--session", default="",
+                      help="a session id, or the path of a session's log file from any harness")
+    read.add_argument("--project", default="",
+                      help="part of a project's folder name or path, or . for the current folder")
+    read.add_argument("--adapter", action="append", default=[], metavar="NAME",
+                      choices=sorted(ALL_SOURCES),
+                      help=f"read only this source: {', '.join(sorted(ALL_SOURCES))}; "
+                           "repeatable. Default: every adapter whose folders exist, plus "
+                           "any --import")
+    read.add_argument("--import", dest="imports", action="append", default=[], metavar="FILE",
+                      help="price events in the import format (docs/import-format.md), "
+                           "from any harness; - reads standard input; repeatable")
+    read.add_argument("--projects-dir", action="append", default=[], metavar="DIR",
+                      help="a Claude Code projects folder to read instead of the default; "
+                           "repeat it, this Mac's folder included, to combine machines "
+                           f"(or set {PROJECTS_ENV}, colon separated)")
+    read.add_argument("--list-adapters", action="store_true",
+                      help="show each adapter, what it found, and how far to trust it")
+
+    window = ap.add_argument_group("Window", "Without one, the report covers all time.")
+    window.add_argument("--since", default="", metavar="WHEN",
+                        help="where the report starts: 24h, 7d, 30d or 2w back from now, or "
+                             "a date or time such as 2026-09-01 or 2026-09-01T10:00 (local "
+                             "time unless an offset or Z is given)")
+    window.add_argument("--until", default="", metavar="WHEN",
+                        help="where it stops, in the same forms: up to but not including "
+                             "that moment")
+    window.add_argument("--period", default="", metavar="NAME",
+                        help="calendar period: today, yesterday, week, lastweek, "
+                             "month, lastmonth, year")
+
+    report = ap.add_argument_group("Report")
+    report.add_argument("--by", choices=BY_CHOICES, default="", metavar="GROUP",
+                        help=f"group the report by {', '.join(BY_CHOICES[:-1])} or "
+                             f"{BY_CHOICES[-1]}; source is the harness")
+    report.add_argument("--sessions", action="store_true", help="list the dearest sessions")
+    report.add_argument("--currency", default=None, metavar="CODE",
+                        help=f"display currency: {', '.join(CURRENCIES)} "
+                             f"(default {DEFAULT_CURRENCY}, or set {CURRENCY_ENV})")
+
+    output = ap.add_argument_group("Output", "Without one, the report is printed as text.")
+    output.add_argument("--json", action="store_true", help="machine readable")
+    output.add_argument("--html", nargs="?", const="auto", default="", metavar="PATH",
+                        help="write the dashboard to PATH (default "
+                             "~/Downloads/Tokenmeter.html) and open it")
+    output.add_argument("--summary-json", action="store_true",
+                        help="everything the menu bar shows, as JSON: today, the last 7 "
+                             "and 30 days, all time, models and notes")
+
+    prices = ap.add_argument_group("Prices and the ledger")
+    prices.add_argument("--current-rates", action="store_true",
+                        help="price the whole history at today's rates instead of "
+                             "the rates in force at the time")
+    prices.add_argument("--offline", action="store_true",
+                        help="make no network requests: unknown models get a flagged "
+                             "stand-in rate, and the last saved exchange rate is used at any "
+                             f"age, else a built-in estimate (or set {OFFLINE_ENV}=1)")
+    prices.add_argument("--list-prices", action="store_true",
+                        help="every model with a checked price, and its rates")
+    prices.add_argument("--markdown", action="store_true", help=argparse.SUPPRESS)
+    prices.add_argument("--check-prices", action="store_true",
+                        help="fetch each provider's pricing page and report any difference "
+                             "from the tables; changes nothing")
+    prices.add_argument("--ledger", default="", metavar="FILE",
+                        help=f"the ledger file (default {tilde(DEFAULT_LEDGER)}, "
+                             f"or set {LEDGER_ENV})")
+    prices.add_argument("--no-ledger", action="store_true",
+                        help="price only the transcripts; do not read or write the ledger")
+    prices.add_argument("--rebuild-ledger", action="store_true",
+                        help="rewrite the ledger from every log on disk, keeping the "
+                             "old file as a backup; takes no filters")
     return ap
 
 
