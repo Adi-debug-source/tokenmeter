@@ -1035,7 +1035,7 @@ class TestTokenTotals(Base):
     token_totals(): uncached input, cache writes, cache reads and output."""
 
     def report(self, *argv):
-        return cli("--no-ledger", *argv)
+        return cli(*argv)
 
     def headline(self, text):
         lines = text.splitlines()

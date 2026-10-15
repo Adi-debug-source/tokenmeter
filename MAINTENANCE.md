@@ -276,6 +276,11 @@ In order, because each step rules out the one below:
   backup: the old file goes to `.old`, or to `.old-YYYYMMDD-HHMMSS` when that
   exists, so a second rebuild never overwrites the first one's. Not routine
   maintenance.
+- A call no transcript read this run holds is marked `ledger_only` by
+  `reconcile_ledger()`, in the same branch that counts it for the covered
+  line's "no longer in any transcript". `kept_and_on_disk()` adds those
+  calls' tokens up for the report's "kept by the ledger ... on disk now"
+  line, so the two cannot disagree.
 - `--project`, `--session` and `--adapter` apply to the ledger's calls as to
   the logs' (`kept()`), because a call restored from the ledger has no file
   to filter on. A filter that keeps no call stops with "no calls match",

@@ -288,6 +288,13 @@
   reads ("of which fresh (excluding cache reads): 61.30M"). Cache reads are
   the context read again on every turn and most of any total, so the total
   alone read as that much new text.
+- Beside the covered line's "ledger holds", the report splits the total by
+  where its calls are now: "kept by the ledger 1.62B · on disk now 1.31B ·
+  310.40M from 12 sessions whose transcripts are gone". Deleting a session
+  deletes its transcript, so a total read from the transcripts goes down;
+  the ledger's does not, and the report now says so in tokens as well as in
+  calls. Windows and filters apply to all three figures as to the money.
+  With `--no-ledger` the total says it covers the transcripts on disk only.
 
 ### Project
 

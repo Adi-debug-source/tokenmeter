@@ -205,7 +205,11 @@ The report gives the total under the cost, in the same shape, and under that the
   $1,024.50   8,120 API calls
   1.62B tokens   8,120 API calls
   of which fresh (excluding cache reads): 61.30M
+  21 Jul 2026 to 14 Oct 2026 · 214 transcripts on disk · ledger holds 8,120, 1,410 of them no longer in any transcript
+  kept by the ledger 1.62B · on disk now 1.31B · 310.40M from 12 sessions whose transcripts are gone
 ```
+
+The last line splits the same total by where its calls are now. Deleting a session deletes its transcript, so a total read from the transcripts goes down; the on-disk figure falls with it, while the kept figure does not, because the ledger keeps every call. A window or a filter applies to all three figures as it does to the money. With `--no-ledger` there is no such line, and the total, which is then only what the transcripts on disk hold, says so: `transcripts on disk only`.
 
 ### Rolling windows and calendar periods
 

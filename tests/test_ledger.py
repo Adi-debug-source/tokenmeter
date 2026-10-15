@@ -280,6 +280,90 @@ class TestTheRestoredCount(Base):
                       self.covered("--since", "2026-08-01"))
 
 
+class TestKeptAndOnDisk(Base):
+    """Deleting a session deletes its transcript, so a total read from the
+    transcripts goes down. The ledger keeps every call, and the report now
+    says so in tokens: what it keeps, what is on disk now, and what only the
+    ledger still has."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("sess-a.jsonl", record("a1", ts="2026-09-01T12:00:00.000Z", out=1000, read=4000))
+        self.write("sess-b.jsonl", record("b1", ts="2026-09-02T12:00:00.000Z", out=2000, read=8000),
+                   record("b2", ts="2026-09-03T12:00:00.000Z", out=500, read=1500))
+        self.before = cli()                               # every call now in the ledger
+        os.remove(os.path.join(self.projects, "sess-b.jsonl"))
+
+    @staticmethod
+    def line(text, start):
+        found = [ln.strip() for ln in text.splitlines() if ln.strip().startswith(start)]
+        return found[0] if found else None
+
+    def test_a_deleted_session_is_kept_and_no_longer_on_disk(self):
+        """A ledger row with no transcript counts as kept and as ledger only,
+        never as on disk. The deletion lowers the on-disk figure and leaves
+        the kept one, and the headline, where they were."""
+        self.assertEqual(self.line(self.before, "kept by"),
+                         "kept by the ledger 17.0k · on disk now 17.0k")
+        after = cli()
+        self.assertEqual(self.line(after, "kept by"),
+                         "kept by the ledger 17.0k · on disk now 5.0k"
+                         " · 12.0k from 1 session whose transcripts are gone")
+        self.assertEqual(self.line(after, "17.0k tokens"), "17.0k tokens   3 API calls")
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=True)
+        self.assertEqual(tm.kept_and_on_disk(overall, groups),
+                         {"kept": 17000, "on_disk": 5000, "ledger_only": 12000, "sessions": 1})
+
+    def test_it_counts_the_calls_the_covered_line_calls_gone(self):
+        """One test decides both lines, so the calls "no longer in any
+        transcript" are exactly the calls whose tokens are ledger only."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=True)
+        gone = sum(row["calls"] for row in groups["ledger_only"].values())
+        self.assertEqual(gone, tm.LEDGER_STATE["restored"])
+        self.assertEqual(gone, 2)
+        self.assertIn("ledger holds 3, 2 of them no longer in any transcript", cli())
+
+    def test_without_the_ledger_it_counts_whats_on_disk_and_says_so(self):
+        text = cli("--no-ledger")
+        self.assertEqual(self.line(text, "5.0k tokens"),
+                         "5.0k tokens   1 API call · transcripts on disk only")
+        self.assertIsNone(self.line(text, "kept by"))
+        self.assertNotIn("ledger", text)
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(tm.kept_and_on_disk(overall, groups),
+                         {"kept": 5000, "on_disk": 5000, "ledger_only": 0, "sessions": 0})
+
+    def test_filters_apply_to_all_three_as_to_the_money(self):
+        self.assertEqual(self.line(cli("--since", "2026-09-02"), "kept by"),
+                         "kept by the ledger 12.0k · on disk now 0"
+                         " · 12.0k from 1 session whose transcripts are gone")
+        self.assertEqual(self.line(cli("--until", "2026-09-02"), "kept by"),
+                         "kept by the ledger 5.0k · on disk now 5.0k")
+        self.assertEqual(self.line(cli("--session", "sess-b"), "kept by"),
+                         "kept by the ledger 12.0k · on disk now 0"
+                         " · 12.0k from 1 session whose transcripts are gone")
+        self.assertEqual(self.line(cli("--session", "sess-a"), "kept by"),
+                         "kept by the ledger 5.0k · on disk now 5.0k")
+        self.assertEqual(self.line(cli("--project", "proj"), "kept by"),
+                         "kept by the ledger 17.0k · on disk now 5.0k"
+                         " · 12.0k from 1 session whose transcripts are gone")
+        # A window with nothing in it has nothing kept to speak of.
+        self.assertIsNone(self.line(cli("--until", "2026-01-01"), "kept by"))
+
+    def test_a_call_with_no_session_is_named_without_one(self):
+        """An imported call can carry no session, and "from 0 sessions" would
+        read as nothing gone."""
+        when = dt.datetime(2026, 9, 4, 12, tzinfo=dt.timezone.utc)
+        tm._LEDGER[:] = [os.path.join(self.tmp, "other-ledger.jsonl")]
+        tm.append_ledger([tm.usage_to_row("c1", when, "claude-opus-5", "-proj", "",
+                                          usage(out=700))])
+        overall, groups, *_ = tm.collect([], ledger=True)
+        split = tm.kept_and_on_disk(overall, groups)
+        self.assertEqual(split, {"kept": 700, "on_disk": 0, "ledger_only": 700, "sessions": 0})
+        self.assertEqual(tm.kept_line(split),
+                         "kept by the ledger 700 · on disk now 0 · 700 no longer in any transcript")
+
+
 class TestRebuildLedger(Base):
     """--rebuild-ledger --project alpha rebuilt a five-call ledger from the two
     calls that project could see, and the same command again overwrote .old,
