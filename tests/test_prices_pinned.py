@@ -135,7 +135,7 @@ class TestOtherProvidersPublishedRates(Base):
     docs.x.ai/developers/pricing. gpt-6.1-sol added from the OpenAI pages on
     6 October 2026. Typed here separately from the tables, so a
     slip in either one fails. A model with no cached rate is listed with its
-    input rate: no discount.
+    input rate: no discount. A retired model keeps its last published rate.
     """
 
     OPENAI = {
@@ -208,6 +208,22 @@ class TestOtherProvidersPublishedRates(Base):
                 self.assertEqual(tm.lookup(model, before, "google")[0]["in"], 0.75)
                 self.assertEqual(tm.lookup(model, after, "google")[0]["in"], 1.50)
                 self.assertEqual(tm.lookup(model, after, "google")[0]["out"], 7.50)
+
+    def test_gemini_flash_models_retired_on_8_october_2026_keep_their_price(self):
+        """The Gemini API changelog, 8 October 2026: gemini-3.5-flash and
+        gemini-3.7-flash are deprecated and their requests routed to newer
+        models, and the pricing page no longer lists them. Older usage keeps
+        the last published price: $1.50 and $9 for 3.5 Flash, $0.75 and $3.75
+        for 3.7 Flash through 31 December 2026."""
+        retired = tm.TABLES["google"].RETIRED
+        when = dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc)
+        for model, (inp, out) in (("gemini-3.5-flash", (1.50, 9.00)),
+                                  ("gemini-3.7-flash", (0.75, 3.75))):
+            with self.subTest(model=model):
+                self.assertEqual(retired[model], "2026-10-08")
+                row, known = tm.lookup(model, when, "google")
+                self.assertTrue(known)
+                self.assertEqual((row["in"], row["out"]), (inp, out))
 
     def test_xai_aliases_are_the_same_model(self):
         for alias, canonical in (("grok-code-fast-1", "grok-build-0.1"),

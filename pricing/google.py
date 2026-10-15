@@ -3,7 +3,10 @@
 Read off https://ai.google.dev/gemini-api/docs/pricing on 26 September 2026
 (the page's own footer read "Last updated 2026-09-24 UTC"), Standard tier,
 paid. Read twice, independently: once by hand with every figure quoted, and
-once by the page reader below, and the two agreed on every figure.
+once by the page reader below, and the two agreed on every figure. Re-read in
+full on 6 October 2026, and again on 15 October 2026 (footer "Last updated
+2026-10-15 UTC"), by which time gemini-3.5-flash and gemini-3.7-flash had
+left the page; see RETIRED.
 
 **Published, not measured.** Nobody has yet compared these with a real Gemini
 bill or a harness's own cost report. Please do, and open an issue either way.
@@ -16,9 +19,10 @@ Rules taken from the page and modelled here:
   - Cached input is 0.1x input on every text model that offers caching.
   - Long context: Gemini 3.1 Pro Preview, 2.5 Pro and 2.5 Computer Use charge
     2x input and cache rates and 1.5x output for prompts over 200K tokens.
-  - Gemini 3.6, 3.7 and 3.8 Flash have two published prices, one through 31
-    December 2026 and a higher one from 1 January 2027. Both are in the table
-    as dated entries, so each call is priced at the rate in force that day.
+  - Gemini 3.6 and 3.8 Flash have two published prices, one through 31
+    December 2026 and a higher one from 1 January 2027, as 3.7 Flash had
+    before it was retired. Both are in the table as dated entries, so each
+    call is priced at the rate in force that day.
 
 Not modelled, and why:
 
@@ -37,7 +41,7 @@ import re
 PROVIDER = "google"
 NAME = "Google"
 SOURCE = "https://ai.google.dev/gemini-api/docs/pricing"
-VERIFIED_ON = "2026-10-06"
+VERIFIED_ON = "2026-10-15"
 MEASURED = False
 
 # Gemini has no per-token cache write fee; creating a cache bills as input.
@@ -80,10 +84,22 @@ PRICES = {
 }
 
 # Kept for older usage, at the last published price, though the page no
-# longer lists them. Model id: retirement date. Shut down 28 July 2026 per
-# https://ai.google.dev/gemini-api/docs/deprecations; the pricing page
-# dropped it on 6 October 2026.
-RETIRED = {"gemini-2.5-computer-use-preview-10-2025": "2026-07-28"}
+# longer lists them. Model id: retirement date.
+RETIRED = {
+    # Shut down 28 July 2026 per
+    # https://ai.google.dev/gemini-api/docs/deprecations; the pricing page
+    # dropped it on 6 October 2026.
+    "gemini-2.5-computer-use-preview-10-2025": "2026-07-28",
+    # Deprecated on 8 October 2026 per the Gemini API changelog
+    # (https://ai.google.dev/gemini-api/docs/changelog): requests to them are
+    # routed to gemini-3.6-flash and gemini-3.8-flash, and the pricing page
+    # no longer lists them. Neither the changelog nor the deprecations page
+    # says what a routed call is billed at, so both keep their last published
+    # price. For 3.7 Flash the two answers are the same; 3.5 Flash's price is
+    # above 3.6 Flash's, so which one a routed call pays is an open question.
+    "gemini-3.5-flash": "2026-10-08",
+    "gemini-3.7-flash": "2026-10-08",
+}
 
 # Other names for the same model, as the page gives them.
 ALIASES = {"gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview"}

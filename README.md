@@ -136,7 +136,7 @@ There are three levels of confidence, and every report says which one each figur
 |---|---|---|---|
 | Anthropic | 20 | 15 Oct 2026 | **yes** |
 | OpenAI | 38 | 26 Sep 2026 | not yet |
-| Google (Gemini API) | 12 | 26 Sep 2026 | not yet |
+| Google (Gemini API) | 12 (3 retired) | 15 Oct 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
 | DeepSeek | 2 | 26 Sep 2026 | not yet |
 | Mistral | 9 | 26 Sep 2026 | not yet |

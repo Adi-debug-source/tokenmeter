@@ -5,11 +5,12 @@
 - `--check-prices` no longer names a retired model as missing from its page.
   A table can list models the provider has retired in `RETIRED`, with the
   date from the provider's own notice; they keep their last published price,
-  so older usage is still priced, and the price list marks them. Two so far:
-  `gemini-2.5-computer-use-preview-10-2025` (shut down 28 July 2026) and
+  so older usage is still priced, and the price list marks them. Four so
+  far: `gemini-2.5-computer-use-preview-10-2025` (shut down 28 July 2026),
   `zai-glm-5-2` on Mistral (retires 31 October 2026, replaced by GLM 5.3 at
-  the same price). Google's and Mistral's tables re-read in full and marked
-  verified on 6 October 2026.
+  the same price), and `gemini-3.5-flash` and `gemini-3.7-flash` (below).
+  Google's and Mistral's tables re-read in full and marked verified on 6
+  October 2026.
 
 ### Prices
 
@@ -30,6 +31,13 @@
   one model, and checks every column of both tiers and the threshold.
   Anthropic's table is marked verified on 15 October 2026, all 20 models
   matching.
+- `gemini-3.5-flash` and `gemini-3.7-flash` are retired as of 8 October 2026,
+  when the Gemini API changelog deprecated them and began routing their
+  requests to `gemini-3.6-flash` and `gemini-3.8-flash`; the pricing page no
+  longer lists them. Both keep their last published price for older usage.
+  Neither the changelog nor the deprecations page says what a routed call is
+  billed at, which matters for 3.5 Flash, priced above 3.6 Flash. Google's
+  table is marked verified on 15 October 2026.
 
 ### Fixes
 

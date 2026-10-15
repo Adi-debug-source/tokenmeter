@@ -81,17 +81,17 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 6 Oct 20
 
 ## Google
 
-Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 6 Oct 2026, checked against the published page; not yet against a real bill.
+Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 15 Oct 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
 | `gemini-3.8-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01 |
 | `gemini-3.8-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01 |
-| `gemini-3.7-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01 |
-| `gemini-3.7-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01 |
+| `gemini-3.7-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; retirement 2026-10-08, kept at the last published price |
+| `gemini-3.7-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01; retirement 2026-10-08, kept at the last published price |
 | `gemini-3.6-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01 |
 | `gemini-3.6-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01 |
-| `gemini-3.5-flash` | $1.50 | $0.15 | - | $9 |  |
+| `gemini-3.5-flash` | $1.50 | $0.15 | - | $9 | retirement 2026-10-08, kept at the last published price |
 | `gemini-3.5-flash-lite` | $0.30 | $0.03 | - | $2.50 |  |
 | `gemini-3.1-flash-lite` | $0.25 | $0.025 | - | $1.50 |  |
 | `gemini-3.1-pro-preview` | $2 | $0.20 | - | $12 | over 200K prompt tokens: input x2, output x1.5; also gemini-3.1-pro-preview-customtools |

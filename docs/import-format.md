@@ -59,7 +59,7 @@ on a coding agent is most of the bill.
 ```json
 {"id": "msg_01A", "timestamp": "2026-09-20T09:14:02Z", "provider": "anthropic", "model": "claude-sonnet-5", "input": 412, "cache_read": 81200, "cache_write_5m": 2300, "output": 910}
 {"id": "resp_7f2", "timestamp": "2026-09-20T09:20:40Z", "provider": "openai", "model": "gpt-6-sol", "input": 1880, "cache_read": 44032, "cache_write": 0, "output": 1204, "thinking": 640, "session": "refactor", "project": "api"}
-{"id": "gem-331", "timestamp": "2026-09-20T10:02:11+01:00", "provider": "google", "model": "gemini-3.5-flash", "input": 5120, "cache_read": 20480, "output": 1733, "thinking": 1100}
+{"id": "gem-331", "timestamp": "2026-09-20T10:02:11+01:00", "provider": "google", "model": "gemini-3.8-flash", "input": 5120, "cache_read": 20480, "output": 1733, "thinking": 1100}
 {"id": "ds-0042", "timestamp": "2026-09-21T02:30:00Z", "provider": "deepseek", "model": "deepseek-flash", "input": 9000, "cache_read": 30000, "output": 800}
 ```
 
