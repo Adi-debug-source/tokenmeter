@@ -59,7 +59,7 @@ alias tokenmeter="python3 ~/.claude/tools/tokenmeter/tokenmeter.py"
 
 ```bash
 tokenmeter                      # everything found, all time
-tokenmeter --by model           # or project, day, session, hour, weekday, source, provider
+tokenmeter --by model           # or project, day, week, month, session, hour, weekday, source, provider
 tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
 tokenmeter --period lastmonth   # a calendar period: today, yesterday, week, lastweek, month, lastmonth, year
 tokenmeter --sessions           # the dearest sessions

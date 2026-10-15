@@ -243,6 +243,11 @@
   cache reads. With `--by` it adds the groups, and with `--sessions` the 20
   dearest sessions, in the terminal's order. It printed the same seven keys
   whatever was asked; those keep their values.
+- `--by week` and `--by month` group a report by ISO week (`2026-W41`,
+  Monday to Sunday, as `--period week` counts one) and by calendar month
+  (`2026-10`), oldest first like `--by day`, in the terminal and in
+  `--json`. Each is the sum of its local days, so they add up to the same
+  total.
 
 ### Project
 

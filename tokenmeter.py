@@ -15,7 +15,7 @@ Usage:
     tokenmeter.py                      totals for everything found, all time
     tokenmeter.py --since 7d           last 7 days (also 24h, 30d, 2026-09-01)
     tokenmeter.py --session <id|path>  one session
-    tokenmeter.py --by project         group by project, model, day, source...
+    tokenmeter.py --by project         group by project, model, day, week, month...
     tokenmeter.py --sessions           list sessions, dearest first
     tokenmeter.py --html [path]        write the dashboard and open it
     tokenmeter.py --import FILE        price events from any harness
@@ -1410,6 +1410,14 @@ def add_to_row(row, ev) -> None:
         row["tokens"][k] += v
 
 
+def add_rows(into, row) -> None:
+    """One totals row added into another, as a day goes into its week."""
+    for k in COMPONENTS + ("total", "no_cache", "calls"):
+        into[k] += row[k]
+    for k, v in row["tokens"].items():
+        into["tokens"][k] += v
+
+
 # Models priced this run from a rate looked up online: (provider, model) -> source.
 # The whole run's; a harness's own view carries its own in its _Tally.
 FETCHED_USED: dict = {}
@@ -1431,9 +1439,29 @@ def unknown_label(model: str, provider: str) -> str:
     return f"{model} ({provider})"
 
 
+def week_of(day: str) -> str:
+    """The ISO week a "YYYY-MM-DD" day falls in, as "YYYY-Www": Monday to
+    Sunday, as --period week counts a week, and numbered in its ISO year, so
+    31 December 2026 and 1 January 2027 are both 2026-W53."""
+    year, week = dt.date.fromisoformat(day).isocalendar()[:2]
+    return f"{year}-W{week:02d}"
+
+
+def month_of(day: str) -> str:
+    """The month a "YYYY-MM-DD" day falls in, as "YYYY-MM"."""
+    return day[:7]
+
+
+# Groupings --by sums from the day rows when it reports, rather than _Tally
+# keeping them: a local day falls in exactly one week and one month, so whole
+# days add up to them with no second bucket per call.
+ROLLUPS = {"week": week_of, "month": month_of}
+
 # What --by groups a run by: every grouping _Tally keeps of a single key, in
-# its order. A test holds the two together, so a new grouping is offered.
-BY_CHOICES = ("project", "model", "day", "session", "hour", "weekday", "source", "provider")
+# its order, with the ROLLUPS after day. A test holds them together, so a new
+# grouping is offered.
+BY_CHOICES = ("project", "model", "day", "week", "month", "session", "hour", "weekday",
+              "source", "provider")
 
 
 class _Tally:
@@ -1530,8 +1558,14 @@ SESSIONS_LISTED = 20
 
 def grouped(groups, by: str) -> list:
     """One --by grouping's rows, [(key, row)], in the order the terminal
-    lists them and --json sends them: days oldest first, everything else
-    dearest first."""
+    lists them and --json sends them: days, weeks and months oldest first,
+    everything else dearest first. Weeks and months are summed here from the
+    day rows (ROLLUPS)."""
+    if by in ROLLUPS:
+        rows = defaultdict(empty_row)
+        for day, row in sorted(groups["day"].items()):
+            add_rows(rows[ROLLUPS[by](day)], row)
+        return sorted(rows.items())
     if by == "day":
         return sorted(groups[by].items())
     return sorted(groups[by].items(), key=lambda kv: -kv[1]["total"])
@@ -3152,7 +3186,8 @@ def build_parser() -> argparse.ArgumentParser:
     report = ap.add_argument_group("Report")
     report.add_argument("--by", choices=BY_CHOICES, default="", metavar="GROUP",
                         help=f"group the report by {', '.join(BY_CHOICES[:-1])} or "
-                             f"{BY_CHOICES[-1]}; source is the harness")
+                             f"{BY_CHOICES[-1]}; source is the harness, and a week runs "
+                             "Monday to Sunday")
     report.add_argument("--sessions", action="store_true", help="list the dearest sessions")
     report.add_argument("--currency", default=None, metavar="CODE",
                         help=f"display currency: {', '.join(CURRENCIES)} "

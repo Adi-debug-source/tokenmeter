@@ -15,8 +15,9 @@ Pick the invocation from the arguments:
 3. A calendar period ("this week", "last month"): `--period week`, `--period lastmonth`, and so on.
 4. "session" or "this session": `--session <the current session id>`.
 5. "html", "dashboard" or "open": `--html` (writes to ~/Downloads and opens it).
-6. "projects", "models", "days", "harnesses", "providers" or "sessions": the matching `--by`
-   value (`project`, `model`, `day`, `source`, `provider`), or `--sessions`.
+6. "projects", "models", "days", "weeks", "months", "harnesses", "providers" or "sessions": the
+   matching `--by` value (`project`, `model`, `day`, `week`, `month`, `source`, `provider`), or
+   `--sessions`.
 7. A currency ("in pounds", "gbp", "euro"): add `--currency GBP` and so on.
    USD is the default; GBP, EUR, INR, CAD, AUD and JPY also work.
 8. "prices" or "check prices": `--check-prices`.

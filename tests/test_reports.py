@@ -193,6 +193,69 @@ class TestPeriods(Base):
         self.assertEqual(len(evs), 1)
 
 
+class TestWeeksAndMonths(Base):
+    """--by offered days but not weeks or months, so a month's figure meant
+    adding up a column of days by hand. Both are summed from the day rows,
+    listed oldest first as days are, in the terminal and in --json.
+
+    The calls are at noon UTC, which is the same date in every time zone from
+    UTC-11 to UTC+11, so the local days are the ones written."""
+
+    def rows(self, by):
+        got = json.loads(cli("--json", "--by", by, "--no-ledger"))
+        return got, [(r["key"], r["calls"]) for r in got["groups"]]
+
+    def table(self, by):
+        text = cli("--by", by, "--no-ledger")
+        return [line.split()[0] for line in
+                text.split(f"by {by}\n", 1)[1].split("\n\n", 1)[0].splitlines()]
+
+    def test_months_across_a_boundary_add_up_to_the_whole(self):
+        self.write("a.jsonl", record("m1", ts="2026-09-30T12:00:00.000Z", out=1000),
+                   record("m2", ts="2026-10-01T12:00:00.000Z", out=2000, read=4000))
+        self.write("b.jsonl", record("m3", ts="2026-10-02T12:00:00.000Z", inp=300, out=500))
+        got, rows = self.rows("month")
+        self.assertEqual(rows, [("2026-09", 1), ("2026-10", 2)])
+        self.assertAlmostEqual(sum(r["total_usd"] for r in got["groups"]), got["total_usd"],
+                               places=9)
+        self.assertEqual(self.table("month"), ["2026-09", "2026-10"])
+
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        months = dict(tm.grouped(groups, "month"))
+        self.assertAlmostEqual(sum(v["total"] for v in months.values()), overall["total"],
+                               places=12)
+        october = [groups["day"]["2026-10-01"], groups["day"]["2026-10-02"]]
+        for k in tm.COMPONENTS + ("total", "no_cache", "calls"):
+            self.assertEqual(months["2026-10"][k], october[0][k] + october[1][k], k)
+        for k in overall["tokens"]:
+            self.assertEqual(sum(v["tokens"][k] for v in months.values()), overall["tokens"][k])
+
+    def test_weeks_are_iso_weeks_from_monday(self):
+        self.assertEqual(tm.week_of("2026-12-31"), "2026-W53")
+        self.assertEqual(tm.week_of("2027-01-01"), "2026-W53")
+        self.assertEqual(tm.week_of("2026-12-27"), "2026-W52")   # a Sunday
+        self.assertEqual(tm.week_of("2026-12-28"), "2026-W53")   # the Monday after it
+        self.assertEqual(tm.week_of("2027-01-04"), "2027-W01")
+        # --period week starts on the Monday of the week today is in.
+        today = dt.date.today()
+        monday = tm.period_range("week")[0].date()
+        self.assertEqual(tm.week_of(monday.isoformat()), tm.week_of(today.isoformat()))
+        self.assertNotEqual(tm.week_of((monday - dt.timedelta(days=1)).isoformat()),
+                            tm.week_of(today.isoformat()))
+
+    def test_the_new_year_is_one_week_and_two_months(self):
+        self.write("a.jsonl", record("y1", ts="2026-12-31T12:00:00.000Z", out=1000),
+                   record("y2", ts="2027-01-01T12:00:00.000Z", out=2000))
+        self.write("b.jsonl", record("y3", ts="2027-01-04T12:00:00.000Z", out=500))
+        got, rows = self.rows("week")
+        self.assertEqual(rows, [("2026-W53", 2), ("2027-W01", 1)])
+        self.assertEqual([r["label"] for r in got["groups"]], ["2026-W53", "2027-W01"])
+        self.assertAlmostEqual(sum(r["total_usd"] for r in got["groups"]), got["total_usd"],
+                               places=9)
+        self.assertEqual(self.table("week"), ["2026-W53", "2027-W01"])
+        self.assertEqual(self.rows("month")[1], [("2026-12", 1), ("2027-01", 2)])
+
+
 class TestParseSince(Base):
     def test_relative_forms(self):
         for s in ("24h", "7d", "2w"):
@@ -674,8 +737,11 @@ class TestCommandLine(Base):
     def test_by_offers_every_grouping_the_tally_keeps(self):
         """--by's choices were a second, hand-copied list of the groupings
         _Tally builds. BY_CHOICES is the one list: every grouping of a single
-        key, in _Tally's order, and each one prints its table."""
-        self.assertEqual(tm.BY_CHOICES, tuple(g for g in tm._Tally().groups if "_" not in g))
+        key, in _Tally's order, with the weeks and months summed from the
+        days, and each one prints its table."""
+        self.assertEqual(tuple(c for c in tm.BY_CHOICES if c not in tm.ROLLUPS),
+                         tuple(g for g in tm._Tally().groups if "_" not in g))
+        self.assertTrue(set(tm.ROLLUPS) <= set(tm.BY_CHOICES))
         self.write("a.jsonl", record("msg_1", out=1000))
         for choice in tm.BY_CHOICES:
             with self.subTest(by=choice):
