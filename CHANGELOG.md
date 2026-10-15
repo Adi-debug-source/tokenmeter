@@ -315,6 +315,11 @@
   keep one line in a full-width card. The Tokens view of the Spend over
   time chart was checked and already counted each day by the same
   definition, the days only the ledger still has included.
+- The status line can give today's total tokens beside today's cost,
+  `$4.56 · 1.20M tok today`, when `TOKENMETER_STATUS_TOKENS` is set to
+  `1`. It is off by default, and without it the line is byte for byte what
+  it was. The tokens are the engine's total, counted in the same pass as
+  today's cost and kept in the same 90-second cache.
 
 ### Project
 

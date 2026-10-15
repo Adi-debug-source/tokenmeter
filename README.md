@@ -15,7 +15,7 @@ It has four faces over one engine:
 | Terminal report | The full breakdown, grouped however you like |
 | Dashboard | One offline HTML page with charts, tables and a currency switcher, which prints every section on dark pages |
 | Menu bar app | The running figure, always visible, with four time windows |
-| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, and today's, inside Claude Code |
+| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, and today's, inside Claude Code, with today's tokens if you ask |
 
 <img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="420">
 
@@ -215,6 +215,8 @@ The last line splits the same total by where its calls are now. Deleting a sessi
 
 The dashboard gives the total in a tile beside the API calls, with the fresh tokens under it. When the ledger holds calls no transcript has any more, a note under the tiles gives the same kept and on-disk split, and why: deleted sessions take their transcripts with them, and Tokenmeter keeps the record. The Tokens view of its Spend over time chart counts each day the same way, the days only the ledger still has included.
 
+The status line can give today's total beside today's cost, `$4.56 · 1.20M tok today`, when `TOKENMETER_STATUS_TOKENS` is set to `1` (see [Settings](#settings)). It is off unless asked for, so the line is otherwise exactly as it was.
+
 `--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
 ### Rolling windows and calendar periods
@@ -240,6 +242,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 | `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
+| `TOKENMETER_STATUS_TOKENS` | `1` to have the status line give today's total tokens beside today's cost, as `$4.56 · 1.20M tok today`. Off unless set to something other than `0`, so the line stays as it was |
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
 | `NO_COLOR` | Any value but an empty one turns colour off in everything `tokenmeter` prints. Without it, colour is used only when the output goes to a terminal, so a pipe, a file and Claude Code's `/tokenmeter` get plain text. The status line keeps its colours, which Claude Code shows |
 | `FORCE_COLOR` | Any value but `0` or an empty one keeps the colour when the output is piped or saved, as a screenshot of captured output needs; `CLICOLOR_FORCE` does the same. `NO_COLOR` wins over both |

@@ -23,7 +23,7 @@ runs on its own, as `python3 tests/test_ledger.py`.
 | `pricing/` | one table per provider, and `common.py`, which their page readers share | rates, the evidence for them, reading the provider's page |
 | `dashboard/` | the dashboard's stylesheet and script, inlined into every page by `render_html()` | display only; converts and draws the engine's figures |
 | `costbar/` | menu bar app | display only; runs `--summary-json` |
-| `statusline.py` | Claude Code status line | display only; calls `session_totals()` |
+| `statusline.py` | Claude Code status line | display only; calls `session_totals()`, and `iter_events()` and `token_totals()` for today |
 | `tests/` | the safety net | one module per area (`test_money.py`, `test_pricing.py`, `test_prices_pinned.py`, `test_ledger.py`, `test_adapters.py`, `test_lookup.py`, `test_reports.py`, `test_dashboard.py`, `test_statusline.py`), what they share in `helpers.py`, and `test_tokenmeter.py`, which runs them all |
 
 The rule that matters: **arithmetic lives in `tokenmeter.py` and nowhere
@@ -36,10 +36,10 @@ helper each: the today, 7-day and 30-day windows from `rolling_windows()`,
 what caching was worth from `caching_summary()`, total tokens from
 `token_totals()` (uncached input, cache writes, cache reads and output; the
 README states it once, and the terminal, the dashboard's total tokens tile
-and Tokens chart, `--json` and `--summary-json` all use it), and the rows
-`--by` and `--sessions` list, in the terminal and in `--json`, from
-`grouped()`, which sums the day rows into weeks and months rather than
-keeping them per call.
+and Tokens chart, `--json`, `--summary-json` and the status line all use
+it), and the rows `--by` and `--sessions` list, in the terminal and in
+`--json`, from `grouped()`, which sums the day rows into weeks and months
+rather than keeping them per call.
 `--json` and `--summary-json` only ever gain keys, added after the ones
 already there: the menu bar and scripts read them by name.
 
@@ -306,7 +306,8 @@ In order, because each step rules out the one below:
 2. `--currency USD`, `--by model`, `--by source`, `--sessions`, `--since 30d`,
    `--period lastmonth`, `--json`, `--summary-json`, `--html`,
    `--list-adapters` and `--check-prices` all run.
-3. The status line renders: pipe a session JSON into `statusline.py`.
+3. The status line renders: pipe a session JSON into `statusline.py`, once
+   as it is and once with `TOKENMETER_STATUS_TOKENS=1`.
 4. `./install.sh`, then confirm the menu bar is alive:
    `pgrep -f Tokenmeter.app/Contents/MacOS/Tokenmeter`.
 5. The headline figure has not moved unless you meant it to.

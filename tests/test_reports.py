@@ -906,11 +906,19 @@ class TestCommandLine(Base):
         table = readme.split("## Settings", 1)[1].split("\n## ", 1)[0]
         names = {v for k, v in vars(tm).items() if k.endswith("_ENV") and isinstance(v, str)}
         self.assertIn("TOKENMETER_PRICE_CACHE", names)
+        # The status line's own setting, read only there. Its source is read
+        # rather than imported, because importing it sets up a run.
+        statusline = slurp(os.path.join(os.path.dirname(tm.__file__), "statusline.py"),
+                           encoding="utf-8")
+        own = set(re.findall(r'^[A-Z_]+_ENV = "(TOKENMETER_[A-Z_]+)"$', statusline, re.M))
+        self.assertEqual(own, {"TOKENMETER_STATUS_TOKENS"})
+        names |= own
         for name in sorted(names):
             with self.subTest(name=name):
                 self.assertIn("| `%s` |" % name, table)
-        for name in re.findall(r"TOKENMETER_[A-Z_]+", slurp(tm.__file__, encoding="utf-8")):
-            self.assertIn(name, names)
+        for source in (slurp(tm.__file__, encoding="utf-8"), statusline):
+            for name in re.findall(r"TOKENMETER_[A-Z_]+", source):
+                self.assertIn(name, names)
 
 
 class TestOpeningTheDashboard(Base):

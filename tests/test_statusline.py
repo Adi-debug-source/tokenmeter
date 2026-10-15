@@ -11,7 +11,7 @@ import sys
 import time
 import unittest
 
-from helpers import Base, as_a_new_run, cli, record, slurp, tm
+from helpers import Base, as_a_new_run, cli, cost_of, record, slurp, tm
 
 
 class TestLocalMidnight(Base):
@@ -215,6 +215,70 @@ class TestStatusLine(Base):
                 line1, line2 = re.sub(r"\x1b\[[0-9;]*m", "", done.stdout).splitlines()
                 self.assertRegex(line1, r"ctx +" + re.escape(pct))
                 self.assertIn("100.0k " + cap + " ", line2)
+
+    def test_without_the_token_setting_the_line_is_exactly_what_it_was(self):
+        """Today's tokens are opt in. With TOKENMETER_STATUS_TOKENS unset,
+        empty or 0 the line is byte for byte the one printed before the
+        setting existed, colours included."""
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        path = self.write("sess.jsonl", record("msg_1", ts=now, inp=1000, out=500, read=20000))
+        cost = tm.money(tm.session_totals(path)[0])
+        R, D = "\x1b[0m", "\x1b[2m"
+        want = (f"\x1b[1m\x1b[36mOpus{R} {D}│{R} ctx \x1b[32m  2%{R} {D}│{R} "
+                f"\x1b[33m{cost}{R}{D} session{R} {D}│{R} {cost}{D} today{R}\n"
+                f"\x1b[32m█{'░' * 29}{R} {D}21.0k / 1M · would-be API spend{R}")
+        for setting in (None, "", "0", " 0 "):
+            with self.subTest(setting=setting):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                env = {} if setting is None else {"TOKENMETER_STATUS_TOKENS": setting}
+                done = self.run_statusline({"model": {"display_name": "Opus"},
+                                            "transcript_path": path}, **env)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(done.stdout, want)
+
+    def test_with_the_token_setting_it_gives_todays_total_tokens(self):
+        """TOKENMETER_STATUS_TOKENS=1 adds today's total tokens beside today's
+        cost, by the engine's one definition: uncached input, cache writes,
+        cache reads and output, thinking not added again. Yesterday's calls
+        are not today's, wherever they were written."""
+        now = dt.datetime.now(dt.timezone.utc)
+        stamp = lambda t: t.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        path = self.write("sess.jsonl", record("msg_1", ts=stamp(now), inp=1000, out=500,
+                                               read=200_000, w1=3000, think=100))
+        self.write("other.jsonl", record("msg_2", ts=stamp(now), out=2500),
+                   record("msg_3", ts=stamp(now - dt.timedelta(days=2)), out=9999))
+        today_usd = sum(cost_of(ev["cost"])
+                        for ev in tm.iter_events(tm.transcripts(), tm.local_midnight(dt.date.today()),
+                                                 ledger=False, online=False))
+        R, D = "\x1b[0m", "\x1b[2m"
+        for setting in ("1", "yes"):
+            with self.subTest(setting=setting):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline({"model": {"display_name": "Opus"}, "transcript_path": path},
+                                           TOKENMETER_STATUS_TOKENS=setting)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                line1 = done.stdout.splitlines()[0]
+                # 1,000 + 500 + 200,000 + 3,000 + 2,500 = 207,000
+                self.assertTrue(line1.endswith(f" {tm.money(today_usd)}{D} · {R}207.0k{D} tok today{R}"),
+                                line1)
+                saved = json.loads(slurp(os.path.join(self.tmp, "statusline", ".today_cost.json")))
+                self.assertEqual(saved["tokens"], 207_000)
+        # A cache of today's figures is used for its 90 seconds; one written
+        # before the tokens were kept is worked out again when they are asked
+        # for, and still used when they are not.
+        today = dt.date.today().isoformat()
+        for cache, setting, want in (
+                ({"day": today, "total": 999.0, "tokens": 1_234_567}, "1", "{saved}{D} · {R}1.23M{D} tok today"),
+                ({"day": today, "total": 999.0}, "1", "{cost}{D} · {R}207.0k{D} tok today"),
+                ({"day": today, "total": 999.0}, "", "{saved}{D} today")):
+            with self.subTest(cache=cache, setting=setting):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline({"model": {"display_name": "Opus"}, "transcript_path": path},
+                                           day_cache=cache, TOKENMETER_STATUS_TOKENS=setting)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertTrue(done.stdout.splitlines()[0].endswith(
+                    want.format(D=D, R=R, cost=tm.money(today_usd), saved=tm.money(999.0)) + R),
+                    done.stdout)
 
     def test_the_command_line_names_where_a_bad_code_came_from(self):
         """A typo in TOKENMETER_CURRENCY read as if it had been typed on the
