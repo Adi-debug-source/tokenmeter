@@ -157,8 +157,9 @@ CURRENCIES = {
 
 # Used only when no real rate can be had: none fetched and none saved. Roughly
 # right beats refusing to print a number, but every face says it is an estimate.
-FALLBACK_RATES = {"USD": 1.0, "GBP": 0.74, "EUR": 0.86, "INR": 95.0,
-                  "CAD": 1.38, "AUD": 1.38, "JPY": 153.0}
+# Read from open.er-api.com (FX_URL) on 15 October 2026 and rounded.
+FALLBACK_RATES = {"USD": 1.0, "GBP": 0.76, "EUR": 0.89, "INR": 95.0,
+                  "CAD": 1.42, "AUD": 1.43, "JPY": 158.0}
 FX_ESTIMATE = "ESTIMATE, no exchange rate fetched and none saved"
 FX_ESTIMATE_OFFLINE = "ESTIMATE, offline and no exchange rate saved"
 

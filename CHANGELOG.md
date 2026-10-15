@@ -38,6 +38,9 @@
   Neither the changelog nor the deprecations page says what a routed call is
   billed at, which matters for 3.5 Flash, priced above 3.6 Flash. Google's
   table is marked verified on 15 October 2026.
+- The built-in exchange rates, used only when no rate can be fetched and none
+  is saved, are refreshed from open.er-api.com as read on 15 October 2026.
+  Four of them had drifted 3 to 4% low.
 
 ### Fixes
 
