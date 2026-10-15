@@ -34,6 +34,7 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -3199,7 +3200,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "notes, and the groups or sessions with --by or --sessions")
     output.add_argument("--html", nargs="?", const="auto", default="", metavar="PATH",
                         help="write the dashboard to PATH (default "
-                             "~/Downloads/Tokenmeter.html) and open it")
+                             "~/Downloads/Tokenmeter.html) and open it; with no Downloads "
+                             "folder, the default is Tokenmeter.html in the current folder")
+    output.add_argument("--no-open", action="store_true",
+                        help="with --html, write the dashboard without opening it")
     output.add_argument("--summary-json", action="store_true",
                         help="everything the menu bar shows, as JSON: today, the last 7 "
                              "and 30 days, all time, models and notes")
@@ -3378,16 +3382,43 @@ def print_json(overall, groups, meta, unknown, label: str, by: str = "", session
     print(json.dumps(out))
 
 
-def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts) -> None:
-    """--html: write the dashboard to out ("auto" is ~/Downloads) and open it.
-    parts is the run split by harness, for a page per harness."""
+def default_dashboard_path() -> str:
+    """Where --html writes with no PATH: ~/Downloads, or the current folder on
+    a machine that has no Downloads folder."""
+    downloads = os.path.expanduser("~/Downloads")
+    return os.path.join(downloads if os.path.isdir(downloads) else os.getcwd(), "Tokenmeter.html")
+
+
+def open_file(path: str) -> None:
+    """Show a file the way the desktop shows one: open on macOS, xdg-open
+    elsewhere when there is one. With no opener, or one that cannot start,
+    nothing more is said; the caller has printed where the file is. It used
+    to run open everywhere, which ended a Linux run in a traceback."""
+    if sys.platform == "darwin":
+        command = ["open", path]
+    else:
+        opener = shutil.which("xdg-open")
+        if not opener:
+            return
+        command = [opener, path]
+    try:
+        subprocess.run(command, check=False)
+    except OSError:
+        pass
+
+
+def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts,
+                    show: bool = True) -> None:
+    """--html: write the dashboard to out ("auto" is default_dashboard_path())
+    and, unless show is False (--no-open), open it. parts is the run split by
+    harness, for a page per harness."""
     if out == "auto":
-        out = os.path.expanduser("~/Downloads/Tokenmeter.html")
+        out = default_dashboard_path()
     render_html(overall, groups, meta, unknown, label, out,
                 covered=covered_span(groups, paths), views=harness_pages(parts, paths))
     print(f"wrote {out}")
-    # macOS. The one line a Linux port would change, to xdg-open.
-    subprocess.run(["open", out], check=False)
+    if show:
+        open_file(out)
 
 
 def main(argv=None) -> None:
@@ -3443,7 +3474,8 @@ def main(argv=None) -> None:
         print_json(overall, groups, meta, unknown, label, by=args.by, sessions=args.sessions,
                    covered=covered_span(groups, paths), since=since, until=until)
     elif args.html:
-        write_dashboard(overall, groups, meta, unknown, label, args.html, paths, parts)
+        write_dashboard(overall, groups, meta, unknown, label, args.html, paths, parts,
+                        show=not args.no_open)
     else:
         print_report(overall, groups, meta, unknown, args.by, label, args.sessions,
                      covered=covered_span(groups, paths))

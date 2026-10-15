@@ -338,7 +338,7 @@ only the macOS furniture is not.
 
 | Part | State on Linux | Work |
 |---|---|---|
-| `tokenmeter.py`, `adapters/`, `pricing/` | **one line** | `subprocess.run(["open", out])` for `--html` needs `xdg-open`. Everything else is standard library. |
+| `tokenmeter.py`, `adapters/`, `pricing/` | **works as is** | Standard library only. `--html` opens the page with `xdg-open` when there is one (`open_file()`), and the default path falls back to the current folder when there is no `~/Downloads`. |
 | `statusline.py` | **works as is** | |
 | `costbar/` (Swift) | **does not apply** | AppKit, `NSStatusBar`, launchd and `codesign`. A tray equivalent is a rewrite, not a port. |
 | `install.sh`, `build.sh`, `install-login-item.sh` | **does not apply** | systemd user units are the equivalent. |

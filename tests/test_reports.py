@@ -775,7 +775,8 @@ class TestCommandLine(Base):
         the path given, says where, and asks the system to open it."""
         self.write("a.jsonl", record("msg_1", out=1000))
         out = os.path.join(self.tmp, "dash.html")
-        with unittest.mock.patch.object(tm.subprocess, "run") as run:
+        with unittest.mock.patch.object(tm.subprocess, "run") as run, \
+                unittest.mock.patch("sys.platform", "darwin"):
             printed = cli("--html", out, "--no-ledger")
         self.assertEqual(printed, f"wrote {out}\n")
         run.assert_called_once_with(["open", out], check=False)
@@ -841,6 +842,76 @@ class TestCommandLine(Base):
                 self.assertIn("| `%s` |" % name, table)
         for name in re.findall(r"TOKENMETER_[A-Z_]+", slurp(tm.__file__, encoding="utf-8")):
             self.assertIn(name, names)
+
+
+class TestOpeningTheDashboard(Base):
+    """--html ran macOS's open on every platform, so a machine without it
+    wrote the page and then ended in a FileNotFoundError traceback, and
+    nothing could write the page without showing it. open_file() uses open on
+    macOS and xdg-open elsewhere, says nothing more when there is neither,
+    and --no-open opens nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a.jsonl", record("msg_1", out=1000))
+        self.out = os.path.join(self.tmp, "dash.html")
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+
+    def never_run(self, *args, **kw):
+        raise AssertionError("ran %r" % (args,))
+
+    def test_no_open_writes_the_page_and_opens_nothing(self):
+        for platform in ("darwin", "linux"):
+            with self.subTest(platform=platform), \
+                    unittest.mock.patch.object(tm.subprocess, "run", self.never_run), \
+                    unittest.mock.patch("sys.platform", platform):
+                os.makedirs(os.path.join(self.tmp, platform))
+                out = os.path.join(self.tmp, platform, "dash.html")
+                self.assertEqual(cli("--html", out, "--no-open", "--no-ledger"), f"wrote {out}\n")
+                self.assertIn("</html>", slurp(out, encoding="utf-8"))
+
+    def test_a_platform_with_no_opener_only_writes_the_page(self):
+        """With PATH emptied there is no xdg-open to find, so nothing is run;
+        on macOS, open is tried and cannot start. Either way the run ends
+        with the one line saying where the page is."""
+        with unittest.mock.patch.dict(os.environ, {"PATH": self.bin}):
+            with unittest.mock.patch.object(tm.subprocess, "run", self.never_run), \
+                    unittest.mock.patch("sys.platform", "linux"):
+                self.assertEqual(cli("--html", self.out, "--no-ledger"), f"wrote {self.out}\n")
+            os.remove(self.out)
+            with unittest.mock.patch("sys.platform", "darwin"):
+                self.assertEqual(cli("--html", self.out, "--no-ledger"), f"wrote {self.out}\n")
+        self.assertTrue(os.path.isfile(self.out))
+        failing = unittest.mock.Mock(side_effect=PermissionError("not allowed"))
+        with unittest.mock.patch.object(tm.subprocess, "run", failing):
+            tm.open_file(self.out)
+        failing.assert_called_once()
+
+    def test_xdg_open_is_used_where_there_is_one(self):
+        opener = os.path.join(self.bin, "xdg-open")
+        with open(opener, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(opener, 0o755)
+        with unittest.mock.patch.dict(os.environ, {"PATH": self.bin}), \
+                unittest.mock.patch.object(tm.subprocess, "run") as run, \
+                unittest.mock.patch("sys.platform", "linux"):
+            self.assertEqual(cli("--html", self.out, "--no-ledger"), f"wrote {self.out}\n")
+        run.assert_called_once_with([opener, self.out], check=False)
+
+    def test_the_default_is_downloads_else_the_current_folder(self):
+        home = os.path.join(self.tmp, "home")
+        here = os.path.join(self.tmp, "here")
+        os.makedirs(here)
+        with unittest.mock.patch.dict(os.environ, {"HOME": home}), \
+                unittest.mock.patch("os.getcwd", return_value=here):
+            self.assertEqual(tm.default_dashboard_path(), os.path.join(here, "Tokenmeter.html"))
+            os.makedirs(os.path.join(home, "Downloads"))
+            self.assertEqual(tm.default_dashboard_path(),
+                             os.path.join(home, "Downloads", "Tokenmeter.html"))
+            printed = cli("--html", "--no-open", "--no-ledger")
+        self.assertEqual(printed, "wrote %s\n" % os.path.join(home, "Downloads", "Tokenmeter.html"))
+        self.assertTrue(os.path.isfile(os.path.join(home, "Downloads", "Tokenmeter.html")))
 
 
 class TestPlainOutput(Base):

@@ -223,6 +223,11 @@
   Code folders to read instead of the default, so `~/.claude/projects` must
   be one of them to count this Mac as well as a copied folder. It called them
   "extra" folders, and following it left this Mac's own transcripts out.
+- `--html` opens the page with `open` on macOS and with `xdg-open`
+  elsewhere, and where neither can be run it writes the page and says
+  where, with no error. It ran `open` everywhere, so on Linux the run
+  ended in a traceback after writing the page. With no `~/Downloads`
+  folder, its default path is `Tokenmeter.html` in the current folder.
 
 ### New
 
@@ -248,6 +253,8 @@
   (`2026-10`), oldest first like `--by day`, in the terminal and in
   `--json`. Each is the sum of its local days, so they add up to the same
   total.
+- `--no-open` writes the dashboard with `--html` and opens nothing, for a
+  page made by a script or on a machine with no desktop.
 
 ### Project
 

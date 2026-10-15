@@ -64,6 +64,7 @@ tokenmeter --since 30d          # a rolling window: 24h, 7d, 30d, 2026-09-01
 tokenmeter --period lastmonth   # a calendar period: today, yesterday, week, lastweek, month, lastmonth, year
 tokenmeter --sessions           # the dearest sessions
 tokenmeter --html               # the dashboard, written to ~/Downloads and opened
+tokenmeter --html --no-open     # the dashboard, written but not opened
 tokenmeter --currency GBP       # USD is the default; GBP, EUR, INR, CAD, AUD and JPY also work
 tokenmeter --list-adapters      # which harnesses were found, and how far to trust each
 tokenmeter --list-prices        # every model with a checked price, and its rates
@@ -226,7 +227,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 
 ## Limitations
 
-- **macOS only, today.** The engine is plain Python and needs one line changed (`open` becomes `xdg-open`) to run on Linux; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
+- **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
 - **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
 - **Three of four harness readers are unverified,** as above.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
