@@ -829,16 +829,32 @@ def usage_size(usage: dict) -> int:
 ATTRIBUTION = ("when", "project", "session", "cwd", "sidechain")
 
 
+def attribution_rank(ev: dict) -> tuple:
+    """Which copy of a call keeps its attribution: the lowest rank wins.
+
+    The earliest first, and a dated copy before an undated one. Copies made
+    at the same moment, which is every copy a resumed or forked session
+    makes, go to the one whose project, session, working folder and sidechain
+    flag sort first. Nothing in such copies says which session made the call
+    (they differ only in the session id), so this is a fixed rule rather
+    than a finding, and its point is that every machine gives the same
+    answer."""
+    when = ev["when"]
+    return (when is None, when, ev["project"] or "", ev["session"] or "",
+            ev["cwd"] or "", bool(ev["sidechain"]))
+
+
 def merge(best: dict, key, ev: dict) -> None:
     """Fold one sighting of an API call into the running set.
 
-    The earliest sighting keeps the attribution: timestamp, session, project,
-    working folder and sidechain flag stay those of the run that made the
-    call, not of a session resumed or forked from it later. A copy with an
-    earlier timestamp takes them over, as does any dated copy of a call so far
-    seen undated; on a tie the first sighting keeps them. Keeping the first
-    sighting alone made the answer depend on the order the filesystem listed
-    the files in, which differs from one machine to the next.
+    One copy keeps the attribution, timestamp, session, project, working
+    folder and sidechain flag, by attribution_rank(): the earliest, so a call
+    keeps the time it was made rather than that of a session resumed or
+    forked from it later, and on a tie the one that sorts first. The result
+    is the same whatever order the files are read in. Keeping the first
+    sighting on a tie, as this did, left every copy a resume makes to the
+    order the filesystem listed the files in, which differs from one machine
+    to the next.
 
     The largest usage block wins, because a streamed reply is written once per
     content block and every copy but the last carries an output count that is
@@ -849,7 +865,7 @@ def merge(best: dict, key, ev: dict) -> None:
     if prev is not None:
         if size > prev["_size"]:
             prev["_size"], prev["_usage"] = size, ev["_usage"]
-        if ev["when"] is not None and (prev["when"] is None or ev["when"] < prev["when"]):
+        if attribution_rank(ev) < attribution_rank(prev):
             for field in ATTRIBUTION:
                 prev[field] = ev[field]
         return
@@ -1217,9 +1233,9 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
     the one kept: on one real three-month history, taking the first lost 212k
     output tokens, 7% of all output.
 
-    A response is attributed to its earliest sighting (see merge()), so the
-    timestamp, session and project stay those of the run that made the call
-    whatever order the files are read in.
+    A response is attributed to its earliest sighting, a tie settled by a
+    fixed rule (see merge()), so its timestamp, session and project are the
+    same whatever order the files are read in.
 
     With ledger=True this also reconciles against the ledger: anything the
     transcripts know and the ledger does not gets written there, and anything

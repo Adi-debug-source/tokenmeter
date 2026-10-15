@@ -62,7 +62,8 @@ total as well as the price.
 `key` must identify the API call itself, not the log line. Harnesses write the
 same call more than once (once per streamed block, again on resume, again when
 a message is edited), and the engine keeps one copy per key: the earliest
-sighting's time, session and project (the first one read on a tie), and the
+sighting's time, session and project (on a tie, the copy whose project and
+session sort first, so the order files are read in never decides), and the
 largest usage block. So:
 
 - Use the provider's response id when the log has one.

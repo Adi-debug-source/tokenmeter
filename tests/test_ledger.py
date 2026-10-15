@@ -52,15 +52,34 @@ class TestDeduplication(Base):
                 _, groups, *_ = tm.collect(order, ledger=False)
                 self.assertEqual(set(groups["session"]), {"sess-a"})
 
-    def test_a_tie_keeps_the_first_sighting_and_a_date_beats_none(self):
+    def test_a_tie_goes_to_the_same_copy_whatever_the_order(self):
+        """A resumed or forked session copies its earlier calls with their
+        timestamps, so every copy ties, and a tie kept the first sighting:
+        the order files were read in still decided, though the earliest-copy
+        rule above was meant to end that. The copy whose project and session
+        sort first now keeps it, read in either order."""
         same = "2026-09-01T12:00:00.000Z"
         a = self.write("sess-a.jsonl", record("msg_1", ts=same, out=10))
         b = self.write("sess-b.jsonl", record("msg_1", ts=same, out=10))
-        self.assertEqual(tm.scan_transcripts([a, b])["msg_1"]["session"], "sess-a")
-        self.assertEqual(tm.scan_transcripts([b, a])["msg_1"]["session"], "sess-b")
+        other = os.path.join(self.tmp, "projects", "-aaa")
+        os.makedirs(other)
+        c = os.path.join(other, "sess-c.jsonl")
+        with open(c, "w") as f:
+            f.write(record("msg_1", ts=same, out=10) + "\n")
+        for order in ([a, b], [b, a]):
+            with self.subTest(first=os.path.basename(order[0])):
+                self.assertEqual(tm.scan_transcripts(order)["msg_1"]["session"], "sess-a")
+        # The project sorts before the session.
+        for order in ([a, b, c], [c, b, a], [b, c, a]):
+            with self.subTest(order=[os.path.basename(p) for p in order]):
+                ev = tm.scan_transcripts(order)["msg_1"]
+                self.assertEqual((ev["project"], ev["session"]), ("-aaa", "sess-c"))
+
+    def test_a_dated_copy_beats_an_undated_one(self):
+        b = self.write("sess-b.jsonl", record("msg_1", ts="2026-09-01T12:00:00.000Z", out=10))
         line = json.loads(record("msg_1", out=10))
         del line["timestamp"]
-        undated = self.write("sess-c.jsonl", json.dumps(line))
+        undated = self.write("sess-a.jsonl", json.dumps(line))
         for order in ([undated, b], [b, undated]):
             with self.subTest(first=os.path.basename(order[0])):
                 self.assertEqual(tm.scan_transcripts(order)["msg_1"]["session"], "sess-b")
