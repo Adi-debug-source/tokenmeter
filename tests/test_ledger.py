@@ -8,7 +8,7 @@ import os
 import re
 import unittest
 
-from helpers import GOOD_IMPORT, Base, cli, cost_of, record, slurp, tm, usage
+from helpers import GOOD_IMPORT, Base, cli, cost_of, noon, record, slurp, tm, usage
 
 
 class TestDeduplication(Base):
@@ -332,9 +332,13 @@ class TestKeptAndOnDisk(Base):
 
     def setUp(self):
         super().setUp()
-        self.write("sess-a.jsonl", record("a1", ts="2026-09-01T12:00:00.000Z", out=1000, read=4000))
-        self.write("sess-b.jsonl", record("b1", ts="2026-09-02T12:00:00.000Z", out=2000, read=8000),
-                   record("b2", ts="2026-09-03T12:00:00.000Z", out=500, read=1500))
+        # At local noon, so --since and --until, which read a date as local
+        # midnight, split them the same way in every time zone.
+        self.write("sess-a.jsonl", record("a1", ts=noon("2026-09-01").isoformat(), out=1000,
+                                          read=4000))
+        self.write("sess-b.jsonl",
+                   record("b1", ts=noon("2026-09-02").isoformat(), out=2000, read=8000),
+                   record("b2", ts=noon("2026-09-03").isoformat(), out=500, read=1500))
         self.before = cli()                               # every call now in the ledger
         os.remove(os.path.join(self.projects, "sess-b.jsonl"))
 

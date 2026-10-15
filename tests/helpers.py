@@ -5,6 +5,7 @@ Importing this module puts the repository first on the path, so every test
 module takes tm, the engine, from here. Nothing here is a test.
 """
 
+import datetime as dt
 import json
 import os
 import re
@@ -34,6 +35,14 @@ def usage(inp=0, out=0, read=0, w5=0, w1=0, think=0, searches=0, speed=None):
     if speed:
         u["speed"] = speed
     return u
+
+
+def noon(day):
+    """Local noon on a YYYY-MM-DD day, as an aware datetime. The engine dates
+    a call, and prices it, by its local day, and noon UTC is already the next
+    day east of UTC+12, so a test that depends on the day builds its times
+    here and passes in every time zone."""
+    return dt.datetime.strptime(day, "%Y-%m-%d").replace(hour=12).astimezone()
 
 
 def record(mid, model="claude-opus-5", ts="2026-09-01T12:00:00.000Z", **kw):

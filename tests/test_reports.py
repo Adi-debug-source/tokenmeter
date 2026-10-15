@@ -18,7 +18,7 @@ import time
 import unittest.mock
 
 from helpers import (ANTHROPIC_PAGE, FIXTURES, GOOD_IMPORT, Base, as_a_new_run, cli,
-                     lay_out_three_harnesses, payload_of, record, slurp, terminal, tm)
+                     lay_out_three_harnesses, noon, payload_of, record, slurp, terminal, tm)
 
 
 class TestProjectNames(Base):
@@ -268,8 +268,8 @@ class TestWeeksAndMonths(Base):
     adding up a column of days by hand. Both are summed from the day rows,
     listed oldest first as days are, in the terminal and in --json.
 
-    The calls are at noon UTC, which is the same date in every time zone from
-    UTC-11 to UTC+11, so the local days are the ones written."""
+    The calls are at local noon, so the local days are the ones written in
+    every time zone."""
 
     def rows(self, by):
         got = json.loads(cli("--json", "--by", by, "--no-ledger"))
@@ -281,9 +281,9 @@ class TestWeeksAndMonths(Base):
                 text.split(f"by {by}\n", 1)[1].split("\n\n", 1)[0].splitlines()]
 
     def test_months_across_a_boundary_add_up_to_the_whole(self):
-        self.write("a.jsonl", record("m1", ts="2026-09-30T12:00:00.000Z", out=1000),
-                   record("m2", ts="2026-10-01T12:00:00.000Z", out=2000, read=4000))
-        self.write("b.jsonl", record("m3", ts="2026-10-02T12:00:00.000Z", inp=300, out=500))
+        self.write("a.jsonl", record("m1", ts=noon("2026-09-30").isoformat(), out=1000),
+                   record("m2", ts=noon("2026-10-01").isoformat(), out=2000, read=4000))
+        self.write("b.jsonl", record("m3", ts=noon("2026-10-02").isoformat(), inp=300, out=500))
         got, rows = self.rows("month")
         self.assertEqual(rows, [("2026-09", 1), ("2026-10", 2)])
         self.assertAlmostEqual(sum(r["total_usd"] for r in got["groups"]), got["total_usd"],
@@ -314,9 +314,9 @@ class TestWeeksAndMonths(Base):
                             tm.week_of(today.isoformat()))
 
     def test_the_new_year_is_one_week_and_two_months(self):
-        self.write("a.jsonl", record("y1", ts="2026-12-31T12:00:00.000Z", out=1000),
-                   record("y2", ts="2027-01-01T12:00:00.000Z", out=2000))
-        self.write("b.jsonl", record("y3", ts="2027-01-04T12:00:00.000Z", out=500))
+        self.write("a.jsonl", record("y1", ts=noon("2026-12-31").isoformat(), out=1000),
+                   record("y2", ts=noon("2027-01-01").isoformat(), out=2000))
+        self.write("b.jsonl", record("y3", ts=noon("2027-01-04").isoformat(), out=500))
         got, rows = self.rows("week")
         self.assertEqual(rows, [("2026-W53", 2), ("2027-W01", 1)])
         self.assertEqual([r["label"] for r in got["groups"]], ["2026-W53", "2027-W01"])

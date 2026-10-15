@@ -9,7 +9,7 @@ import datetime as dt
 import os
 import unittest
 
-from helpers import FIXTURES, Base, cost_of, slurp, tm, usage
+from helpers import FIXTURES, Base, cost_of, noon, slurp, tm, usage
 
 
 class TestPublishedRates(Base):
@@ -53,10 +53,8 @@ class TestPublishedRates(Base):
         Cache writes and every other price unchanged. A call keeps the price
         of its own day, and a lookup with no date gives today's."""
         u = usage(inp=1_000_000, read=1_000_000, w5=1_000_000, w1=1_000_000, out=1_000_000)
-        before = tm.price_record("claude-sonnet-5-5", u,
-                                 when=dt.datetime(2026, 10, 6, 12, tzinfo=dt.timezone.utc))
-        after = tm.price_record("claude-sonnet-5-5", u,
-                                when=dt.datetime(2026, 10, 7, 12, tzinfo=dt.timezone.utc))
+        before = tm.price_record("claude-sonnet-5-5", u, when=noon("2026-10-06"))
+        after = tm.price_record("claude-sonnet-5-5", u, when=noon("2026-10-07"))
         self.assertAlmostEqual(before["cache_read"], 0.20, places=9)
         self.assertAlmostEqual(after["cache_read"], 0.10, places=9)
         for c in (before, after):
@@ -201,8 +199,7 @@ class TestOtherProvidersPublishedRates(Base):
 
     def test_gemini_flash_prices_change_on_new_year(self):
         """Launch price through 31 December 2026, list price from 1 January 2027."""
-        before = dt.datetime(2026, 12, 31, 12, tzinfo=dt.timezone.utc)
-        after = dt.datetime(2027, 1, 2, 12, tzinfo=dt.timezone.utc)
+        before, after = noon("2026-12-31"), noon("2027-01-02")
         for model in ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"):
             with self.subTest(model=model):
                 self.assertEqual(tm.lookup(model, before, "google")[0]["in"], 0.75)
