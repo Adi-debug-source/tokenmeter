@@ -43,6 +43,10 @@ Row fields are the same as the Anthropic table, plus two optional ones:
   long         {"over": tokens, "in": mult, "out": mult} for long-context rates
 """
 
+import re
+
+from .common import money
+
 PROVIDER = "openai"
 NAME = "OpenAI"
 SOURCE = "https://developers.openai.com/api/docs/pricing"
@@ -138,13 +142,6 @@ WATCH = r"^(gpt-[5-9]|o\d|codex)"
 IGNORE = {"gpt-5-search-api", "gpt-5.5-cyber", "gpt-5.6-cyber", "gpt-rosalind-research"}
 
 
-def _money(cell: str):
-    """"$10.00" -> 10.0. "-" and "Free" -> None."""
-    import re
-    m = re.search(r"\$([\d.,]+)", cell)
-    return float(m.group(1).replace(",", "")) if m else None
-
-
 def _model(cell: str) -> str:
     """"gpt-5.5 (<272K context length)" -> "gpt-5.5"."""
     return cell.split("(")[0].strip()
@@ -169,7 +166,6 @@ def page_rates(fetch, tables, want=None):
     Used by --check-prices (want=None: every model in this table), which
     reports differences and never edits this file, and by the startup lookup
     for models the table lacks (want: just those)."""
-    import re
     rates, seen, grouped = {}, [], 0
     for title, header, rows in tables(fetch(SOURCE_MD)):
         h = [c.strip().lower() for c in header]
@@ -182,23 +178,23 @@ def page_rates(fetch, tables, want=None):
                 seen.append(mid)
                 if fast:
                     if mid in rates:
-                        rates[mid]["fast_in"] = _money(r[1])
-                        rates[mid]["fast_out"] = _money(r[4])
+                        rates[mid]["fast_in"] = money(r[1])
+                        rates[mid]["fast_out"] = money(r[4])
                     continue
-                rates[mid] = {"in": _money(r[1]), "cached": _money(r[2]),
-                              "write": _money(r[3]), "out": _money(r[4]),
-                              "long_in": _money(r[5]), "long_out": _money(r[8])}
+                rates[mid] = {"in": money(r[1]), "cached": money(r[2]),
+                              "write": money(r[3]), "out": money(r[4]),
+                              "long_in": money(r[5]), "long_out": money(r[8])}
         elif h == ["category", "model", "input", "cached input", "output"]:
             grouped += 1
             for r in rows:
                 mid = r[1].strip()
                 seen.append(mid)
                 if grouped == 1:
-                    rates[mid] = {"in": _money(r[2]), "cached": _money(r[3]),
-                                  "out": _money(r[4])}
+                    rates[mid] = {"in": money(r[2]), "cached": money(r[3]),
+                                  "out": money(r[4])}
                 elif mid in rates:
-                    rates[mid]["fast_in"] = _money(r[2])
-                    rates[mid]["fast_out"] = _money(r[4])
+                    rates[mid]["fast_in"] = money(r[2])
+                    rates[mid]["fast_out"] = money(r[4])
     for mid in (PRICES if want is None else want):
         if mid in rates:
             continue
@@ -210,7 +206,7 @@ def page_rates(fetch, tables, want=None):
                 key = {"input": "in", "cached input": "cached", "cache writes": "write",
                        "output": "out"}.get(row[0].strip().lower())
                 if key and key not in r:
-                    r[key] = _money(row[1])
+                    r[key] = money(row[1])
             break
         if r:
             rates[mid] = r

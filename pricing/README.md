@@ -25,6 +25,7 @@ recorded, and pinned by a test. Never from memory, a blog, or an aggregator.
 | `RETIRED` *(optional)* | `{model id: "YYYY-MM-DD"}`: models the page no longer lists, kept at their last published price so older usage is still priced, with the retirement date from the provider's own deprecation notice. |
 | `LONG_OVER` *(optional)* | The provider's long-context threshold in prompt tokens, as the engine tests it ("more than"). Its rows' `long` use it, and the startup lookup gives it to a looked-up model the page lists long-context rates for. |
 | `page_rates(fetch, tables, want=None)` *(optional)* | Reads the live page, for `--check-prices` and the startup lookup. |
+| `SOURCE_MD`, `PAGE_NAMES` *(optional)* | Read only by the file's own `page_rates()`: the page in markdown, and the page's model names mapped to ids. |
 
 A row:
 
@@ -50,6 +51,11 @@ the page gives: `in`, `out`, `cached`, `write` or `write_5m`, `write_1h`,
 (dated prices, oldest first, each with `from`, `in`, `out` and `cached`).
 `--check-prices` compares every field it finds; the startup lookup turns
 them into rows, one per dated price.
+
+`common.py` is not a table. It holds what the page readers share:
+`money(cell)` reads the first dollar figure in a page's cell, so
+`"$1,250.00 / MTok"` gives `1250.0` and a cell with no figure gives `None`.
+Use it rather than writing another.
 
 ## Adding a provider or a model
 

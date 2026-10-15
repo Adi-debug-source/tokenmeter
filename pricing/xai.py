@@ -22,7 +22,7 @@ fees (X search, code execution, collections), and Grok 4.7 Fast, which is
 not on the public API.
 """
 
-import re
+from .common import money
 
 PROVIDER = "xai"
 NAME = "xAI"
@@ -91,11 +91,6 @@ ALIASES = {
 FALLBACK_MODEL = "grok-4.7"
 
 
-def _money(cell: str):
-    m = re.search(r"\$([\d.,]+)", cell)
-    return float(m.group(1).replace(",", "")) if m else None
-
-
 def page_rates(fetch, tables, want=None):
     """Every text-model rate on the page, as {model id: {field: $/MTok}}.
     Used by --check-prices and the startup lookup; never edits this file."""
@@ -110,8 +105,8 @@ def page_rates(fetch, tables, want=None):
             seen.append(mid)
             entry = rates.setdefault(mid, {})
             if "≥" in qual or ">=" in qual:
-                entry["long_in"], entry["long_out"] = _money(r[2]), _money(r[4])
+                entry["long_in"], entry["long_out"] = money(r[2]), money(r[4])
             else:
-                entry.update({"in": _money(r[2]), "cached": _money(r[3]), "out": _money(r[4])})
+                entry.update({"in": money(r[2]), "cached": money(r[3]), "out": money(r[4])})
     unknown = sorted(m for m in set(seen) if m not in PRICES and m not in ALIASES)
     return rates, unknown

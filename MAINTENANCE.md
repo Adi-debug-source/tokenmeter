@@ -19,7 +19,7 @@ was caught by its own test.
 |---|---|---|
 | `tokenmeter.py` | the engine | merging, the ledger, pricing arithmetic, reports, the dashboard, the online lookup |
 | `adapters/` | one reader per harness | turning a log into calls; nothing else |
-| `pricing/` | one table per provider | rates, the evidence for them, reading the provider's page |
+| `pricing/` | one table per provider, and `common.py`, which their page readers share | rates, the evidence for them, reading the provider's page |
 | `costbar/` | menu bar app | display only; runs `--summary-json` |
 | `statusline.py` | Claude Code status line | display only; calls `session_totals()` |
 | `tests/` | the safety net | |
@@ -39,7 +39,8 @@ runtime. All three carry the same comment. **Change one and you must change
 all three**, or the same figure reads differently in different places, which
 has happened. In Python the rule itself is `format_money()`, which `money()`
 calls with the display currency and the terminal calls for the dollar figure
-beside another currency.
+beside another currency. `pricing/common.py` has a `money()` of its own, but
+it reads a figure off a pricing page and formats nothing.
 
 ## When a harness updates
 

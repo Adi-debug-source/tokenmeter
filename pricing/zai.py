@@ -18,7 +18,7 @@ Rules taken from the page and modelled here:
   - No long-context tier.
 """
 
-import re
+from .common import money
 
 PROVIDER = "zai"
 NAME = "Z.ai"
@@ -60,13 +60,6 @@ PRICES = {
 FALLBACK_MODEL = "glm-5.3"
 
 
-def _money(cell):
-    if cell.strip().lower() == "free":
-        return 0.0
-    m = re.search(r"\$([\d.]+)", cell)
-    return float(m.group(1)) if m else None
-
-
 def page_rates(fetch, tables, want=None):
     rates, seen = {}, []
     for title, header, rows in tables(fetch(SOURCE_MD)):
@@ -78,6 +71,8 @@ def page_rates(fetch, tables, want=None):
         for r in rows:
             mid = r[0].strip().lower()
             seen.append(mid)
-            inp, cached, out = _money(r[1]), _money(r[2]), _money(r[4])
+            # The page writes a free model's prices as "Free". A figure stops at
+            # a comma, as this reader always has; Z.ai's are all under $10.
+            inp, cached, out = (money(r[i], free_is_zero=True, commas=False) for i in (1, 2, 4))
             rates[mid] = {"in": inp, "out": out, "cached": inp if cached is None else cached}
     return rates, sorted(m for m in set(seen) if m not in PRICES)

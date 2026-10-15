@@ -54,6 +54,10 @@ entry. The dating is insurance. When a rate changes, add an entry with the date
 it took effect and leave the old one alone.
 """
 
+import re
+
+from .common import money
+
 PROVIDER = "anthropic"
 NAME = "Anthropic"
 SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
@@ -132,16 +136,8 @@ PAGE_NAMES = {
 }
 
 
-def _money(cell: str):
-    """"$0.25 / MTok<sup>1</sup>" -> 0.25. Anything without a figure -> None."""
-    import re
-    m = re.search(r"\$([\d.,]+)", cell)
-    return float(m.group(1).replace(",", "")) if m else None
-
-
 def _name(cell: str) -> str:
     """"Claude Opus 4.1 ([retired, ...](...))" -> "Claude Opus 4.1"."""
-    import re
     cell = re.sub(r"<sup>.*?</sup>", "", cell)
     return re.sub(r"\s*\(\[.*$", "", cell).strip()
 
@@ -171,15 +167,15 @@ def page_rates(fetch, tables, want=()):
                     mid = page_id(name)
                     if mid not in want:
                         continue
-                rates[mid] = {"in": _money(r[1]), "write_5m": _money(r[2]),
-                              "write_1h": _money(r[3]), "cached": _money(r[4]),
-                              "out": _money(r[5])}
+                rates[mid] = {"in": money(r[1]), "write_5m": money(r[2]),
+                              "write_1h": money(r[3]), "cached": money(r[4]),
+                              "out": money(r[5])}
         elif h == ["model", "input", "output"]:
             # Fast mode, where one row can name two models.
             for r in rows:
                 for name in _name(r[0]).split(" / "):
                     mid = PAGE_NAMES.get(name.strip()) or page_id(name.strip())
                     if mid in rates:
-                        rates[mid]["fast_in"] = _money(r[1])
-                        rates[mid]["fast_out"] = _money(r[2])
+                        rates[mid]["fast_in"] = money(r[1])
+                        rates[mid]["fast_out"] = money(r[2])
     return rates, unknown

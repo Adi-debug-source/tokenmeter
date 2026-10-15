@@ -2520,6 +2520,48 @@ class TestCheckPrices(Base):
         self.assertIn("could not read the page", out)
 
 
+class TestPageMoney(Base):
+    """Four page readers each kept a copy of the rule for reading a dollar
+    figure off a pricing page; pricing.common.money() is the one rule now, and
+    it must read every cell exactly as each copy did."""
+
+    CELLS = ("$0.25 / MTok<sup>1</sup>", "$10.00", "$1,250.00", "$1,250", "-", "", "Free",
+             " free ", "FREE", "Free tier, then $2.50", "Input: $3 / Output: $15", "n/a",
+             "$0.0375 / MTok", "$.5", "about $7")
+
+    @staticmethod
+    def with_commas(cell):
+        """Anthropic's, OpenAI's and xAI's copy, as it was."""
+        m = re.search(r"\$([\d.,]+)", cell)
+        return float(m.group(1).replace(",", "")) if m else None
+
+    @staticmethod
+    def zai(cell):
+        """Z.ai's copy, as it was: "Free" is zero, and a figure stops at a comma."""
+        if cell.strip().lower() == "free":
+            return 0.0
+        m = re.search(r"\$([\d.]+)", cell)
+        return float(m.group(1)) if m else None
+
+    def test_every_cell_reads_as_it_did(self):
+        from pricing.common import money
+        for cell in self.CELLS:
+            with self.subTest(cell=cell):
+                self.assertEqual(money(cell), self.with_commas(cell))
+                self.assertEqual(money(cell, free_is_zero=True, commas=False), self.zai(cell))
+        self.assertEqual(money("$1,250.00 / MTok"), 1250.0)
+        self.assertIsNone(money("Free"))
+        self.assertEqual(money(" Free ", free_is_zero=True), 0.0)
+
+    def test_no_table_keeps_a_copy(self):
+        import pricing
+        for table in pricing.TABLES.values():
+            with self.subTest(table=table.PROVIDER):
+                self.assertFalse(hasattr(table, "_money"))
+                self.assertFalse(hasattr(table, "_MONEY"))
+        self.assertNotIn("common", pricing.TABLES)
+
+
 class TestPublishedPriceList(Base):
     def test_docs_prices_matches_the_tables(self):
         """docs/prices.md is generated; it must never drift from what prices."""

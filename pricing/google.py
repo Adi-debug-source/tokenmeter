@@ -31,6 +31,7 @@ Not modelled, and why:
     higher rate.
 """
 
+import datetime as dt
 import re
 
 PROVIDER = "google"
@@ -127,7 +128,6 @@ def page_rates(fetch, tables, want=None):
     file, and by the startup lookup for a model this table lacks. The page
     is HTML: one heading per model, its id in <code>, then a Standard table.
     """
-    import datetime as dt
     text = fetch(SOURCE)
     rates, seen = {}, []
     for block in re.split(r"<h2 ", text)[1:]:
