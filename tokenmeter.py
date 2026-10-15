@@ -747,14 +747,15 @@ def session_paths(path: str) -> tuple:
     session ids its calls carry are the filter, because each harness names a
     session its own way: Codex by the id inside the file rather than its
     name, Gemini CLI likewise, and a Claude Code agent by the session that
-    started it. Filtering on the file's name found nothing for any of them. A
-    Claude Code transcript brings its agents' transcripts with it, and an
-    agent's brings its session's and the other agents' (claude_code.
-    session_files()), so the files read are the ones the session id keeps:
-    with the agent's file alone, a run without the ledger priced part of the
-    session under its name, and one with the ledger took the rest for calls
-    whose transcripts were gone. A file with no calls in it falls back to its
-    name, which is a Claude Code session's id.
+    started it. Filtering on the file's name found nothing for any of them.
+
+    A Claude Code transcript brings its agents' transcripts with it, and an
+    agent's brings its session's and the other agents'
+    (claude_code.session_files()), so the files read are the ones the session
+    id keeps: with the agent's file alone, a run without the ledger priced
+    part of the session under its name, and one with the ledger took the
+    rest for calls whose transcripts were gone. A file with no calls in it
+    falls back to its name, which is a Claude Code session's id.
     """
     adapter = adapter_for(path)
     paths = claude_code.session_files(path) if adapter is claude_code else [path]
