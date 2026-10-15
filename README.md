@@ -22,7 +22,7 @@ It has four faces over one engine:
 ## Requirements
 
 - macOS 12 or later
-- Python 3.9 or later (the one macOS ships is fine), no packages to install
+- Python 3.9 or later, no packages to install. The menu bar app runs `/usr/bin/python3`, which the Xcode command line tools provide (3.9.6 in current versions)
 - The Xcode command line tools, for the menu bar app: `xcode-select --install` (Homebrew installs them for you)
 
 ## Install
@@ -47,7 +47,7 @@ cd tokenmeter
 
 Either way the same installer runs. It copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; add `--statusline` to replace it, or `--no-app` to skip the menu bar app. From a clone, run `./install.sh` again after `git pull` to update.
 
-To remove everything except your usage history: `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`, or `./install.sh --uninstall` from a clone. Files are moved to the Bin rather than deleted.
+To remove everything except your usage history: `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`, or `./install.sh --uninstall` from a clone. Files are moved to the Bin rather than deleted, except the login item's generated plist, which is removed.
 
 ## Usage
 
@@ -218,7 +218,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME` | Respected, as each harness uses them |
 
-The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there.
+The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there. The installer (`costbar/install-login-item.sh`) writes that file afresh when it sets the login item up, so anything added there must be added again after an uninstall and reinstall.
 
 ## Limitations
 

@@ -267,6 +267,11 @@
   `--by provider`, which both worked already, and the README's harness table
   names Gemini CLI's folder under the macOS sandbox, `~/.cache/.gemini/tmp`,
   which was already read.
+- The README says the menu bar app runs `/usr/bin/python3`, which the Xcode
+  command line tools provide, rather than that any Python 3.9 will do; that
+  uninstalling removes the login item's plist rather than moving it to the
+  Bin; and that variables set in that plist must be added again after an
+  uninstall and reinstall, which writes it afresh.
 
 ## 1.1.2, 6 October 2026
 
