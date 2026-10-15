@@ -226,7 +226,7 @@ Last 30 days       $250.75 · 410.00M tok
 All time         $1,024.50 ·   1.62B tok
 ```
 
-Flipping it changes the menu bar and every row at once and leaves the menu open; Command-T does the same while the menu is open. The status line's setting and the menu bar's switch are both off unless asked for, so each is otherwise exactly as it was.
+Flipping it changes the menu bar and every row at once and leaves the menu open. From the keyboard, Command-T toggles it while the menu is open. The status line's setting and the menu bar's switch are both off unless asked for, so each is otherwise exactly as it was.
 
 `--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
