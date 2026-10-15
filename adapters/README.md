@@ -91,7 +91,7 @@ Build fixtures from the harness's source: every field name and nesting exactly
 as the source writes it, with invented content. Cover the traps the format
 has: repeated lines, partial records, a record with no usage, a model change
 mid-session. The existing fixtures under `tests/fixtures/` show the pattern,
-and `tests/test_tokenmeter.py` has a class per adapter.
+and `tests/test_adapters.py` has a class per adapter.
 
 Run `python3 tests/test_tokenmeter.py` before and after. The Claude Code
 figures must not move by a single token.

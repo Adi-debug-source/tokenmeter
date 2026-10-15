@@ -11,7 +11,8 @@ Standard library only, no network, well under a second. Most tests guard a
 bug that was once real and name it in their docstring, so a failure tells you
 what broke rather than only that something did. Run it after any change. The
 suite was checked by mutation: past bugs were put back one at a time and each
-was caught by its own test.
+was caught by its own test. It runs every test module in `tests/`; one area
+runs on its own, as `python3 tests/test_ledger.py`.
 
 ## How it fits together
 
@@ -22,7 +23,7 @@ was caught by its own test.
 | `pricing/` | one table per provider, and `common.py`, which their page readers share | rates, the evidence for them, reading the provider's page |
 | `costbar/` | menu bar app | display only; runs `--summary-json` |
 | `statusline.py` | Claude Code status line | display only; calls `session_totals()` |
-| `tests/` | the safety net | |
+| `tests/` | the safety net | one module per area (`test_money.py`, `test_pricing.py`, `test_prices_pinned.py`, `test_ledger.py`, `test_adapters.py`, `test_lookup.py`, `test_reports.py`, `test_dashboard.py`, `test_statusline.py`), what they share in `helpers.py`, and `test_tokenmeter.py`, which runs them all |
 
 The rule that matters: **arithmetic lives in `tokenmeter.py` and nowhere
 else.** Six bugs in this tool's history were a second copy of some logic

@@ -63,7 +63,7 @@ Use it rather than writing another.
    markdown form (append `.md` to many docs URLs) is the easiest to check.
 2. Add the rows, with a docstring saying which page, which date, which tier,
    and every rule you modelled or deliberately did not.
-3. Pin every rate in `tests/test_tokenmeter.py`, typed from the page, not
+3. Pin every rate in `tests/test_prices_pinned.py`, typed from the page, not
    copied from your table. A slip in either then fails.
 4. Write `page_rates()` if the page can be read reliably, and run
    `python3 tokenmeter.py --check-prices`. It must report every model matching.

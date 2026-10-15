@@ -196,6 +196,11 @@
   itself. Every other key keeps its value. The terminal, the dashboard and
   the summary now take their rolling windows and caching figures from one
   place in the engine each.
+- The tests are split by area, one module each for money, pricing, the
+  pinned published rates, the ledger, the adapters, the network lookups,
+  reports, the dashboard and the status line, with what they share in
+  `tests/helpers.py`. `python3 tests/test_tokenmeter.py` still runs them
+  all, and one area runs on its own.
 
 ## 1.1.2, 6 October 2026
 
