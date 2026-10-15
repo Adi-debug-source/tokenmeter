@@ -56,6 +56,11 @@ class TestProjectNames(Base):
                 unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
             label = json.loads(cli("--json", "--project", ".", "--no-ledger"))["label"]
         self.assertEqual(label, "all time \u00b7 code/My App")
+        # Run from the home folder, which holds both projects.
+        with unittest.mock.patch("os.getcwd", return_value="/Users/sam"), \
+                unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
+            got = json.loads(cli("--json", "--project", ".", "--no-ledger"))
+        self.assertEqual((got["label"], got["calls"]), ("all time \u00b7 ~", 2))
 
     def test_an_imports_real_path_still_matches(self):
         trial = os.path.join(self.tmp, "trial.jsonl")
@@ -407,6 +412,9 @@ class TestNamesAndNotes(Base):
         self.assertEqual(tm.project_name(slug + "-code-app"), "code-app")
         self.assertEqual(tm.project_name(os.path.join(home, "code", "app")), "code/app")
         self.assertEqual(tm.project_name("-srv-shared-app"), "-srv-shared-app")
+        # The home directory itself came back whole, username and all.
+        self.assertEqual(tm.project_name(home), "~")
+        self.assertEqual(tm.project_name(slug), "~")
 
     def test_a_stale_table_is_flagged(self):
         real = tm._anthropic.VERIFIED_ON

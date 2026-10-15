@@ -106,7 +106,9 @@ the dashboard and the menu bar.
   and the filter was matched against that alone, so a name with a space or
   punctuation, such as `My App`, or a full path found nothing. Every harness's
   projects are now matched both ways, ignoring case, and the report's label
-  names the project without the home folder.
+  names the project without the home folder. A project in the home folder
+  itself is named `~` there and in every table, rather than its full path or
+  slug, username included.
 - A `--project`, `--session` or `--adapter` that matches no call stops with
   "no calls match" and the filters as given, and for `--project` lists up to
   five projects that do have calls, latest first. Any warning the logs it read

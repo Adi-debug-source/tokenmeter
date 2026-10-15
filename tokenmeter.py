@@ -2096,11 +2096,14 @@ def project_name(project: str) -> str:
     with every character that is not a letter or digit turned into "-", so
     /Users/sam/code/app becomes -Users-sam-code-app. Other adapters and
     imports carry a real path. Either way the home directory is dropped, which
-    reads better and keeps a username out of every screenshot.
+    reads better and keeps a username out of every screenshot, and the home
+    directory itself is "~": it came back whole, username and all.
     """
     if not project:
         return project
     home = os.path.expanduser("~").rstrip(os.sep)
+    if project in (home, claude_code.slug(home)):
+        return "~"
     if project.startswith(home + os.sep):
         return project[len(home) + 1:]
     prefix = claude_code.slug(home) + "-"
