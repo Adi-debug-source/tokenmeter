@@ -1413,7 +1413,7 @@ def join_words(items) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-# ---------------------------------------------------------------- tallies
+# ---------------------------------------------------------------- the tally
 
 def empty_row() -> dict:
     """A totals row with nothing in it yet: every component, the total, the
