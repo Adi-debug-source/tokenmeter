@@ -298,7 +298,8 @@ second step.
 
 Until 6 October 2026 the formula lived in a separate tap,
 `Adi-debug-source/homebrew-tokenmeter`, now archived and private. Anyone who
-tapped it keeps the version they have but gets no updates. To move across:
+tapped it keeps the version they have but gets no updates, and `brew update`
+reports an error fetching it until it is untapped. To move across:
 
     brew untap adi-debug-source/tokenmeter
     brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
@@ -307,7 +308,7 @@ After each release:
 
 1. Take the checksum of the new tag's tarball, as GitHub serves it:
 
-        curl -sL https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/v1.1.1.tar.gz | shasum -a 256
+        curl -sL https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256
 
 2. In `Formula/tokenmeter.rb`, set `url` to the new tag and `sha256` to that
    checksum. Commit it to `main` and push. This commit comes after the tag, so
@@ -321,7 +322,8 @@ After each release:
         tokenmeter-setup
         tokenmeter --version
 
-4. `brew audit --strict adi-debug-source/tokenmeter/tokenmeter` should be clean.
+4. `brew audit --strict --online adi-debug-source/tokenmeter/tokenmeter`
+   should be clean.
 
 ## What a Linux port would need
 
