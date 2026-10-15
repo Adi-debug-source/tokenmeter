@@ -1070,6 +1070,23 @@ class TestTokenTotals(Base):
         self.assertEqual(tm.token_totals(overall["tokens"])["total"], 6160)
         self.assertEqual(self.headline(self.report()), "  6.2k tokens   1 API call")
 
+    def test_fresh_tokens_leave_out_the_cache_reads(self):
+        """Cache reads are the context read again on every turn and most of
+        any total, so the total alone read as that much new text."""
+        self.write("a.jsonl", record("msg_1", inp=1000, out=4000, read=95000, w5=0))
+        text = self.report()
+        lines = text.splitlines()
+        at = lines.index(self.headline(text))
+        self.assertEqual(lines[at], "  100.0k tokens   1 API call")
+        self.assertEqual(lines[at + 1], "  of which fresh (excluding cache reads): 5.0k")
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        got = tm.token_totals(overall["tokens"])
+        self.assertEqual(got["fresh"], got["total"] - got["cache_read"])
+        # A window with nothing in it says nothing of fresh tokens.
+        empty = cli("--no-ledger", "--until", "2026-01-01")
+        self.assertIn("  0 tokens   0 API calls", empty)
+        self.assertNotIn("fresh", empty)
+
     def test_a_total_reads_as_the_rows_for_each_kind_do(self):
         """999, then 1.0k, 1.00M and 1.00B, as toks() writes the rows for
         each kind."""

@@ -2076,6 +2076,10 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     tokens = token_totals(overall["tokens"])
     print(f"  {BOLD}{toks(tokens['total'])} tokens{RESET}"
           f"   {DIM}{plural(overall['calls'], 'API call')}{RESET}")
+    # Most of a total is cache reads, the context read again on every turn,
+    # so without this it reads as that much new text.
+    if tokens["total"]:
+        print(f"  {DIM}of which fresh (excluding cache reads): {toks(tokens['fresh'])}{RESET}")
     if covered:
         print(f"  {DIM}{covered}{RESET}")
     print()

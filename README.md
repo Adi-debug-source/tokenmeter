@@ -199,11 +199,12 @@ Every API call in the logs on this Mac, plus every call the ledger remembers. No
 
 One definition, used wherever a total is given: **total tokens = uncached input + cache writes + cache reads + output.** Thinking is already part of output, so it is not added again, and web searches are counted as requests, not as tokens. Each call is counted once, from its complete copy, however many times its log wrote it.
 
-The report gives the total under the cost, in the same shape:
+The report gives the total under the cost, in the same shape, and under that the fresh tokens: the total less cache reads. Cache reads are the context read again on every turn, usually the great majority of a total, so the total mostly measures re-reading and the fresh figure is the one that follows how much new work went in.
 
 ```
   $1,024.50   8,120 API calls
   1.62B tokens   8,120 API calls
+  of which fresh (excluding cache reads): 61.30M
 ```
 
 ### Rolling windows and calendar periods

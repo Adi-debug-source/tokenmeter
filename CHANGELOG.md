@@ -284,6 +284,10 @@
   so it is not added again, and web searches are not tokens. The report
   listed each kind of token but never their sum, so the only total anyone
   saw was one counted another way.
+- Under the total, the report gives the fresh tokens: the total less cache
+  reads ("of which fresh (excluding cache reads): 61.30M"). Cache reads are
+  the context read again on every turn and most of any total, so the total
+  alone read as that much new text.
 
 ### Project
 
