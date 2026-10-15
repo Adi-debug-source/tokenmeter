@@ -35,10 +35,11 @@ prices; a price file never adds up. The figures every face shows come from one
 helper each: the today, 7-day and 30-day windows from `rolling_windows()`,
 what caching was worth from `caching_summary()`, total tokens from
 `token_totals()` (uncached input, cache writes, cache reads and output; the
-README states it once, and the terminal, the dashboard's Tokens chart,
-`--json` and `--summary-json` all use it), and the rows `--by` and
-`--sessions` list, in the terminal and in `--json`, from `grouped()`, which
-sums the day rows into weeks and months rather than keeping them per call.
+README states it once, and the terminal, the dashboard's total tokens tile
+and Tokens chart, `--json` and `--summary-json` all use it), and the rows
+`--by` and `--sessions` list, in the terminal and in `--json`, from
+`grouped()`, which sums the day rows into weeks and months rather than
+keeping them per call.
 `--json` and `--summary-json` only ever gain keys, added after the ones
 already there: the menu bar and scripts read them by name.
 
@@ -282,8 +283,10 @@ In order, because each step rules out the one below:
   `reconcile_ledger()`, in the same branch that counts it for the covered
   line's "no longer in any transcript". `kept_and_on_disk()` adds those
   calls' tokens up for the report's "kept by the ledger ... on disk now"
-  line and for `tokens_on_disk` and `tokens_ledger_only` in `--json` and
-  `--summary-json`, so none of them can disagree with the count.
+  line, the dashboard's note under its tiles (the same line, given only
+  when some calls are ledger only) and for `tokens_on_disk` and
+  `tokens_ledger_only` in `--json` and `--summary-json`, so none of them
+  can disagree with the count.
 - `--project`, `--session` and `--adapter` apply to the ledger's calls as to
   the logs' (`kept()`), because a call restored from the ledger has no file
   to filter on. A filter that keeps no call stops with "no calls match",

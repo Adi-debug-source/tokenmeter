@@ -8,7 +8,7 @@ import re
 import shutil
 import unittest.mock
 
-from helpers import Base, payload_of, record, slurp, tm
+from helpers import Base, lay_out_three_harnesses, payload_of, record, slurp, tm
 
 
 class TestDashboard(Base):
@@ -213,6 +213,89 @@ class TestDashboard(Base):
         for name in ("dashboard.css", "dashboard.js"):
             text = slurp(os.path.join(tm.DASH_DIR, name), encoding="utf-8")
             self.assertIn(text.split("__PAYLOAD__")[-1], page)
+
+
+class TestDashboardTokens(Base):
+    """The dashboard gave each kind of token but never their total, nor how
+    much of it the transcripts on disk still hold. A tile now gives total
+    tokens by token_totals(), with fresh tokens under it, and a note under
+    the tiles gives the report's kept and on-disk split whenever the ledger
+    holds calls no transcript has any more."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("sess-a.jsonl", record("a1", ts="2026-09-01T12:00:00.000Z",
+                                          inp=100, out=1000, read=4000, think=200))
+        self.gone = self.write("sess-b.jsonl",
+                               record("b1", ts="2026-09-02T12:00:00.000Z", out=2000, read=8000, w1=900),
+                               record("b2", ts="2026-09-03T12:00:00.000Z", out=500, read=1500))
+
+    def page(self, ledger=True):
+        out = os.path.join(self.tmp, "d.html")
+        overall, groups, meta, unknown = tm.collect(tm.transcripts(), ledger=ledger)
+        tm.render_html(overall, groups, meta, unknown, "all time", out)
+        return slurp(out, encoding="utf-8")
+
+    def test_a_tile_gives_total_tokens_with_fresh_tokens_under_it(self):
+        """Uncached input, cache writes, cache reads and output: 18,000, the
+        200 thinking tokens already inside output. Fresh leaves out the
+        13,500 cache reads."""
+        page = self.page(ledger=False)
+        # Beside the other tiles, in their markup, the subtitle under its label.
+        self.assertIn('<div class="kpi"><b>3</b><span>API calls</span></div>'
+                      '<div class="kpi"><b>18.0k</b><span>Total tokens</span>'
+                      '<small>4.5k fresh</small></div>'
+                      '<div class="kpi"><b>14.5k</b><span>Prompt tokens</span></div>', page)
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        counted = tm.token_totals(overall["tokens"])
+        self.assertEqual((counted["total"], counted["fresh"], counted["thinking"]), (18000, 4500, 200))
+
+    def test_the_note_is_there_only_when_the_ledger_holds_what_no_transcript_does(self):
+        """Every call on disk: kept and on disk are the same figure and there
+        is no note. With a session's transcript deleted, the tile keeps its
+        total and the note says how much of it only the ledger still has.
+        Without the ledger nothing is kept, so there is no note either."""
+        page = self.page()
+        self.assertNotIn('class="kept-note"', page)
+        self.assertIn("<b>18.0k</b><span>Total tokens</span>", page)
+        os.remove(self.gone)
+        page = self.page()
+        self.assertIn("<b>18.0k</b><span>Total tokens</span>", page)
+        self.assertIn('<p class="kept-note">Kept by the ledger 18.0k · on disk now 5.1k · '
+                      "12.9k from 1 session whose transcripts are gone. Deleted sessions take "
+                      "their transcripts with them; Tokenmeter keeps the record.</p>", page)
+        self.assertEqual(page.count('class="kept-note"'), 1)
+        page = self.page(ledger=False)
+        self.assertNotIn('class="kept-note"', page)
+        self.assertIn("<b>5.1k</b><span>Total tokens</span>", page)
+
+    def test_the_tokens_chart_counts_the_same_total_ledger_only_days_included(self):
+        """The Spend over time chart's Tokens view counts each day by
+        token_totals() too, and a day whose transcript is gone is still a
+        day of the chart, so its days add up to the tile."""
+        self.page()
+        os.remove(self.gone)
+        days = payload_of(self.page())["views"]["all"]["days"]
+        self.assertEqual([d["tokens"] for d in days], [5100, 10900, 2000])
+        self.assertEqual(sum(d["tokens"] for d in days), 18000)
+        days = payload_of(self.page(ledger=False))["views"]["all"]["days"]
+        self.assertEqual([d["tokens"] for d in days], [5100])
+
+    def test_each_harness_page_gives_its_own_total(self):
+        paths = lay_out_three_harnesses(self)
+        whole, parts = tm.collect_views(paths, ledger=False)
+        out = os.path.join(self.tmp, "d.html")
+        tm.render_html(*whole.result(), "all time", out, views=tm.harness_pages(parts, paths))
+        page = slurp(out, encoding="utf-8")
+        views = re.findall(r'<div class="view" data-view="([^"]+)".*?<b>([^<]+)</b>'
+                           r'<span>Total tokens</span><small>([^<]+) fresh</small>', page, re.S)
+        want = {"all": whole.overall}
+        want.update({name: part.overall for name, part in parts.items()})
+        self.assertEqual(len(views), len(want))
+        for name, total, fresh in views:
+            with self.subTest(view=name):
+                counted = tm.token_totals(want[name]["tokens"])
+                self.assertEqual((total, fresh), (tm.toks(counted["total"]), tm.toks(counted["fresh"])))
 
 
 if __name__ == "__main__":

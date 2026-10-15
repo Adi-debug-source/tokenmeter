@@ -213,6 +213,8 @@ The last line splits the same total by where its calls are now. Deleting a sessi
 
 `--by`, in every grouping, and `--sessions` give each row its total tokens beside its cost and calls.
 
+The dashboard gives the total in a tile beside the API calls, with the fresh tokens under it. When the ledger holds calls no transcript has any more, a note under the tiles gives the same kept and on-disk split, and why: deleted sessions take their transcripts with them, and Tokenmeter keeps the record. The Tokens view of its Spend over time chart counts each day the same way, the days only the ledger still has included.
+
 `--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
 ### Rolling windows and calendar periods

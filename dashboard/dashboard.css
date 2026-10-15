@@ -82,9 +82,14 @@ h1 em{font-style:normal;color:var(--acc)}
 .big.settling{filter:blur(7px);opacity:.55}
 .big{transition:filter .7s var(--ease),opacity .7s var(--ease)}
 .big-sub{color:var(--dim);font-size:13px;margin-top:14px}
-.hero-foot{display:flex;gap:32px;flex-wrap:wrap;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+/* five tiles: the columns sit closer than the rows so all five keep one line
+   in a full-width card; a narrower one wraps them */
+.hero-foot{display:flex;gap:32px 20px;flex-wrap:wrap;margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
 .kpi b{display:block;font-size:22px;font-weight:600;letter-spacing:-.012em}
 .kpi span{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dimmer);margin-top:4px}
+.kpi small{display:block;font-size:11.5px;color:var(--dim);margin-top:3px;font-variant-numeric:tabular-nums}
+/* what the ledger keeps against what is on disk, only when they differ */
+.kept-note{color:var(--dimmer);font-size:12px;line-height:1.55;margin:18px 0 0;max-width:64ch}
 
 /* ---------- window strip ---------- */
 .wins{display:flex;flex-direction:column;justify-content:center}

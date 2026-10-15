@@ -303,6 +303,14 @@
   `tokens_ledger_only`. Every key already there keeps its value.
 - `--by`, in every grouping, and `--sessions` give each row its total tokens
   in a column of its own, beside its cost and calls.
+- The dashboard gives total tokens in a tile beside the API calls, with the
+  fresh tokens under it. When the ledger holds calls no transcript has any
+  more, a note under the tiles gives the report's kept and on-disk split
+  and the reason: deleted sessions take their transcripts with them, and
+  Tokenmeter keeps the record. The tiles sit closer together so all five
+  keep one line in a full-width card. The Tokens view of the Spend over
+  time chart was checked and already counted each day by the same
+  definition, the days only the ledger still has included.
 
 ### Project
 

@@ -2445,6 +2445,20 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
                           f'<small>{max(caching["saved_pct"], 0.0):.1f}% cheaper. Caching made it '
                           f'{caching["multiple"]:.1f}x less expensive.</small></div>')
 
+        # ---- tokens, as the terminal counts them --------------------------
+        # The total tile is token_totals()'s, fresh tokens under it. The note
+        # below the tiles is the report's "kept by the ledger" line, given
+        # only when the ledger holds calls no transcript has any more, which
+        # is when this total is more than the transcripts on disk could give.
+        tokens = token_totals(t)
+        split = kept_and_on_disk(overall, groups)
+        kept_note = ""
+        if split["ledger_only"]:
+            kept = kept_line(split)
+            kept_note = (f'<p class="kept-note">{html.escape(kept[:1].upper() + kept[1:])}. '
+                         'Deleted sessions take their transcripts with them; Tokenmeter '
+                         'keeps the record.</p>')
+
         # ---- tables -------------------------------------------------------
         def table(key, heading, lede, limit=10, strip="", name_of=None, extra=None):
             items = sorted(groups[key].items(), key=lambda kv: -kv[1]["total"])[:limit]
@@ -2653,10 +2667,12 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
             '<div class="big-sub rate-note"></div>'
             '<div class="hero-foot">'
             f'<div class="kpi"><b>{overall["calls"]:,}</b><span>API calls</span></div>'
+            f'<div class="kpi"><b>{toks(tokens["total"])}</b><span>Total tokens</span>'
+            f'<small>{toks(tokens["fresh"])} fresh</small></div>'
             f'<div class="kpi"><b>{toks(prompt_tokens)}</b><span>Prompt tokens</span></div>'
             f'<div class="kpi"><b>{toks(t["output"])}</b><span>Output tokens</span></div>'
             f'<div class="kpi"><b>{caching["hit_pct"]:.1f}%</b><span>From cache</span></div>'
-            '</div></div>'
+            '</div>' + kept_note + '</div>'
             f'<div class="card lift wins reveal-on">{win_html}</div>'
             '</div>'
 
