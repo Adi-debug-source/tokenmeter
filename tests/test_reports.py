@@ -1155,6 +1155,31 @@ class TestTokenTotals(Base):
         self.assertIn("  0 tokens   0 API calls", empty)
         self.assertNotIn("fresh", empty)
 
+    def test_every_grouping_and_the_sessions_list_give_tokens(self):
+        """--by and --sessions gave each row its cost and calls but not its
+        tokens. Each grouping is checked, not assumed: every row carries its
+        total tokens, in one column."""
+        self.write("sess-a.jsonl", record("a1", ts="2026-09-01T12:00:00.000Z", out=1000, read=5000),
+                   record("a2", model="claude-sonnet-5", ts="2026-09-02T09:00:00.000Z",
+                          out=20000, w5=300))
+        self.write("sess-b.jsonl", record("b1", ts="2026-09-09T18:00:00.000Z", inp=40, out=500))
+        _, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+
+        def table(text, head):
+            rows = text.split(head + "\n", 1)[1].split("\n\n", 1)[0].splitlines()
+            self.assertEqual(len({row.index(" tokens") for row in rows}), 1, rows)
+            return rows
+
+        for by in tm.BY_CHOICES:
+            with self.subTest(by=by):
+                rows = table(cli("--by", by), "by harness" if by == "source" else f"by {by}")
+                want = [tm.toks(tm.token_totals(v["tokens"])["total"]) for _, v in tm.grouped(groups, by)]
+                self.assertEqual(len(rows), len(want))
+                for row, shown in zip(rows, want):
+                    self.assertRegex(row, rf" {re.escape(shown)} tokens ")
+        rows = table(cli("--sessions"), "sessions, dearest first")
+        self.assertEqual([row.split()[1] for row in rows], ["26.3k", "540"])
+
     def test_a_total_reads_as_the_rows_for_each_kind_do(self):
         """999, then 1.0k, 1.00M and 1.00B, as toks() writes the rows for
         each kind."""

@@ -301,6 +301,8 @@
   in `all`. `--json` adds `total` and `fresh` to each of its tokens objects,
   gives each listed session its tokens, and sends `tokens_on_disk` and
   `tokens_ledger_only`. Every key already there keeps its value.
+- `--by`, in every grouping, and `--sessions` give each row its total tokens
+  in a column of its own, beside its cost and calls.
 
 ### Project
 

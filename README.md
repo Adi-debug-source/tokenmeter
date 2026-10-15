@@ -211,6 +211,8 @@ The report gives the total under the cost, in the same shape, and under that the
 
 The last line splits the same total by where its calls are now. Deleting a session deletes its transcript, so a total read from the transcripts goes down; the on-disk figure falls with it, while the kept figure does not, because the ledger keeps every call. A window or a filter applies to all three figures as it does to the money. With `--no-ledger` there is no such line, and the total, which is then only what the transcripts on disk hold, says so: `transcripts on disk only`.
 
+`--by`, in every grouping, and `--sessions` give each row its total tokens beside its cost and calls.
+
 `--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
 ### Rolling windows and calendar periods

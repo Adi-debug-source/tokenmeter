@@ -2186,9 +2186,10 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
         width = max((len(r["label"]) for r in rows), default=10)
         for r in rows:
             mark = f"{GREEN}verified  {RESET}" if r["status"] == "verified" else f"{DIM}{r['status_word']:<10}{RESET}"
+            tk = token_totals(groups["source"][r["name"]]["tokens"])["total"]
             print(f"    {r['label']:<{width}}  {mark}{money(r['total']):>11}  "
-                  f"{DIM}{r['calls']:>6,} {call_word(r['calls'])}  {money(r['per_call']):>8} a call  "
-                  f"{r['cache_hit_pct']:5.1f}% from cache{RESET}")
+                  f"{DIM}{r['calls']:>6,} {call_word(r['calls'])}  {toks(tk):>7} tokens  "
+                  f"{money(r['per_call']):>8} a call  {r['cache_hit_pct']:5.1f}% from cache{RESET}")
     elif by:
         print()
         print(f"  {BOLD}by {by}{RESET}")
@@ -2200,7 +2201,9 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
             name = display_name(by, k)
             name = name if len(name) <= width else "…" + name[-(width - 1):]
             bar = "█" * int(round(v["total"] / peak * 22))
-            print(f"    {name:<{width}}  {money(v['total']):>10}  {DIM}{v['calls']:>4} {call_word(v['calls'])}{RESET}  {CYAN}{bar}{RESET}")
+            tk = token_totals(v["tokens"])["total"]
+            print(f"    {name:<{width}}  {money(v['total']):>10}  {DIM}{v['calls']:>4} {call_word(v['calls'])}"
+                  f"  {toks(tk):>7} tokens{RESET}  {CYAN}{bar}{RESET}")
 
     if sessions:
         print()
@@ -2209,7 +2212,9 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
             m = meta.get(sid, {})
             when = m.get("last").astimezone().strftime("%d %b %H:%M") if m.get("last") else "?"
             proj = project_name(m.get("project") or "")[-30:]
-            print(f"    {money(v['total']):>10}  {DIM}{when:<13}{RESET} {sid[:8]}  {DIM}{proj}{RESET}")
+            tk = token_totals(v["tokens"])["total"]
+            print(f"    {money(v['total']):>10}  {DIM}{toks(tk):>7} tokens  {when:<13}{RESET} "
+                  f"{sid[:8]}  {DIM}{proj}{RESET}")
 
     notes = report_notes(groups, unknown)
     if notes:
