@@ -212,7 +212,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 |---|---|
 | `TOKENMETER_CURRENCY` | Default display currency everywhere (USD unless set) |
 | `TOKENMETER_LEDGER` | Where the ledger lives |
-| `TOKENMETER_CLAUDE_PROJECTS` | Extra Claude Code projects folders, colon separated, to count two Macs as one history |
+| `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME` | Respected, as each harness uses them |
 
@@ -221,7 +221,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 ## Limitations
 
 - **macOS only, today.** The engine is plain Python and needs one line changed (`open` becomes `xdg-open`) to run on Linux; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
-- **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder.
+- **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
 - **Three of four harness readers are unverified,** as above.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
 

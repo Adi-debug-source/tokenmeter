@@ -49,8 +49,8 @@ __version__ = "1.1.2"
 
 PROJECTS_DIR = claude_code.default_roots()[0]
 
-# Extra folders to read, so two machines can be counted as one history.
-# Colon separated, the same shape as PATH.
+# The folders to read instead of the default, so two machines can be counted
+# as one history by naming both. Colon separated, the same shape as PATH.
 PROJECTS_ENV = "TOKENMETER_CLAUDE_PROJECTS"
 _ROOTS: list = []
 

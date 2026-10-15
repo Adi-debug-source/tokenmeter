@@ -219,6 +219,10 @@
   ledger again on every run, and a zero split beside a total was stored as no
   writes at all, so once its transcript was gone it was priced without them.
   No such block has been seen in Claude Code's logs, so no total moves.
+- The README describes `TOKENMETER_CLAUDE_PROJECTS` as it works: the Claude
+  Code folders to read instead of the default, so `~/.claude/projects` must
+  be one of them to count this Mac as well as a copied folder. It called them
+  "extra" folders, and following it left this Mac's own transcripts out.
 
 ### Project
 
