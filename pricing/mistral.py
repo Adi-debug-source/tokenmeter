@@ -1,7 +1,8 @@
 """Mistral's API rates, in dollars per million tokens. Standard tier.
 
 Read off https://docs.mistral.ai/inference/pricing on 26 September 2026,
-twice, independently, with every API id confirmed from its model card.
+twice, independently, with every API id confirmed from its model card, and
+re-read in full on 6 October 2026.
 
 **Published, not measured.** Nobody has yet compared these with a real
 Mistral bill. Please do, and open an issue either way.

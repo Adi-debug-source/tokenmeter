@@ -135,11 +135,11 @@ There are three levels of confidence, and every report says which one each figur
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
 | Anthropic | 20 | 15 Oct 2026 | **yes** |
-| OpenAI | 38 | 26 Sep 2026 | not yet |
+| OpenAI | 39 | 6 Oct 2026 | not yet |
 | Google (Gemini API) | 12 (3 retired) | 15 Oct 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
 | DeepSeek | 2 | 26 Sep 2026 | not yet |
-| Mistral | 9 | 26 Sep 2026 | not yet |
+| Mistral | 9 (1 retired) | 6 Oct 2026 | not yet |
 | Moonshot (Kimi) | 4 | 26 Sep 2026 | not yet |
 | Z.ai (GLM) | 16 | 26 Sep 2026 | not yet |
 

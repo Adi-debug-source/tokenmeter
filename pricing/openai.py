@@ -18,11 +18,11 @@ please compare a month against your bill and open an issue either way.
 
 Rules taken from the model pages and modelled here:
 
-  - Cached input is a fixed fraction of input: 0.1x on the GPT-5 and GPT-6
-    families except GPT-6.1 Sol at 0.05x, 0.25x or 0.5x on older models, and no discount at all on the pro
-    models, which offer no cached rate.
-  - Cache writes are billed at 1.25x input on GPT-6, GPT-6.1 and GPT-5.6. Older models
-    have no write charge; the tokens are ordinary input.
+  - Cached input is a fixed fraction of input: 0.1x on GPT-5 and GPT-6,
+    except GPT-6.1 Sol at 0.05x; 0.25x or 0.5x on older models; none on the
+    pro models, which offer no cached rate.
+  - Cache writes are billed at 1.25x input on GPT-6, GPT-6.1 and GPT-5.6.
+    Older models have no write charge; the tokens are ordinary input.
   - Long context: on the 1.05M-window models, a prompt of more than 272K input
     tokens is priced at 2x input and cache rates and 1.5x output for the whole
     request. The GPT-5.5 and 5.4 pages say "for the full session" where the
