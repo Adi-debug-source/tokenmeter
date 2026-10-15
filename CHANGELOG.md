@@ -2,18 +2,22 @@
 
 ## Unreleased
 
-- `--check-prices` no longer names a retired model as missing from its page.
-  A table can list models the provider has retired in `RETIRED`, with the
-  date from the provider's own notice; they keep their last published price,
-  so older usage is still priced, and the price list marks them. Four so
-  far: `gemini-2.5-computer-use-preview-10-2025` (shut down 28 July 2026),
-  `zai-glm-5-2` on Mistral (retires 31 October 2026, replaced by GLM 5.3 at
-  the same price), and `gemini-3.5-flash` and `gemini-3.7-flash` (below).
-  Google's and Mistral's tables re-read in full and marked verified on 6
-  October 2026.
+Total tokens on every face, by one definition, beside the money, and the
+tokens the ledger has kept that the transcripts on disk no longer hold. Prices
+read again on 15 October 2026, and fixes across the engine, the status line,
+the dashboard and the menu bar.
 
 ### Prices
 
+- `--check-prices` no longer names a retired model as missing from its page. A
+  table can list models the provider has retired in `RETIRED`, with the date
+  from the provider's own notice; they keep their last published price, so
+  older usage is still priced, and the price list marks them. Four so far:
+  `gemini-2.5-computer-use-preview-10-2025` (shut down 28 July 2026),
+  `zai-glm-5-2` on Mistral (retires 31 October 2026, replaced by GLM 5.3 at
+  the same price), and `gemini-3.5-flash` and `gemini-3.7-flash` (below).
+  Google's and Mistral's tables were re-read in full and marked verified on 6
+  October 2026.
 - Claude Sonnet 5.5 cache reads cost $0.10 per million from 7 October 2026,
   0.05x input instead of 0.1x, per Anthropic's release notes of that day and
   the pricing page, read on 15 October 2026. Cache writes and every other
@@ -64,22 +68,61 @@
   never read the other logs, so it cannot know. It still says how many calls
   the ledger holds. Unfiltered and windowed reports, which read every log,
   count them as before.
-- A mistyped `TOKENMETER_CURRENCY`, such as `GPB`, no longer stops the status
-  line: it shows dollars instead of printing nothing. The command line still
-  refuses an unknown code, and now says when it came from
-  `TOKENMETER_CURRENCY` rather than from `--currency`.
-- The dashboard's "Last seen" cell for a session with no time reads "?", as
-  the terminal's sessions list does, instead of a dash.
+- A usage block whose cache writes are given both as a total and split by
+  lifetime, with the two disagreeing, is priced, written to the ledger and
+  sized by one rule. Three rules applied: such a call was written to the
+  ledger again on every run, and a zero split beside a total was stored as no
+  writes at all, so once its transcript was gone it was priced without them.
+  No such block has been seen in Claude Code's logs, so no total moves.
+- A call written to several transcripts, as a resumed or forked session
+  copies its earlier calls, is filed under its earliest copy's time, session
+  and project, whichever file is read first. It went to the first copy read,
+  and the order files are listed in differs from one machine to the next.
+- Calls made by workflow agents, whose transcripts lie in
+  `<session>/subagents/workflows/<id>/`, are filed under the session that
+  started them and its project, as subagents' calls are. They were filed under
+  a project named after the workflow and a session named after the agent's own
+  file, so `--session` and `--project` missed them. Calls the ledger already
+  holds keep the project and session they were written with once their
+  transcripts are swept, because the ledger is only ever added to.
+- `--session` given a file reads it with the adapter its format belongs to
+  and keeps the session ids its calls carry. It filtered on the file's name,
+  which is not how Codex, Gemini CLI or a Claude Code agent's transcript names
+  its session, so each of them found nothing; and a Gemini CLI file was read
+  as Claude Code's. A Claude Code transcript now brings its agents' with it,
+  and the report is labelled with the session's id.
+- `--project` finds a project by its folder's own name, its full path, or
+  `.` for the current folder. Claude Code names a project's folder after its
+  path with every character that is not a letter or digit turned into `-`,
+  and the filter was matched against that alone, so a name with a space or
+  punctuation, such as `My App`, or a full path found nothing. Every harness's
+  projects are now matched both ways, ignoring case, and the report's label
+  names the project without the home folder.
+- A `--project`, `--session` or `--adapter` that matches no call stops with
+  "no calls match" and the filters as given, and for `--project` lists up to
+  five projects that do have calls, latest first. It said "nothing to price.
+  Looked for:" and listed folders full of logs, or, where a reader cannot
+  narrow its files by project, printed an empty report; `--session` had a
+  message of its own. A window that leaves a matching filter with no calls
+  still prints its empty report, and a machine with no logs and an empty
+  ledger still says where it looked.
+- `--since` and `--until` take a date as local midnight, as `--period` and
+  the day buckets always have; it was midnight UTC. A time with no offset is
+  local time, and an offset or a `Z` is kept: the whole value was lowercased,
+  so `2026-10-01T10:00Z` was refused and an offset was read as UTC. A value
+  too large to count back, such as `99999999d`, exits with a message naming
+  the flag instead of a traceback, and a report with `--until` alone is
+  labelled "until ..." rather than "all time".
+- `--current-rates` prices every call at the rates in force today. It took
+  each model's newest price even when that starts later: Gemini 3.6, 3.7 and
+  3.8 Flash have a list price Google has set from 1 January 2027, twice their
+  launch price, so their calls were charged double. A call with no timestamp
+  is priced at today's rates the same way.
 - `--offline` and `TOKENMETER_OFFLINE=1` now make no network requests at all.
   They used to stop only the price lookup, and exchange rates were still
   fetched. Offline, the last saved rate is used at any age and marked
   "cached" with its date; with none saved, the built-in estimate is used and
   labelled as one.
-- The status line never makes a network request. Showing another currency,
-  it fetched exchange rates once the saved rate was 12 hours old, and on
-  every prompt while the network was down, each time holding the prompt up
-  for as long as 8 seconds. It now uses the rate a report, the dashboard or
-  the menu bar last saved.
 - A run asks for exchange rates once. The menu bar asked three times per
   refresh, and on a dead network each attempt sat through its timeout. A
   failed fetch is now recorded and not retried for an hour; the last saved
@@ -99,6 +142,15 @@
   long-context threshold (above 200,000 tokens for Google and 199,999 for
   xAI, where every looked-up model used OpenAI's 272,000) and a 1-hour cache
   write that differs from the table's default.
+- The status line never makes a network request. Showing another currency,
+  it fetched exchange rates once the saved rate was 12 hours old, and on
+  every prompt while the network was down, each time holding the prompt up
+  for as long as 8 seconds. It now uses the rate a report, the dashboard or
+  the menu bar last saved.
+- A mistyped `TOKENMETER_CURRENCY`, such as `GPB`, no longer stops the status
+  line: it shows dollars instead of printing nothing. The command line still
+  refuses an unknown code, and now says when it came from
+  `TOKENMETER_CURRENCY` rather than from `--currency`.
 - The status line's session cost includes the session's subagents and
   workflow agents. It priced the session's own transcript alone, which left
   out every call its agents made for it. The context figure is still the main
@@ -131,54 +183,18 @@
 - The note on Codex calls priced as gpt-5 counts each call once. A session
   from before Codex 0.36 in both `sessions` and `archived_sessions` was
   counted twice in the note, though once in the figures.
+- A token count of `Infinity` or `NaN` in a Codex, Gemini CLI or OpenCode
+  log, both of which JSON readers accept, reads as none, where it could end
+  the run in a traceback. The three readers now share one rule for a count.
 - An import line with a count of `1e999`, `Infinity`, `NaN` or a number too
   large to price, or with a byte that is not UTF-8, is skipped and explained
   like any other bad line. One such line ended the whole run in a traceback,
   from a file or from standard input.
-- A token count of `Infinity` or `NaN` in a Codex, Gemini CLI or OpenCode
-  log, both of which JSON readers accept, reads as none, where it could end
-  the run in a traceback. The three readers now share one rule for a count.
 - Import timestamps in the basic form (`20260920T100211Z`), with a comma
   before the fraction of a second, or with an offset written `+0100` or `+01`
   are read on every Python version. Python 3.9, which the menu bar runs,
   skipped them as unreadable while a newer Python in the terminal counted
   them, so the two disagreed.
-- A call written to several transcripts, as a resumed or forked session
-  copies its earlier calls, is filed under its earliest copy's time, session
-  and project, whichever file is read first. It went to the first copy read,
-  and the order files are listed in differs from one machine to the next.
-- Calls made by workflow agents, whose transcripts lie in
-  `<session>/subagents/workflows/<id>/`, are filed under the session that
-  started them and its project, as subagents' calls are. They were filed under
-  a project named after the workflow and a session named after the agent's own
-  file, so `--session` and `--project` missed them. Calls the ledger already
-  holds keep the project and session they were written with once their
-  transcripts are swept, because the ledger is only ever added to.
-- `--session` given a file reads it with the adapter its format belongs to
-  and keeps the session ids its calls carry. It filtered on the file's name,
-  which is not how Codex, Gemini CLI or a Claude Code agent's transcript names
-  its session, so each of them found nothing; and a Gemini CLI file was read
-  as Claude Code's. A Claude Code transcript now brings its agents' with it,
-  and the report is labelled with the session's id.
-- `--project` finds a project by its folder's own name, its full path, or
-  `.` for the current folder. Claude Code names a project's folder after its
-  path with every character that is not a letter or digit turned into `-`,
-  and the filter was matched against that alone, so a name with a space or
-  punctuation, such as `My App`, or a full path found nothing. Every harness's
-  projects are now matched both ways, ignoring case, and the report's label
-  names the project without the home folder.
-- `--since` and `--until` take a date as local midnight, as `--period` and
-  the day buckets always have; it was midnight UTC. A time with no offset is
-  local time, and an offset or a `Z` is kept: the whole value was lowercased,
-  so `2026-10-01T10:00Z` was refused and an offset was read as UTC. A value
-  too large to count back, such as `99999999d`, exits with a message naming
-  the flag instead of a traceback, and a report with `--until` alone is
-  labelled "until ..." rather than "all time".
-- `--current-rates` prices every call at the rates in force today. It took
-  each model's newest price even when that starts later: Gemini 3.6, 3.7 and
-  3.8 Flash have a list price Google has set from 1 January 2027, twice their
-  launch price, so their calls were charged double. A call with no timestamp
-  is priced at today's rates the same way.
 - A negative amount puts its minus before the currency symbol, `-$0.10`, in
   the terminal, the dashboard and the menu bar alike. It printed `$-0.10`.
 - The menu bar and the dashboard write `1,234.50` on a Mac set to any
@@ -206,23 +222,12 @@
   happens" are named for the run's own window, such as "September 2026" for
   `--period lastmonth`. They always said "All time", though the tile showed
   that window's total and the section covered only that window.
-- The menu bar's "Daily spend, last 30 days" sparkline covers the last 30
-  calendar days, a day with no calls at zero. It drew the last 30 days that
-  had any calls, so after a break it reached further back and drew the days
-  either side of the gap as neighbours. `--summary-json`'s `days` now always
-  holds those 30 days, oldest first.
-- When the menu bar cannot read usage, its title is a hyphen instead of an en
-  dash, and the reason is still in its tooltip and menu.
-- A usage block whose cache writes are given both as a total and split by
-  lifetime, with the two disagreeing, is priced, written to the ledger and
-  sized by one rule. Three rules applied: such a call was written to the
-  ledger again on every run, and a zero split beside a total was stored as no
-  writes at all, so once its transcript was gone it was priced without them.
-  No such block has been seen in Claude Code's logs, so no total moves.
-- The README describes `TOKENMETER_CLAUDE_PROJECTS` as it works: the Claude
-  Code folders to read instead of the default, so `~/.claude/projects` must
-  be one of them to count this Mac as well as a copied folder. It called them
-  "extra" folders, and following it left this Mac's own transcripts out.
+- The dashboard's "Last seen" cell for a session with no time reads "?", as
+  the terminal's sessions list does, instead of a dash.
+- The Tokens view of the dashboard's Spend over time chart writes its
+  running total as every other token count is written (`950.0k`,
+  `1.62B`). Under half a million it read `0M tokens`, and above that it
+  dropped the decimals the day's own count beside it has.
 - `--html` opens the page with `open` on macOS and with `xdg-open`
   elsewhere, and where neither can be run it writes the page and says
   where, with no error. It ran `open` everywhere, so on Linux the run
@@ -236,51 +241,23 @@
   total, the currency and harness menus and the chart's toggles are left
   out, cards and table rows are not split across pages, and the page stays
   dark to its edges with no header or footer carrying the file's path.
-- A `--project`, `--session` or `--adapter` that matches no call stops with
-  "no calls match" and the filters as given, and for `--project` lists up to
-  five projects that do have calls, latest first. It said "nothing to price.
-  Looked for:" and listed folders full of logs, or, where a reader cannot
-  narrow its files by project, printed an empty report; `--session` had a
-  message of its own. A window that leaves a matching filter with no calls
-  still prints its empty report, and a machine with no logs and an empty
-  ledger still says where it looked.
+- The menu bar's "Daily spend, last 30 days" sparkline covers the last 30
+  calendar days, a day with no calls at zero. It drew the last 30 days that
+  had any calls, so after a break it reached further back and drew the days
+  either side of the gap as neighbours. `--summary-json`'s `days` now always
+  holds those 30 days, oldest first.
+- When the menu bar cannot read usage, its title is a hyphen instead of an en
+  dash, and the reason is still in its tooltip and menu.
+- The README describes `TOKENMETER_CLAUDE_PROJECTS` as it works: the Claude
+  Code folders to read instead of the default, so `~/.claude/projects` must
+  be one of them to count this Mac as well as a copied folder. It called them
+  "extra" folders, and following it left this Mac's own transcripts out.
 - "Nothing to price", `--list-adapters` and `--help` link to the import
   format on GitHub. They named `docs/import-format.md`, which the installer
   does not copy, so the installed engine pointed at a file it did not have.
-- The Tokens view of the dashboard's Spend over time chart writes its
-  running total as every other token count is written (`950.0k`,
-  `1.62B`). Under half a million it read `0M tokens`, and above that it
-  dropped the decimals the day's own count beside it has.
 
 ### New
 
-- `--help` groups its options under headings (what to read, the window, the
-  report, the output, prices and the ledger) and ends with examples from the
-  README. It says what `--by` groups by, that `--until` stops just before the
-  moment it names, where `--html` writes by default and everything
-  `--summary-json` carries, and it writes the ledger's default path with `~`
-  rather than with the username in it.
-- The command line prints plain text when its output is not a terminal, so a
-  pipe, a file and Claude Code's `/tokenmeter` no longer get colour codes
-  among the figures. `NO_COLOR` turns colour off anywhere, and `FORCE_COLOR`
-  or `CLICOLOR_FORCE` keeps it in a pipe; `NO_COLOR` wins over both. The
-  status line keeps its colours, which Claude Code shows.
-- `--json` carries what the terminal says around the totals: the version,
-  the window as ISO 8601 (`since` and `until`, null for an open end), the
-  covered line, the notes, any model with no price and the cost without
-  cache reads. With `--by` it adds the groups, and with `--sessions` the 20
-  dearest sessions, in the terminal's order. It printed the same seven keys
-  whatever was asked; those keep their values.
-- `--by week` and `--by month` group a report by ISO week (`2026-W41`,
-  Monday to Sunday, as `--period week` counts one) and by calendar month
-  (`2026-10`), oldest first like `--by day`, in the terminal and in
-  `--json`. Each is the sum of its local days, so they add up to the same
-  total.
-- `--no-open` writes the dashboard with `--html` and opens nothing, for a
-  page made by a script or on a machine with no desktop.
-- On a first run, with no logs and no calls, the menu bar says where
-  Tokenmeter looked and to run `tokenmeter --list-adapters`, instead of a
-  bare $0.00. `--summary-json` sends it as the first of its notes.
 - The terminal report gives total tokens under the cost, in the same shape
   ("1.62B tokens   8,120 API calls"). Total tokens have one definition,
   stated in the README and used wherever a total is given: uncached input,
@@ -330,6 +307,35 @@
   replies that Tokenmeter counts once, and so for the same work
   Tokenmeter's total was the lower and does not go down. Each is put as
   what was observed, not as how the app works.
+- `--help` groups its options under headings (what to read, the window, the
+  report, the output, prices and the ledger) and ends with examples from the
+  README. It says what `--by` groups by, that `--until` stops just before the
+  moment it names, where `--html` writes by default and everything
+  `--summary-json` carries, and it writes the ledger's default path with `~`
+  rather than with the username in it.
+- The command line prints plain text when its output is not a terminal, so a
+  pipe, a file and Claude Code's `/tokenmeter` no longer get colour codes
+  among the figures. `NO_COLOR` turns colour off anywhere, and `FORCE_COLOR`
+  or `CLICOLOR_FORCE` keeps it in a pipe; `NO_COLOR` wins over both. The
+  status line keeps its colours, which Claude Code shows.
+- `--json` carries what the terminal says around the totals: the version,
+  the window as ISO 8601 (`since` and `until`, null for an open end), the
+  covered line, the notes, any model with no price and the cost without
+  cache reads. With `--by` it adds the groups, and with `--sessions` the 20
+  dearest sessions, in the terminal's order. It printed the same seven keys
+  whatever was asked; those keep their values.
+- `--by week` and `--by month` group a report by ISO week (`2026-W41`,
+  Monday to Sunday, as `--period week` counts one) and by calendar month
+  (`2026-10`), oldest first like `--by day`, in the terminal and in
+  `--json`. Each is the sum of its local days, so they add up to the same
+  total.
+- `--no-open` writes the dashboard with `--html` and opens nothing, for a
+  page made by a script or on a machine with no desktop.
+- On a first run, with no logs and no calls, the menu bar says where
+  Tokenmeter looked and to run `tokenmeter --list-adapters`, instead of a
+  bare $0.00. `--summary-json` sends it as the first of its notes.
+- The `/tokenmeter` command takes "this project" as `--project .` and "tokens"
+  as the report, and shows its token lines as the script prints them.
 
 ### Project
 
@@ -338,11 +344,11 @@
   itself. Every other key keeps its value. The terminal, the dashboard and
   the summary now take their rolling windows and caching figures from one
   place in the engine each.
-- The tests are split by area, one module each for money, pricing, the
-  pinned published rates, the ledger, the adapters, the network lookups,
-  reports, the dashboard and the status line, with what they share in
-  `tests/helpers.py`. `python3 tests/test_tokenmeter.py` still runs them
-  all, and one area runs on its own.
+- The tests are split by area, one module each for money, pricing, the pinned
+  published rates, the ledger, the adapters, the network lookups, reports, the
+  dashboard and the status line, with what they share in `tests/helpers.py`.
+  `python3 tests/test_tokenmeter.py` still runs them all, and one area runs on
+  its own. 294 tests in all.
 - The dashboard's stylesheet and script are files of their own,
   `dashboard/dashboard.css` and `dashboard/dashboard.js`, instead of about
   550 lines of strings inside the engine. They are read when a page is
@@ -379,6 +385,16 @@
   uninstalling removes the login item's plist rather than moving it to the
   Bin; and that variables set in that plist must be added again after an
   uninstall and reinstall, which writes it afresh.
+- README's price table is checked against the tables by a test, row by row:
+  each provider's models and any retired, the date its page was checked and
+  whether it was measured against real bills, with the Anthropic count above
+  it. It had drifted once, to 18 and 38 models checked on 26 September while
+  the tables held more.
+- The README's harness table includes workflow agents, says what Codex's
+  compressed sessions need and names every OpenCode database it reads, and its
+  usage block shows `--project` and `--session`. MAINTENANCE names every
+  folder, the rule the three `money()` copies share and where a version is
+  set.
 
 ## 1.1.2, 6 October 2026
 
