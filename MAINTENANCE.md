@@ -261,6 +261,12 @@ In order, because each step rules out the one below:
   backup: the old file goes to `.old`, or to `.old-YYYYMMDD-HHMMSS` when that
   exists, so a second rebuild never overwrites the first one's. Not routine
   maintenance.
+- `--project`, `--session` and `--adapter` apply to the ledger's calls as to
+  the logs' (`kept()`), because a call restored from the ledger has no file
+  to filter on. A filter that keeps no call stops with "no calls match",
+  naming it, and for `--project` the five latest projects that have calls
+  (`no_match()`); a window that leaves a matching filter empty still prints
+  its report.
 
 ## Releasing a change
 

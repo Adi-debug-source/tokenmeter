@@ -228,6 +228,17 @@
   where, with no error. It ran `open` everywhere, so on Linux the run
   ended in a traceback after writing the page. With no `~/Downloads`
   folder, its default path is `Tokenmeter.html` in the current folder.
+- A `--project`, `--session` or `--adapter` that matches no call stops with
+  "no calls match" and the filters as given, and for `--project` lists up to
+  five projects that do have calls, latest first. It said "nothing to price.
+  Looked for:" and listed folders full of logs, or, where a reader cannot
+  narrow its files by project, printed an empty report; `--session` had a
+  message of its own. A window that leaves a matching filter with no calls
+  still prints its empty report, and a machine with no logs and an empty
+  ledger still says where it looked.
+- "Nothing to price", `--list-adapters` and `--help` link to the import
+  format on GitHub. They named `docs/import-format.md`, which the installer
+  does not copy, so the installed engine pointed at a file it did not have.
 
 ### New
 
@@ -255,6 +266,9 @@
   total.
 - `--no-open` writes the dashboard with `--html` and opens nothing, for a
   page made by a script or on a machine with no desktop.
+- On a first run, with no logs and no calls, the menu bar says where
+  Tokenmeter looked and to run `tokenmeter --list-adapters`, instead of a
+  bare $0.00. `--summary-json` sends it as the first of its notes.
 
 ### Project
 

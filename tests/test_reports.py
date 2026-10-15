@@ -1,7 +1,8 @@
 """Reports and the command line: windows and periods, filters and labels,
 notes, several harnesses side by side, --summary-json for the menu bar,
---json and plain text for scripts and pipes, the installer's check of the
-Python the menu bar runs, and a run starting afresh.
+--json and plain text for scripts and pipes, opening the dashboard, what a
+first run and a filter that matches nothing say, the installer's check of
+the Python the menu bar runs, and a run starting afresh.
 """
 
 import datetime as dt
@@ -912,6 +913,119 @@ class TestOpeningTheDashboard(Base):
             printed = cli("--html", "--no-open", "--no-ledger")
         self.assertEqual(printed, "wrote %s\n" % os.path.join(home, "Downloads", "Tokenmeter.html"))
         self.assertTrue(os.path.isfile(os.path.join(home, "Downloads", "Tokenmeter.html")))
+
+
+class TestEmptyAndNoMatch(Base):
+    """A first run gave the menu bar a bare $0.00; a --project, --session or
+    --adapter that matched nothing said "nothing to price. Looked for:" and
+    listed folders full of logs; and three messages sent the installed
+    engine, which has no docs/ folder, to docs/import-format.md."""
+
+    def lay_out_projects(self, n=7):
+        """n Claude Code projects under /Users/sam/code, one call each, a day
+        apart, the last the latest."""
+        for i in range(n):
+            folder = os.path.join(self.tmp, "projects", "-Users-sam-code-p%d" % i)
+            os.makedirs(folder)
+            with open(os.path.join(folder, "sess-%d.jsonl" % i), "w") as f:
+                f.write(record("msg_%d" % i, out=100, ts="2026-09-%02dT12:00:00Z" % (i + 1)) + "\n")
+
+    def refused(self, *argv):
+        """The one message a run exits with."""
+        with self.assertRaises(SystemExit) as e:
+            cli(*argv)
+        return str(e.exception.code)
+
+    def test_a_first_run_tells_the_menu_bar_where_it_looked(self):
+        notes = json.loads(cli("--summary-json"))["notes"]
+        self.assertEqual(notes[0]["level"], "info")
+        text = notes[0]["text"]
+        self.assertTrue(text.startswith("Nothing to price yet. Looked for Claude Code transcripts in "
+                                        + os.path.join(self.tmp, "projects")), text)
+        self.assertIn("Codex sessions in " + os.path.join(self.tmp, "no-codex"), text)
+        self.assertIn("Run tokenmeter --list-adapters", text)
+        self.assertEqual(sum("Nothing to price yet" in n["text"] for n in notes), 1)
+        # One call, from a log or from the ledger alone, and the note goes.
+        path = self.write("a.jsonl", record("msg_1", out=100))
+        self.assertNotIn("Nothing to price yet", cli("--summary-json"))
+        os.remove(path)
+        summary = json.loads(cli("--summary-json"))
+        self.assertEqual(summary["all"]["calls"], 1)
+        self.assertNotIn("Nothing to price yet", json.dumps(summary["notes"]))
+
+    def test_a_project_that_matches_nothing_names_projects_that_do(self):
+        self.lay_out_projects()
+        with unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
+            cli("--json")                         # every call now in the ledger too
+            os.remove(os.path.join(self.tmp, "projects", "-Users-sam-code-p6", "sess-6.jsonl"))
+            with_ledger = self.refused("--project", "zzz")
+            without = self.refused("--project", "zzz", "--no-ledger")
+            windowed = self.refused("--project", "zzz", "--since", "7d")
+            here = self.refused("--project", ".", "--no-ledger")
+        self.assertEqual(with_ledger.splitlines(), [
+            "no calls match --project zzz",
+            "Projects with calls, latest first: code-p6, code-p5, code-p4, code-p3, code-p2 "
+            "(and 2 more; --by project lists them all)"])
+        # Without the ledger, the swept project is gone from the list too.
+        self.assertEqual(without.splitlines()[1],
+                         "Projects with calls, latest first: code-p5, code-p4, code-p3, code-p2, "
+                         "code-p1 (and 1 more; --by project lists them all)")
+        self.assertEqual(windowed.splitlines()[0], "no calls match --project zzz")
+        self.assertTrue(here.startswith("no calls match --project . ("), here)
+        for message in (with_ledger, without, windowed, here):
+            self.assertNotIn("nothing to price", message)
+
+    def test_session_and_adapter_name_their_flag(self):
+        self.lay_out_projects(2)
+        self.assertEqual(self.refused("--session", "nosuch"), "no calls match --session nosuch")
+        self.assertEqual(self.refused("--session", "nosuch", "--no-ledger"),
+                         "no calls match --session nosuch")
+        self.assertEqual(self.refused("--adapter", "codex"), "no calls match --adapter codex")
+        self.assertEqual(self.refused("--adapter", "gemini-cli", "--project", "p1"),
+                         "no calls match --project p1 --adapter gemini-cli")
+        # A few projects, all listed, with nothing more to say.
+        self.assertEqual(self.refused("--project", "zzz", "--no-ledger").splitlines()[1],
+                         "Projects with calls, latest first: %s, %s" % (
+                             tm.project_name("-Users-sam-code-p1"),
+                             tm.project_name("-Users-sam-code-p0")))
+
+    def test_a_window_with_nothing_in_it_is_still_a_report(self):
+        """The filter matches; only the window is empty, so the report is
+        printed at zero, as before."""
+        self.lay_out_projects(2)
+        out = cli("--project", "p1", "--until", "2026-01-01", "--no-ledger")
+        self.assertIn("0 API calls", out)
+        # Matched only by the ledger, its transcript swept.
+        cli("--json")
+        os.remove(os.path.join(self.tmp, "projects", "-Users-sam-code-p1", "sess-1.jsonl"))
+        self.assertIn("0 API calls", cli("--project", "p1", "--until", "2026-01-01"))
+        self.assertIn("no calls match --project p1",
+                      self.refused("--project", "p1", "--until", "2026-01-01", "--no-ledger"))
+
+    def test_nothing_anywhere_still_says_where_it_looked(self):
+        for argv in ((), ("--project", "zzz"), ("--session", "nosuch"), ("--adapter", "codex")):
+            with self.subTest(argv=argv):
+                self.assertTrue(self.refused(*argv).startswith("nothing to price. Looked for:"))
+
+    def test_the_import_format_is_linked_not_a_file_the_install_lacks(self):
+        import contextlib, io
+        url = "https://github.com/Adi-debug-source/tokenmeter/blob/main/docs/import-format.md"
+        self.assertEqual(tm.IMPORT_FORMAT_URL, url)
+        # The page it links to is in the repository, at the same path.
+        self.assertTrue(os.path.isfile(os.path.join(os.path.dirname(tm.__file__),
+                                                    url.split("/blob/main/")[1])))
+        buf = io.StringIO()
+        with unittest.mock.patch.dict(os.environ, {"COLUMNS": "80"}), as_a_new_run(), \
+                contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
+            tm.main(["--help"])
+        help_text = re.sub(r"\x1b\[[0-9;]*m", "", buf.getvalue())
+        self.assertIn("  " + url + "\n", help_text)     # whole, on a line of its own
+        self.assertIn("linked at the end of", help_text)
+        for name, text in (("nothing_found", tm.nothing_found()),
+                           ("list_adapters", cli("--list-adapters")), ("help", help_text)):
+            with self.subTest(text=name):
+                self.assertIn(url, text)
+                self.assertEqual(text.count("docs/import-format.md"), text.count(url))
 
 
 class TestPlainOutput(Base):

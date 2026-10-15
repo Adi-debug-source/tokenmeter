@@ -105,9 +105,10 @@ def adapter_roots(name: str) -> list:
     return ALL_SOURCES[name].default_roots()
 
 
-def active_adapters() -> list:
-    """The adapters this run reads: the ones asked for, or every one found."""
-    if _ONLY:
+def active_adapters(every: bool = False) -> list:
+    """The adapters this run reads: the ones asked for, or every one found.
+    every=True ignores --adapter."""
+    if _ONLY and not every:
         return [n for n in _ONLY if n in ADAPTERS]
     return [n for n in ADAPTERS if any(os.path.isdir(r) for r in adapter_roots(n))]
 
@@ -722,15 +723,17 @@ M = 1_000_000.0
 COMPONENTS = ("input", "cache_write", "cache_read", "output", "web_search")
 
 
-def transcripts(project: str = "", session: str = "") -> list:
+def transcripts(project: str = "", session: str = "", every: bool = False) -> list:
     """Every log file this run reads, from every active adapter, plus any
-    import files. Each adapter alone knows its own on-disk layout."""
+    import files. Each adapter alone knows its own on-disk layout. every=True
+    ignores --adapter, for telling a filter that matched nothing from a
+    machine with nothing on it."""
     paths = []
-    for name in active_adapters():
+    for name in active_adapters(every):
         for p in ADAPTERS[name].files(adapter_roots(name), project, session):
             _OWNER[p] = name
             paths.append(p)
-    if not _ONLY or importer.NAME in _ONLY:
+    if every or not _ONLY or importer.NAME in _ONLY:
         for p in _IMPORTS:
             _OWNER[p] = importer.NAME
             paths.append(p)
@@ -1243,11 +1246,7 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
         resolve_prices((ev["provider"], ev["model"]) for ev in best.values())
 
     for ev in best.values():
-        if _ONLY and ev["source"] not in _ONLY:
-            continue
-        if _PROJECT and not claude_code.project_matches(_PROJECT[0], ev["project"] or ""):
-            continue
-        if _SESSION and not any((ev["session"] or "").startswith(s) for s in _SESSION):
+        if not kept(ev):
             continue
         if since and ev["when"] and ev["when"] < since:
             continue
@@ -1258,6 +1257,25 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
         ev["cost"] = price_record(ev["model"], usage, usage.get("speed") or "standard",
                                   ev["when"], ev["provider"])
         yield ev
+
+
+def filtered() -> bool:
+    """Whether --adapter, --project or --session narrows this run, so that
+    only some of the logs are read."""
+    return bool(_ONLY or _PROJECT or _SESSION)
+
+
+def kept(ev: dict) -> bool:
+    """Whether a call passes --adapter, --project and --session. Every call
+    meets these on its way out of iter_events(), the ledger's included,
+    because a call restored from the ledger has no file to filter on."""
+    if _ONLY and ev["source"] not in _ONLY:
+        return False
+    if _PROJECT and not claude_code.project_matches(_PROJECT[0], ev["project"] or ""):
+        return False
+    if _SESSION and not any((ev["session"] or "").startswith(s) for s in _SESSION):
+        return False
+    return True
 
 
 def scan_transcripts(paths) -> dict:
@@ -1312,24 +1330,29 @@ def reconcile_ledger(best: dict) -> tuple:
         prev = best.get(mid)
         if prev is not None and prev["_size"] >= row_size(row):
             continue
-        best[mid] = {
-            "when": parse_time(row.get("t")),
-            "model": row.get("m", ""),
-            # Rows written before providers existed carry neither field, and
-            # every one of them is a Claude Code call priced by Anthropic.
-            "provider": row.get("pv", DEFAULT_PROVIDER),
-            "project": row.get("p", ""),
-            "session": row.get("c", ""),
-            "cwd": "",
-            "sidechain": False,
-            "source": row.get("a", claude_code.NAME),
-            "_usage": row_to_usage(row),
-            "_size": row_size(row),
-        }
+        best[mid] = ledger_event(row)
         if prev is None:
             restored += 1
     LEDGER_STATE.update(written=written, restored=restored)
     return written, restored
+
+
+def ledger_event(row: dict) -> dict:
+    """A ledger row as the event a transcript would have given for its call."""
+    return {
+        "when": parse_time(row.get("t")),
+        "model": row.get("m", ""),
+        # Rows written before providers existed carry neither field, and
+        # every one of them is a Claude Code call priced by Anthropic.
+        "provider": row.get("pv", DEFAULT_PROVIDER),
+        "project": row.get("p", ""),
+        "session": row.get("c", ""),
+        "cwd": "",
+        "sidechain": False,
+        "source": row.get("a", claude_code.NAME),
+        "_usage": row_to_usage(row),
+        "_size": row_size(row),
+    }
 
 
 def covered_span(groups, files) -> str:
@@ -1373,7 +1396,7 @@ def covered_span(groups, files) -> str:
         # Under --project, --session or --adapter the other logs were never
         # read, so their calls would be counted as gone. A time window still
         # reads every log, so its count stands.
-        if LEDGER_STATE["restored"] and not (_PROJECT or _SESSION or _ONLY):
+        if LEDGER_STATE["restored"] and not filtered():
             line += f", {LEDGER_STATE['restored']:,} of them no longer in any transcript"
     return line
 
@@ -2750,7 +2773,9 @@ def summary(ledger: bool = True) -> dict:
     Always today, the last 7 and 30 days and all time, in dollars with the
     rates beside them, so main() refuses a window, --project and --session
     here. --adapter and --import narrow or add to what is read; with
-    ledger=False (--no-ledger) the ledger is neither read nor written.
+    ledger=False (--no-ledger) the ledger is neither read nor written. With
+    no logs and no calls, as on a first run, the notes start with where it
+    looked (first_run_note()).
     """
     paths = transcripts()
     overall, groups, _meta, unknown = collect(paths, ledger=ledger)
@@ -2760,6 +2785,10 @@ def summary(ledger: bool = True) -> dict:
     today = dt.date.today()
     windows = rolling_windows(groups, today)
     caching = caching_summary(overall)
+    notes = [{"level": level, "text": text} for level, text in report_notes(groups, unknown)]
+    if not overall["calls"] and not paths:
+        # A first run: say where it looked, so $0.00 is not the whole menu.
+        notes.insert(0, {"level": "info", "text": first_run_note()})
     # Which table priced each model, for grouping; the dearest if two did.
     priced_by = {}
     for (provider, model), v in groups["provider_model"].items():
@@ -2800,7 +2829,7 @@ def summary(ledger: bool = True) -> dict:
         "unknown_models": sorted(unknown),
         # What the menu must say beside the figures: verification dates, and
         # any warning (an unverified adapter, a stand-in or looked-up rate).
-        "notes": [{"level": level, "text": text} for level, text in report_notes(groups, unknown)],
+        "notes": notes,
         "sources": [{"name": k, "label": display_name("source", k),
                      "status": getattr(ALL_SOURCES.get(k), "STATUS", ""), "calls": v["calls"]}
                     for k, v in sorted(groups["source"].items(), key=lambda kv: -kv[1]["total"])],
@@ -3048,14 +3077,77 @@ def tilde(path: str) -> str:
     return path
 
 
+# The import format's documentation. The installed engine has no docs/ folder
+# (install.sh copies only what runs), so every message points at it online.
+IMPORT_FORMAT_URL = "https://github.com/Adi-debug-source/tokenmeter/blob/main/docs/import-format.md"
+
+
+def where_looked() -> list:
+    """(what each adapter reads, the folders it looked in), for a run that
+    found nothing to price."""
+    return [(f"{a.LABEL} {a.FILES}", [tilde(r) for r in adapter_roots(name)])
+            for name, a in ADAPTERS.items()]
+
+
 def nothing_found() -> str:
     """Where the tool looked, for a run that found nothing to price."""
     lines = ["nothing to price. Looked for:"]
-    for name, a in ADAPTERS.items():
-        for root in adapter_roots(name):
-            lines.append(f"  {a.LABEL} {a.FILES} in {tilde(root)}")
+    for what, roots in where_looked():
+        lines += [f"  {what} in {root}" for root in roots]
     lines.append("Another harness? Write its calls in the import format and pass "
-                 "--import FILE (see docs/import-format.md).")
+                 f"--import FILE (see {IMPORT_FORMAT_URL}).")
+    return "\n".join(lines)
+
+
+def first_run_note() -> str:
+    """nothing_found() as one note, for the menu bar's first run: a bare $0.00
+    did not say whether anything had been looked for."""
+    places = join_words(f"{what} in {' or '.join(roots)}" for what, roots in where_looked())
+    return (f"Nothing to price yet. Looked for {places}. "
+            "Run tokenmeter --list-adapters to see what each source found.")
+
+
+def any_call_kept(paths, ledger: bool) -> bool:
+    """Whether any call in these logs, or in the ledger, passes --adapter,
+    --project and --session, at any time. A window can leave a report
+    with no calls while the filters still match; that report is printed."""
+    events = list(scan_transcripts(paths).values())
+    if ledger:
+        events += [ledger_event(row) for row in read_ledger().values()]
+    return any(kept(ev) for ev in events)
+
+
+def no_match(args, project: str, ledger: bool) -> str:
+    """What a run says when --adapter, --project or --session kept no call:
+    the filters as given and, for --project, up to five projects that have
+    calls, latest first. It used to say "nothing to price. Looked for:" and
+    list folders that held plenty. With no logs anywhere and nothing in the
+    ledger it is a first run, and nothing_found() says where it looked."""
+    rows = read_ledger() if ledger else {}
+    logs = transcripts(every=True)
+    if not logs and not rows:
+        return nothing_found()
+    given = []
+    if _SESSION:
+        given.append(f"--session {tilde(args.session)}")
+    if _PROJECT:
+        given.append("--project " + (f". ({tilde(project)})" if args.project == "." else args.project))
+    given += [f"--adapter {name}" for name in args.adapter]
+    lines = ["no calls match " + " ".join(given)]
+    if _PROJECT:
+        latest = {}
+        for ev in list(scan_transcripts(logs).values()) + [ledger_event(r) for r in rows.values()]:
+            name = project_name(ev["project"] or "")
+            if not name or (_ONLY and ev["source"] not in _ONLY):
+                continue
+            stamp = ev["when"].timestamp() if ev["when"] else 0.0
+            latest[name] = max(stamp, latest.get(name, stamp))
+        names = sorted(latest, key=lambda n: (-latest[n], n))
+        if names:
+            more = ""
+            if len(names) > 5:
+                more = f" (and {len(names) - 5:,} more; --by project lists them all)"
+            lines.append("Projects with calls, latest first: " + ", ".join(names[:5]) + more)
     return "\n".join(lines)
 
 
@@ -3074,7 +3166,7 @@ def list_adapters() -> None:
                  else f"{DIM}nothing found in {where}{RESET}")
         print(f"    {name:<13}{status_words.get(a.STATUS, a.STATUS)}  {state}")
     print(f"    {importer.NAME:<13}{status_words['yours']}  "
-          f"{DIM}--import FILE, any harness (docs/import-format.md){RESET}")
+          f"{DIM}--import FILE, any harness ({IMPORT_FORMAT_URL}){RESET}")
     unverified = [a.LABEL for a in ADAPTERS.values() if a.STATUS == "unverified"]
     if unverified:
         import textwrap
@@ -3141,8 +3233,11 @@ Examples:
 def build_parser() -> argparse.ArgumentParser:
     """Every option, with its default and its help, grouped as --help shows
     them; main() parses with it."""
+    # The link sits in the epilog, which is printed as written: in an
+    # option's help, argparse wraps it, breaking it at a hyphen.
     ap = argparse.ArgumentParser(
-        prog="tokenmeter", add_help=False, epilog=HELP_EXAMPLES,
+        prog="tokenmeter", add_help=False,
+        epilog=f"{HELP_EXAMPLES}\nThe import format, for --import:\n  {IMPORT_FORMAT_URL}\n",
         description="What your AI coding would have cost at API rates.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     # add_help=False only so -h sits in a group named like the others; it
@@ -3163,8 +3258,8 @@ def build_parser() -> argparse.ArgumentParser:
                            "repeatable. Default: every adapter whose folders exist, plus "
                            "any --import")
     read.add_argument("--import", dest="imports", action="append", default=[], metavar="FILE",
-                      help="price events in the import format (docs/import-format.md), "
-                           "from any harness; - reads standard input; repeatable")
+                      help="price events in the import format (linked at the end of this "
+                           "help), from any harness; - reads standard input; repeatable")
     read.add_argument("--projects-dir", action="append", default=[], metavar="DIR",
                       help="a Claude Code projects folder to read instead of the default; "
                            "repeat it, this Mac's folder included, to combine machines "
@@ -3272,8 +3367,9 @@ def logs_to_read(args, project: str) -> tuple:
     """(the log files this run reads, the label a --session run goes by).
 
     --session and --project narrow the files and set the filters every call
-    passes through, the ledger's included. A run with nothing to read and
-    nothing in the ledger stops here, saying where it looked.
+    passes through, the ledger's included. An unfiltered run with nothing to
+    read and nothing in the ledger stops here, saying where it looked; a
+    filtered one is read first, and main() says if its filters kept nothing.
     """
     session_label = ""
     if args.session:
@@ -3286,13 +3382,10 @@ def logs_to_read(args, project: str) -> tuple:
             paths = transcripts(session=args.session)
             _SESSION[:] = [args.session]
             session_label = f"session {args.session[:8]}"
-            if not paths and not any(str(r.get("c", "")).startswith(args.session)
-                                     for r in read_ledger().values()):
-                sys.exit(f"no transcript found for session {args.session}")
     else:
         paths = transcripts(project=project)
         _PROJECT[:] = [project] if project else []
-    if not paths and (args.no_ledger or not read_ledger()):
+    if not paths and not filtered() and (args.no_ledger or not read_ledger()):
         sys.exit(nothing_found())
     return paths, session_label
 
@@ -3466,8 +3559,14 @@ def main(argv=None) -> None:
     whole, parts = collect_views(paths, since, ledger=not args.no_ledger, until=until,
                                  split=bool(args.html))
     overall, groups, meta, unknown = whole.result()
-    if not overall["calls"] and not paths and not (args.since or args.until or args.period):
-        sys.exit(nothing_found())
+    if not overall["calls"]:
+        windowed = bool(args.since or args.until or args.period)
+        # A filter that keeps nothing says so, naming itself; a window that
+        # keeps nothing while the filters match prints the empty report.
+        if filtered() and (not windowed or not any_call_kept(paths, not args.no_ledger)):
+            sys.exit(no_match(args, project, not args.no_ledger))
+        if not paths and not windowed:
+            sys.exit(nothing_found())
 
     label = report_label(args, project, session_label)
     if args.json:
