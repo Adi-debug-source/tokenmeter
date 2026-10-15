@@ -2557,8 +2557,8 @@ class TestPageMoney(Base):
         import pricing
         for table in pricing.TABLES.values():
             with self.subTest(table=table.PROVIDER):
-                self.assertFalse(hasattr(table, "_money"))
-                self.assertFalse(hasattr(table, "_MONEY"))
+                # Either spelling: Google's unused regex was named in capitals.
+                self.assertEqual([n for n in vars(table) if n.lower() == "_money"], [])
         self.assertNotIn("common", pricing.TABLES)
 
 
