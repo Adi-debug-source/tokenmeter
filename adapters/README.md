@@ -24,7 +24,7 @@ A module in this folder, added to `ADAPTERS` in `__init__.py`, with:
 | `FILE` | The same for one of them: `session`. Reports say "1 Codex session". |
 | `default_roots()` | The folders it reads, honouring the harness's own environment variables. |
 | `files(roots, project="", session="")` | The log files under those folders, narrowed by `project` and `session` where the files say enough (match a project with `claude_code.project_matches()`). The engine filters every call again, so reading too many is safe and too few is not. |
-| `looks_like(line)` | Whether one line of an unknown file is in this format. |
+| `looks_like(line)` | Whether one line of an unknown file is in this format. Claude Code's, the loosest, is tried after every other, so keep yours strict. |
 | `records(path)` | Yield `(key, event)` for every API call in one file. |
 | `notes()` *(optional)* | Sentences every report must print about this run's figures. |
 | `reset()` *(optional)* | Clear per-run state before a scan. |
@@ -52,7 +52,10 @@ differently, and translating them correctly is most of an adapter's job. The
 table in [docs/import-format.md](../docs/import-format.md) shows the usual
 conversions. Read each count with `adapters.common.whole()`, which keeps an
 int or a float and reads anything else (a bool, a string, `Infinity`, `NaN`)
-as 0, so one odd value in a log cannot end the run.
+as 0, so one odd value in a log cannot end the run. The counts are also the
+report's total tokens (uncached input, cache writes, cache reads and output,
+with `thinking` never added again), so a count in the wrong field moves the
+total as well as the price.
 
 ## De-duplication
 

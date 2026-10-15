@@ -12,7 +12,9 @@ The OFL permits embedding in a document, and asks that the licence travel with
 the fonts. The two licence files are the ones Google Fonts publishes with each
 family, unchanged. Keep them and this file beside the fonts.
 
-If these are deleted the dashboard still renders; `render_html` falls back to
-the system serif and sans stacks.
+If these are deleted the dashboard still renders: `font_faces()` leaves them
+out and the stylesheet falls back to the system serif and sans. The
+stylesheet and script in `dashboard/` are different: a page cannot work
+without them, so a run that cannot read them stops and says which.
 
 Refresh them with the snippet in MAINTENANCE.md.

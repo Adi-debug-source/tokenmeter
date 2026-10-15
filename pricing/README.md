@@ -56,8 +56,9 @@ them into rows, one per dated price.
 
 `common.py` is not a table. It holds what the page readers share:
 `money(cell)` reads the first dollar figure in a page's cell, so
-`"$1,250.00 / MTok"` gives `1250.0` and a cell with no figure gives `None`.
-Use it rather than writing another.
+`"$1,250.00 / MTok"` gives `1250.0` and a cell with no figure gives `None`;
+`free_is_zero=True` reads a cell that says only "Free" as `0.0`, and
+`commas=False` stops a figure at a comma. Use it rather than writing another.
 
 ## Adding a provider or a model
 
@@ -70,6 +71,12 @@ Use it rather than writing another.
 4. Write `page_rates()` if the page can be read reliably, and run
    `python3 tokenmeter.py --check-prices`. It must report every model matching.
 5. Register the file in `__init__.py`.
+6. Regenerate `docs/prices.md` with
+   `python3 tokenmeter.py --list-prices --markdown > docs/prices.md`, and give
+   the provider its row in the README's price table: its models, any retired,
+   the date its page was checked, and whether it was measured against real
+   bills. Tests in `tests/test_prices_pinned.py` fail until both match the
+   tables.
 
 A model the tables lack is still priced, by the startup lookup, but it is
 labelled as looked up rather than checked. Adding it here is what turns it
@@ -89,14 +96,16 @@ what it was.
 ],
 ```
 
-Then update `VERIFIED_ON` and the pinned test.
+Then update `VERIFIED_ON`, the pinned test, `docs/prices.md` and the
+provider's row in the README's price table, as in step 6 above.
 
 ## When a model leaves the page
 
 `--check-prices` names a model the page no longer lists. Find out why from
 the provider's own deprecation notice or changelog. If it was retired at its
 existing price, keep its row, so older usage is still priced, and add it to
-`RETIRED` with the retirement date and a comment naming the source. If it was
+`RETIRED` with the retirement date and a comment naming the source. The
+README's price table counts it as retired, as in "12 (3 retired)". If it was
 renamed, add the new name instead. Never delete a row that history still uses.
 
 ## Checking a table is still right

@@ -27,8 +27,8 @@ nothing twice.
 | `cache_write_5m` | | Anthropic: tokens written with the 5-minute lifetime. |
 | `cache_write_1h` | | Anthropic: tokens written with the 1-hour lifetime. |
 | `output` | | Output tokens, **including** any reasoning or thinking tokens. |
-| `thinking` | | Of `output`, how many were reasoning. Reported, never billed twice. |
-| `web_searches` | | Web search calls made during this request. |
+| `thinking` | | Of `output`, how many were reasoning. Reported, never billed or added to total tokens twice. |
+| `web_searches` | | Web search calls made during this request. Priced per search where the table sets a price (Anthropic, OpenAI, xAI), never counted as tokens. |
 | `speed` | | `standard` (default) or `fast`, for providers with a fast or priority tier. |
 | `session` | | Any grouping key you like, for `--by session`. |
 | `project` | | Any grouping key you like, for `--by project`. |
