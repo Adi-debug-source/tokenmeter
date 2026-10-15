@@ -233,6 +233,14 @@ A session that spawns subagents costs more because every subagent makes its own 
 
 The two answer different questions and will not match. The Stats tab counts every log line and adds cache reads into one headline token figure; Tokenmeter counts each API response once and prices the components separately. Cache reads are around 95% of prompt tokens and cost a tenth of the input rate, so a token total is a measure of text moved, not of money.
 
+### Why doesn't this match the Claude app?
+
+The Claude app's own token figure for the same work is a different number, and it can go down. Comparing the two showed three things. They are what was observed, not a description of how the app counts inside.
+
+1. **Deleted sessions.** The app's figure fell when sessions were deleted, as a count of the transcripts on disk would. Tokenmeter also counts its ledger, so a deleted session stays counted; the report's "kept by the ledger" line ([Total tokens](#total-tokens)) gives both figures.
+2. **Streamed replies.** A streamed reply leaves partial copies of itself in its transcript. Tokenmeter takes the largest copy of each message, once. The app's figure was well above that count, so it appears to count some replies more than once; its exact rule was not reproduced.
+3. **So they move differently.** For the same work Tokenmeter's total was the lower of the two, and with the ledger it does not go down when a session is deleted.
+
 ## Settings
 
 | Variable | Does |

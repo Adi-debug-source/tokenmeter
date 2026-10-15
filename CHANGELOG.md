@@ -324,6 +324,12 @@
   cost, `$4.56 · 1.20M tok`, from "Show tokens in the menu bar" in its
   menu. It is off until switched on and is remembered as its currency is.
   It reads each window's `tokens` object from `--summary-json`.
+- The README answers "Why doesn't this match the Claude app?" in three
+  points: the app's figure falls when sessions are deleted while the
+  ledger keeps them, it appears to count partial copies of streamed
+  replies that Tokenmeter counts once, and so for the same work
+  Tokenmeter's total was the lower and does not go down. Each is put as
+  what was observed, not as how the app works.
 
 ### Project
 
