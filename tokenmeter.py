@@ -1424,6 +1424,11 @@ def unknown_label(model: str, provider: str) -> str:
     return f"{model} ({provider})"
 
 
+# What --by groups a run by: every grouping _Tally keeps of a single key, in
+# its order. A test holds the two together, so a new grouping is offered.
+BY_CHOICES = ("project", "model", "day", "session", "hour", "weekday", "source", "provider")
+
+
 class _Tally:
     """One view's figures, built up one priced call at a time: the whole run,
     or one harness's share of it. Every face reads these and adds nothing."""
@@ -3331,7 +3336,7 @@ def check_prices(fetch=None) -> int:
     worst = 0
     print()
     print(f"  {BOLD}Checking price tables against the published pages{RESET}")
-    for provider, table in TABLES.items():
+    for table in TABLES.values():
         print()
         print(f"  {BOLD}{table.NAME}{RESET}  {DIM}{table.SOURCE}{RESET}")
         try:
@@ -3435,7 +3440,7 @@ def price_listing(markdown: bool = False) -> str:
         else:
             out += ["", f"  {BOLD}{table.NAME}{RESET}  {DIM}verified {v['pretty']}, {how}{RESET}"]
         for model, rows in table.PRICES.items():
-            for row in rows:
+            for i, row in enumerate(rows):
                 inp = row["in"]
                 cached = inp * row["cache_read_mult"]
                 m5, m1 = write_mults(row, table)
@@ -3445,7 +3450,7 @@ def price_listing(markdown: bool = False) -> str:
                 if row["from"]:
                     also.append(f"from {row['from']}")
                 elif len(rows) > 1:
-                    also.append(f"until {rows[rows.index(row) + 1]['from']}")
+                    also.append(f"until {rows[i + 1]['from']}")
                 if abs(w1 - write) > 1e-12:
                     also.append(f"1-hour cache write {fmt(w1)}")
                 if row.get("long"):
@@ -3561,10 +3566,8 @@ def reset_run() -> None:
     reset_adapters()
 
 
-def main(argv=None) -> None:
-    """The command line. argv defaults to sys.argv[1:]; tests pass their own.
-    Every call starts afresh (reset_run()), as a new process would."""
-    reset_run()
+def build_parser() -> argparse.ArgumentParser:
+    """Every option, with its default and its help; main() parses with it."""
     ap = argparse.ArgumentParser(
         prog="tokenmeter",
         description="What your AI coding would have cost at API rates.")
@@ -3613,8 +3616,7 @@ def main(argv=None) -> None:
     ap.add_argument("--check-prices", action="store_true",
                     help="fetch each provider's pricing page and report any difference "
                          "from the tables; changes nothing")
-    ap.add_argument("--by", choices=["project", "model", "day", "session",
-                                     "hour", "weekday", "source", "provider"], default="")
+    ap.add_argument("--by", choices=BY_CHOICES, default="")
     ap.add_argument("--sessions", action="store_true", help="list the dearest sessions")
     ap.add_argument("--html", nargs="?", const="auto", default="",
                     help="write the dashboard and open it")
@@ -3623,7 +3625,13 @@ def main(argv=None) -> None:
     ap.add_argument("--json", action="store_true", help="machine readable")
     ap.add_argument("--summary-json", action="store_true",
                     help="today, week and all time plus a model split, in one scan")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def apply_options(args) -> None:
+    """Refuse options that cannot go together, then set the run's state from
+    the rest: the rates to use, the ledger, the folders and files to read,
+    which adapters, and whether to look prices up online."""
     # Refused before anything is read or written.
     if args.rebuild_ledger:
         clash = flags_given(args, "--project", "--session", "--adapter", "--since",
@@ -3654,6 +3662,108 @@ def main(argv=None) -> None:
     if args.offline:
         ONLINE_LOOKUP[0] = False
 
+
+def logs_to_read(args, project: str) -> tuple:
+    """(the log files this run reads, the label a --session run goes by).
+
+    --session and --project narrow the files and set the filters every call
+    passes through, the ledger's included. A run with nothing to read and
+    nothing in the ledger stops here, saying where it looked.
+    """
+    session_label = ""
+    if args.session:
+        if os.path.isfile(args.session):
+            paths, ids = session_paths(args.session)
+            _SESSION[:] = ids
+            session_label = (f"session {ids[0][:8]}" if len(ids) == 1
+                             else os.path.basename(args.session))
+        else:
+            paths = transcripts(session=args.session)
+            _SESSION[:] = [args.session]
+            session_label = f"session {args.session[:8]}"
+            if not paths and not any(str(r.get("c", "")).startswith(args.session)
+                                     for r in read_ledger().values()):
+                sys.exit(f"no transcript found for session {args.session}")
+    else:
+        paths = transcripts(project=project)
+        _PROJECT[:] = [project] if project else []
+    if not paths and (args.no_ledger or not read_ledger()):
+        sys.exit(nothing_found())
+    return paths, session_label
+
+
+def report_window(args) -> tuple:
+    """(since, until) from --period, or from --since and --until; None is an
+    open end."""
+    until = None
+    if args.period:
+        if args.since or args.until:
+            sys.exit("--period sets both ends; do not pass --since or --until with it")
+        since, until = period_range(args.period)
+    else:
+        since = parse_since(args.since)
+        until = parse_since(args.until, "--until") if args.until else None
+    return since, until
+
+
+def report_label(args, project: str = "", session_label: str = "") -> str:
+    """What a report says it covers: its window, else its session, else "all
+    time"; then its project, and whether it was priced at today's rates.
+
+    project is --project with "." already read as the current folder, and
+    session_label comes from logs_to_read(), which read the session's file."""
+    if args.period:
+        label = period_label(args.period)
+    elif args.since and args.until:
+        label = f"{args.since} to {args.until}"
+    elif args.since:
+        label = f"last {args.since}"
+    elif args.until:
+        label = f"until {args.until}"
+    elif session_label:
+        label = session_label
+    else:
+        label = "all time"
+    if project:
+        label += f" · {project_name(project)}"
+    if args.current_rates:
+        label += " · at today's rates"
+    return label
+
+
+def print_json(overall, label: str) -> None:
+    """--json: the run's totals as one JSON object, for scripts."""
+    print(json.dumps({
+        "total_usd": round(overall["total"], 6),
+        "total_display": round(overall["total"] * DISPLAY["rate"], 6),
+        "currency": DISPLAY["code"],
+        "calls": overall["calls"],
+        "components": {c: round(overall[c], 6) for c in COMPONENTS},
+        "tokens": overall["tokens"],
+        "label": label,
+    }))
+
+
+def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts) -> None:
+    """--html: write the dashboard to out ("auto" is ~/Downloads) and open it.
+    parts is the run split by harness, for a page per harness."""
+    if out == "auto":
+        out = os.path.expanduser("~/Downloads/Tokenmeter.html")
+    render_html(overall, groups, meta, unknown, label, out,
+                covered=covered_span(groups, paths), views=harness_pages(parts, paths))
+    print(f"wrote {out}")
+    # macOS. The one line a Linux port would change, to xdg-open.
+    subprocess.run(["open", out], check=False)
+
+
+def main(argv=None) -> None:
+    """The command line. argv defaults to sys.argv[1:]; tests pass their own.
+    Every call starts afresh (reset_run()), as a new process would, then
+    parses, applies the options and runs one mode."""
+    reset_run()
+    args = build_parser().parse_args(argv)
+    apply_options(args)
+
     if args.list_adapters:
         list_adapters()
         return
@@ -3678,38 +3788,12 @@ def main(argv=None) -> None:
     set_currency(args.currency)
 
     project = os.getcwd() if args.project == "." else args.project
-    session_label = ""
-    if args.session:
-        if os.path.isfile(args.session):
-            paths, ids = session_paths(args.session)
-            _SESSION[:] = ids
-            session_label = (f"session {ids[0][:8]}" if len(ids) == 1
-                             else os.path.basename(args.session))
-        else:
-            paths = transcripts(session=args.session)
-            _SESSION[:] = [args.session]
-            session_label = f"session {args.session[:8]}"
-            if not paths and not any(str(r.get("c", "")).startswith(args.session)
-                                     for r in read_ledger().values()):
-                sys.exit(f"no transcript found for session {args.session}")
-    else:
-        paths = transcripts(project=project)
-        _PROJECT[:] = [project] if project else []
-    if not paths and (args.no_ledger or not read_ledger()):
-        sys.exit(nothing_found())
-
+    paths, session_label = logs_to_read(args, project)
     if args.rebuild_ledger:
         rebuild_ledger(paths)
         return
 
-    until = None
-    if args.period:
-        if args.since or args.until:
-            sys.exit("--period sets both ends; do not pass --since or --until with it")
-        since, until = period_range(args.period)
-    else:
-        since = parse_since(args.since)
-        until = parse_since(args.until, "--until") if args.until else None
+    since, until = report_window(args)
     # The dashboard gives each harness a page of its own when there are
     # several, so it has the run split by harness in the same single pass.
     whole, parts = collect_views(paths, since, ledger=not args.no_ledger, until=until,
@@ -3718,48 +3802,14 @@ def main(argv=None) -> None:
     if not overall["calls"] and not paths and not (args.since or args.until or args.period):
         sys.exit(nothing_found())
 
-    if args.period:
-        label = period_label(args.period)
-    elif args.since and args.until:
-        label = f"{args.since} to {args.until}"
-    elif args.since:
-        label = f"last {args.since}"
-    elif args.until:
-        label = f"until {args.until}"
-    elif session_label:
-        label = session_label
-    else:
-        label = "all time"
-    if project:
-        label += f" · {project_name(project)}"
-    if args.current_rates:
-        label += " · at today's rates"
-
+    label = report_label(args, project, session_label)
     if args.json:
-        print(json.dumps({
-            "total_usd": round(overall["total"], 6),
-            "total_display": round(overall["total"] * DISPLAY["rate"], 6),
-            "currency": DISPLAY["code"],
-            "calls": overall["calls"],
-            "components": {c: round(overall[c], 6) for c in COMPONENTS},
-            "tokens": overall["tokens"],
-            "label": label,
-        }))
-        return
-
-    if args.html:
-        out = args.html
-        if out == "auto":
-            out = os.path.expanduser("~/Downloads/Tokenmeter.html")
-        render_html(overall, groups, meta, unknown, label, out,
-                    covered=covered_span(groups, paths), views=harness_pages(parts, paths))
-        print(f"wrote {out}")
-        # macOS. The one line a Linux port would change, to xdg-open.
-        subprocess.run(["open", out], check=False)
-        return
-
-    print_report(overall, groups, meta, unknown, args.by, label, args.sessions,
-                 covered=covered_span(groups, paths))
+        print_json(overall, label)
+    elif args.html:
+        write_dashboard(overall, groups, meta, unknown, label, args.html, paths, parts)
+    else:
+        print_report(overall, groups, meta, unknown, args.by, label, args.sessions,
+                     covered=covered_span(groups, paths))
 
 
 if __name__ == "__main__":

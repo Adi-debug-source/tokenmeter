@@ -3285,6 +3285,50 @@ class TestCommandLine(Base):
         self.assertAlmostEqual(got["total_usd"], round(overall["total"], 6), places=9)
         self.assertFalse(os.path.exists(self.ledger))
 
+    def test_by_offers_every_grouping_the_tally_keeps(self):
+        """--by's choices were a second, hand-copied list of the groupings
+        _Tally builds. BY_CHOICES is the one list: every grouping of a single
+        key, in _Tally's order, and each one prints its table."""
+        self.assertEqual(tm.BY_CHOICES, tuple(g for g in tm._Tally().groups if "_" not in g))
+        self.write("a.jsonl", record("msg_1", out=1000))
+        for choice in tm.BY_CHOICES:
+            with self.subTest(by=choice):
+                self.assertEqual(tm.build_parser().parse_args(["--by", choice]).by, choice)
+                out = cli("--by", choice, "--no-ledger")
+                self.assertIn("by harness" if choice == "source" else f"by {choice}", out)
+        import contextlib, io
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            tm.build_parser().parse_args(["--by", "colour"])
+
+    def test_the_label_says_what_the_run_covers(self):
+        """report_label() builds every report's label from the parsed options:
+        the window first, then the session, else "all time", then the project
+        and today's rates. --until alone reads "until X", not "all time"."""
+        def label(*argv, project="", session=""):
+            return tm.report_label(tm.build_parser().parse_args(list(argv)), project, session)
+        self.assertEqual(label(), "all time")
+        self.assertEqual(label("--until", "2026-10-02"), "until 2026-10-02")
+        self.assertEqual(label("--since", "7d"), "last 7d")
+        self.assertEqual(label("--since", "2026-09-01", "--until", "2026-09-03"),
+                         "2026-09-01 to 2026-09-03")
+        self.assertEqual(label("--period", "lastmonth"), tm.period_label("lastmonth"))
+        self.assertEqual(label(session="session abcdef12"), "session abcdef12")
+        self.assertEqual(label("--since", "7d", session="session abcdef12"), "last 7d")
+        project = "/Users/sam/code/app"
+        self.assertEqual(label("--current-rates", project=project),
+                         f"all time · {tm.project_name(project)} · at today's rates")
+
+    def test_the_dashboard_is_written_and_opened(self):
+        """--html had no test through the command line: it writes the page to
+        the path given, says where, and asks the system to open it."""
+        self.write("a.jsonl", record("msg_1", out=1000))
+        out = os.path.join(self.tmp, "dash.html")
+        with unittest.mock.patch.object(tm.subprocess, "run") as run:
+            printed = cli("--html", out, "--no-ledger")
+        self.assertEqual(printed, f"wrote {out}\n")
+        run.assert_called_once_with(["open", out], check=False)
+        self.assertEqual(list(payload_of(slurp(out, encoding="utf-8"))["views"]), ["all"])
+
 
 class TestRunState(Base):
     """A run's options and findings are module globals, and nothing put them
