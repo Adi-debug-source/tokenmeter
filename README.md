@@ -210,10 +210,12 @@ The two answer different questions and will not match. The Stats tab counts ever
 
 | Variable | Does |
 |---|---|
-| `TOKENMETER_CURRENCY` | Default display currency everywhere (USD unless set) |
+| `TOKENMETER_CURRENCY` | Default display currency for the terminal, the dashboard and the status line (USD unless set). The menu bar keeps its own choice, from its Currency menu |
 | `TOKENMETER_LEDGER` | Where the ledger lives |
 | `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
+| `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
+| `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
 | `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME` | Respected, as each harness uses them |
 
 The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there.

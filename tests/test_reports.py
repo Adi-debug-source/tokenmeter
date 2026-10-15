@@ -714,6 +714,21 @@ class TestCommandLine(Base):
         run.assert_called_once_with(["open", out], check=False)
         self.assertEqual(list(payload_of(slurp(out, encoding="utf-8"))["views"]), ["all"])
 
+    def test_the_settings_table_names_every_variable(self):
+        """README's Settings table left out TOKENMETER_PRICE_CACHE, which the
+        engine read under its bare name. Every TOKENMETER_ variable now has a
+        named constant, and the table has a row for each one."""
+        readme = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "README.md"),
+                       encoding="utf-8")
+        table = readme.split("## Settings", 1)[1].split("\n## ", 1)[0]
+        names = {v for k, v in vars(tm).items() if k.endswith("_ENV") and isinstance(v, str)}
+        self.assertIn("TOKENMETER_PRICE_CACHE", names)
+        for name in sorted(names):
+            with self.subTest(name=name):
+                self.assertIn("| `%s` |" % name, table)
+        for name in re.findall(r"TOKENMETER_[A-Z_]+", slurp(tm.__file__, encoding="utf-8")):
+            self.assertIn(name, names)
+
 
 class TestRunState(Base):
     """A run's options and findings are module globals, and nothing put them

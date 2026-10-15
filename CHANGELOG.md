@@ -258,6 +258,11 @@
   installed cleanly and then had a menu bar that could not run the engine.
   It is a warning, not a failure, and it says to update the command line
   tools.
+- README's Settings table has a row for every variable the engine reads, and
+  a test keeps it so: `TOKENMETER_PRICE_CACHE` (where looked-up prices are
+  saved) and `OPENCODE_DB` are listed, and `TOKENMETER_CURRENCY` says it sets
+  the terminal, the dashboard and the status line, while the menu bar keeps
+  the choice made in its Currency menu.
 
 ## 1.1.2, 6 October 2026
 

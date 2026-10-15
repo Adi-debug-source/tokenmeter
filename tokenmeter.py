@@ -424,7 +424,8 @@ def verification(provider: str) -> dict:
 LITELLM_URL = ("https://raw.githubusercontent.com/BerriAI/litellm/main/"
                "model_prices_and_context_window.json")
 LITELLM_NAME = "LiteLLM's public price list"
-PRICE_CACHE = os.environ.get("TOKENMETER_PRICE_CACHE") or os.path.join(
+PRICE_CACHE_ENV = "TOKENMETER_PRICE_CACHE"
+PRICE_CACHE = os.environ.get(PRICE_CACHE_ENV) or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".fetched_prices.json")
 OFFLINE_ENV = "TOKENMETER_OFFLINE"
 
