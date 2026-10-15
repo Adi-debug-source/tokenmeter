@@ -3255,12 +3255,18 @@ def any_call_kept(paths, ledger: bool) -> bool:
     return any(kept(ev) for ev in events)
 
 
-def no_match(args, project: str, ledger: bool) -> str:
+def no_match(args, project: str, ledger: bool, notes=()) -> str:
     """What a run says when --adapter, --project or --session kept no call:
     the filters as given and, for --project, up to five projects that have
     calls, latest first. It used to say "nothing to price. Looked for:" and
     list folders that held plenty. With no logs anywhere and nothing in the
-    ledger it is a first run, and nothing_found() says where it looked."""
+    ledger it is a first run, and nothing_found() says where it looked.
+
+    notes are the warnings the run's own logs gave, which may be why nothing
+    matched: an import's skipped lines, a compressed session that could not
+    be read. They follow, as the report prints them; ending with the filters
+    alone hid them.
+    """
     rows = read_ledger() if ledger else {}
     logs = transcripts(every=True)
     if not logs and not rows:
@@ -3286,6 +3292,7 @@ def no_match(args, project: str, ledger: bool) -> str:
             if len(names) > 5:
                 more = f" (and {len(names) - 5:,} more; --by project lists them all)"
             lines.append("Projects with calls, latest first: " + ", ".join(names[:5]) + more)
+    lines += [f"note: {text}" for text in notes]
     return "\n".join(lines)
 
 
@@ -3712,10 +3719,13 @@ def main(argv=None) -> None:
     overall, groups, meta, unknown = whole.result()
     if not overall["calls"]:
         windowed = bool(args.since or args.until or args.period)
-        # A filter that keeps nothing says so, naming itself; a window that
-        # keeps nothing while the filters match prints the empty report.
+        # Read now: the scans below start each adapter's notes afresh.
+        warnings = [text for level, text in report_notes(groups, unknown) if level == "warn"]
+        # A filter that keeps nothing says so, naming itself, with whatever
+        # the logs it read had wrong with them; a window that keeps nothing
+        # while the filters match prints the empty report.
         if filtered() and (not windowed or not any_call_kept(paths, not args.no_ledger)):
-            sys.exit(no_match(args, project, not args.no_ledger))
+            sys.exit(no_match(args, project, not args.no_ledger, warnings))
         if not paths and not windowed:
             sys.exit(nothing_found())
 

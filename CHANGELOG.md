@@ -107,10 +107,12 @@ the dashboard and the menu bar.
   names the project without the home folder.
 - A `--project`, `--session` or `--adapter` that matches no call stops with
   "no calls match" and the filters as given, and for `--project` lists up to
-  five projects that do have calls, latest first. It said "nothing to price.
-  Looked for:" and listed folders full of logs, or, where a reader cannot
-  narrow its files by project, printed an empty report; `--session` had a
-  message of its own. A window that leaves a matching filter with no calls
+  five projects that do have calls, latest first. Any warning the logs it read
+  gave follows, such as an import's skipped lines or a compressed Codex
+  session that could not be read, since that may be why. It said "nothing to
+  price. Looked for:" and listed folders full of logs, or, where a reader
+  cannot narrow its files by project, printed an empty report; `--session` had
+  a message of its own. A window that leaves a matching filter with no calls
   still prints its empty report, and a machine with no logs and an empty
   ledger still says where it looked.
 - `--since` and `--until` take a date as local midnight, as `--period` and

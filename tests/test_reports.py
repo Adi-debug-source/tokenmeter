@@ -1127,6 +1127,41 @@ class TestEmptyAndNoMatch(Base):
                              tm.project_name("-Users-sam-code-p1"),
                              tm.project_name("-Users-sam-code-p0")))
 
+    def test_a_filter_that_matches_nothing_says_what_was_wrong_with_its_logs(self):
+        """A filtered run whose logs were found but gave no usable call ended
+        with "no calls match" alone, and the note every report prints about
+        why, an import's skipped lines or a compressed session it could not
+        read, was dropped. Without --adapter the same run prints both."""
+        bad = os.path.join(self.tmp, "bad.jsonl")
+        with open(bad, "w") as f:
+            f.write('{"id": "e1", "timestamp": "never", "model": "m", "output": 5}\n{"id": "e2"\n')
+        lines = self.refused("--no-ledger", "--adapter", "import", "--import", bad).splitlines()
+        self.assertEqual(lines[0], "no calls match --adapter import")
+        self.assertTrue(lines[1].startswith("note: 2 lines skipped in bad.jsonl: line 1: "), lines)
+        self.assertEqual(len(lines), 2)
+
+        day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
+        os.makedirs(day)
+        with open(os.path.join(day, "rollout-2026-09-24T14-07-33-"
+                                    "0198f3c1-0000-7000-8000-000000000003.jsonl.zst"), "wb") as f:
+            f.write(b"not zstd at all\n")
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.tmp, "codex-home", "sessions")]
+        # Damaged, or nothing here to decompress it: either way it is said.
+        said = "note: 1 compressed Codex session (.jsonl.zst) could not be read"
+        message = self.refused("--adapter", "codex")
+        self.assertEqual(message.splitlines()[0], "no calls match --adapter codex")
+        self.assertIn(said, message)
+        # --project scans every log for the projects it lists, and the notes
+        # are still this run's own: the import it read, not the Codex session
+        # it did not, whose folder cannot be read to match.
+        self.lay_out_projects(1)
+        lines = self.refused("--project", "zzz", "--import", bad, "--no-ledger").splitlines()
+        self.assertEqual(lines[0], "no calls match --project zzz")
+        self.assertTrue(lines[1].startswith("Projects with calls, latest first: "), lines)
+        self.assertTrue(lines[2].startswith("note: 2 lines skipped in bad.jsonl: line 1: "), lines)
+        self.assertEqual(len(lines), 3)
+        self.assertNotIn("note:", self.refused("--adapter", "claude-code", "--project", "zzz"))
+
     def test_a_window_with_nothing_in_it_is_still_a_report(self):
         """The filter matches; only the window is empty, so the report is
         printed at zero, as before."""
