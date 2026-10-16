@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Project
+
+- A `SECURITY.md` says how to report a vulnerability, and what counts as
+  one.
+
 ### Fixes
 
 - The menu bar app's error log is `~/Library/Logs/Tokenmeter/tokenmeter.err`,
