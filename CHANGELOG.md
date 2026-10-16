@@ -19,6 +19,7 @@
 
 - A `SECURITY.md` says how to report a vulnerability, and what counts as
   one.
+- The engine is tested on Python 3.15 as well as 3.9, 3.13 and 3.14.
 
 ### Fixes
 

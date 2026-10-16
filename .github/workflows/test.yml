@@ -24,14 +24,14 @@ jobs:
 
   engine:
     # The engine is plain Python; this proves it away from macOS, on 3.9, the
-    # oldest supported, and on 3.13 and 3.14. 3.14 is also the first with
-    # compression.zstd, the Codex reader's first choice for .jsonl.zst files.
-    # Pinned to 24.04 because actions/python-versions builds 3.9 for it and not
-    # for 26.04, where ubuntu-latest will move.
+    # oldest supported, and on 3.13, 3.14 and 3.15, the newest. 3.14 is also
+    # the first with compression.zstd, the Codex reader's first choice for
+    # .jsonl.zst files. Pinned to 24.04 because actions/python-versions builds
+    # 3.9 for it and not for 26.04, where ubuntu-latest will move.
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        python: ["3.9", "3.13", "3.14"]
+        python: ["3.9", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
