@@ -3,6 +3,7 @@ the fixtures in tests/fixtures/, and the import format.
 """
 
 import datetime as dt
+import io
 import json
 import os
 import shutil
@@ -546,14 +547,81 @@ class TestCodexAdapter(Base):
             os.rename(p, p + ".zst")
         reads = []
 
-        def read(path):   # the files are not really compressed
+        def open_(path):   # the files are not really compressed
             reads.append(path)
-            return slurp(path, mode="rb")
-        with mock.patch.object(tm.codex, "_decoder", return_value=read):
+            return io.BytesIO(slurp(path, mode="rb"))
+        with mock.patch.object(tm.codex, "_decoder", return_value=open_):
             overall, *_ = tm.collect(tm.transcripts(), ledger=False)
         self.assertEqual(overall["calls"], 6)
         self.assertEqual(len(reads), 2)
         self.assertEqual(len(set(reads)), 2)
+
+    def test_under_project_a_compressed_session_is_decompressed_in_full_once(self):
+        """--project reads each session's first line for its folder, and did
+        so by decompressing the whole file, then decompressed it again to
+        read its calls. The first read now stops after those lines: a
+        session with a long tail costs one full decompression, and the
+        stream is closed early, as the zstd command's would be."""
+        from unittest import mock
+        text = slurp(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"), mode="rb")
+        tail = (json.dumps({"timestamp": "2026-09-24T14:08:00.000Z", "type": "response_item",
+                            "payload": {"type": "message", "text": "x" * 500}}) + "\n").encode()
+        sizes, read, closed_early = {}, [], []
+        for n, fx in enumerate(("gen3_turn_context.jsonl", "gen4_current_paginated.jsonl")):
+            p = self.place(fx, uuid=f"0198f3c1-0000-7000-8000-00000000000{n}") + ".zst"
+            os.rename(p[:-4], p)
+            with open(p, "ab") as f:
+                f.write(tail * 400)        # about 200 KB after the calls
+            sizes[p] = os.path.getsize(p)
+
+        class Stream(io.BytesIO):
+            def __init__(self, path):
+                super().__init__(slurp(path, mode="rb"))
+                self.path = path
+
+            def read(self, n=-1):
+                data = super().read(n)
+                read.append(len(data))
+                return data
+
+            def read1(self, n=-1):
+                data = super().read1(n)
+                read.append(len(data))
+                return data
+
+            def readinto(self, b):
+                n = super().readinto(b)
+                read.append(n)
+                return n
+
+            def close(self):
+                if not self.closed and self.tell() < len(self.getvalue()):
+                    closed_early.append(self.path)
+                super().close()
+        with mock.patch.object(tm.codex, "_decoder", return_value=Stream):
+            paths = tm.transcripts(project="/Users/example/code/demo")
+            self.assertEqual(len(paths), 2)
+            overall, *_ = tm.collect(paths, ledger=False)
+        self.assertEqual(overall["calls"], 6)
+        total = sum(sizes.values())
+        self.assertLess(sum(read), total + 2 * 65536, "the project check read far more than the first lines")
+        self.assertEqual(sorted(closed_early), sorted(sizes))
+
+    def test_the_zstd_command_is_read_as_a_stream_and_stopped_early(self):
+        """The zstd command's output, read line by line and ended early, and
+        read to the end, where a failing exit means a damaged file."""
+        tool = self.fake_zstd(os.path.join(self.tmp, "homebrew", "bin"))
+        with self.no_decoder_but(tool):
+            p = self.place("gen4_current_paginated.jsonl")
+            os.rename(p, p + ".zst")
+            head = tm.codex._head(p + ".zst", 2)
+            self.assertEqual(head.count("\n"), 2)
+            self.assertIn("session_meta", head)
+            self.assertEqual(tm.codex._first_meta(p + ".zst").get("cwd"), "/Users/example/code/demo")
+            whole = tm.codex._decompress(p + ".zst")
+            self.assertEqual(whole, slurp(p + ".zst", encoding="utf-8"))
+            with self.assertRaises(tm.codex._Damaged):
+                tm.codex._decompress(os.path.join(self.tmp, "no-such-file.zst"))
 
     def test_a_compressed_session_splits_into_lines_as_a_plain_one_does(self):
         """Decompressed text was split with str.splitlines(), which also
@@ -571,7 +639,8 @@ class TestCodexAdapter(Base):
             f.write("\n".join(lines) + "\n")
         compressed = plain.replace(".jsonl", "-zst.jsonl.zst")
         shutil.copy(plain, compressed)
-        with mock.patch.object(tm.codex, "_decoder", return_value=lambda path: slurp(path, mode="rb")):
+        with mock.patch.object(tm.codex, "_decoder",
+                               return_value=lambda path: io.BytesIO(slurp(path, mode="rb"))):
             got = [ev["model"] for _, ev in tm.codex.records(compressed)]
         self.assertEqual(got, [ev["model"] for _, ev in tm.codex.records(plain)])
         self.assertEqual(got, ["gpt-5.2-codex", "gpt-5.2-codex", "gpt-5.3-codex"])

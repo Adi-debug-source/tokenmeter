@@ -23,6 +23,10 @@
 
 ### Fixes
 
+- Under `--project`, a compressed Codex session is decompressed once. Its
+  first line, read for the project check, now comes from a stream stopped
+  after a few lines, where the whole file was decompressed for it and
+  again for its calls.
 - `--project .` means the current folder and the folders under it, such as
   a worktree or a scratch folder of this project, decided by the working
   folder each transcript records. It found every project whose folder slug

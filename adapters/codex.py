@@ -151,34 +151,83 @@ class _Damaged(Exception):
     still being written."""
 
 
+class _CommandOutput(io.RawIOBase):
+    """What a command writes to standard output, as a binary stream that is
+    read as it is produced. Closed before the end, as a read of a few lines
+    is, the command is stopped; read to the end, a failing exit is raised,
+    as a damaged file must be."""
+
+    def __init__(self, args):
+        super().__init__()
+        self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        n = self.proc.stdout.readinto(buffer)
+        if not n:
+            code = self.proc.wait(timeout=30)
+            if code:
+                raise subprocess.CalledProcessError(code, self.proc.args)
+        return n
+
+    def close(self):
+        if not self.closed:
+            if self.proc.poll() is None:
+                self.proc.kill()
+            self.proc.stdout.close()
+            self.proc.wait()
+        super().close()
+
+
+class _ReaderStream(io.RawIOBase):
+    """A zstandard stream reader over a file, both closed together."""
+
+    def __init__(self, reader, source):
+        super().__init__()
+        self.reader, self.source = reader, source
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        data = self.reader.read(len(buffer))
+        buffer[:len(data)] = data
+        return len(data)
+
+    def close(self):
+        if not self.closed:
+            self.reader.close()
+            self.source.close()
+        super().close()
+
+
 def _decoder():
-    """A function from a .zst file's path to its bytes, or None when this
-    machine has no zstd decoder: Python's own (3.14 and later), the zstandard
-    package, or the zstd command, in that order."""
+    """A function from a .zst file's path to a binary stream over its
+    contents, or None when this machine has no zstd decoder: Python's own
+    (3.14 and later), the zstandard package, or the zstd command, in that
+    order. _decompress() reads the stream whole and _head() only its first
+    lines, so a file is decompressed only as far as it is read."""
     try:
         from compression import zstd  # Python 3.14 and later
     except ImportError:
         pass
     else:
-        def read(path):
-            with zstd.open(path, "rb") as f:
-                return f.read()
-        return read
+        return lambda path: zstd.open(path, "rb")
     try:
         import zstandard
     except ImportError:
         pass
     else:
-        def read(path):
-            with open(path, "rb") as f:
-                return zstandard.ZstdDecompressor().stream_reader(f).read()
-        return read
+        def open_(path):
+            source = open(path, "rb")
+            return _ReaderStream(zstandard.ZstdDecompressor().stream_reader(source), source)
+        return open_
     tool = _zstd_tool()
     if tool:
-        def read(path):
-            return subprocess.run([tool, "-dc", path], capture_output=True, timeout=30,
-                                  check=True).stdout
-        return read
+        return lambda path: _CommandOutput([tool, "-dc", path])
     return None
 
 
@@ -188,28 +237,55 @@ def _decompress(path: str):
     Raises _Damaged when a decoder exists but the file will not decode, which
     is not the same problem: installing zstd would not help.
     """
-    read = _decoder()
-    if read is None:
+    open_ = _decoder()
+    if open_ is None:
         return None
     try:
-        return read(path).decode("utf-8", "ignore")
+        with open_(path) as f:
+            return f.read().decode("utf-8", "ignore")
     except Exception as e:  # EOFError, ZstdError, OSError, a failed zstd command
         raise _Damaged(path) from e
+
+
+def _head(path: str, limit: int):
+    """The first `limit` lines of a .jsonl.zst, decompressed only that far,
+    or None when nothing here can read it or it will not decode. For the
+    project check on each file, which needs its first line: decompressing
+    the whole file for that, and again to read its calls, cost every
+    compressed session two decompressions under --project."""
+    open_ = _decoder()
+    if open_ is None:
+        return None
+    try:
+        with open_(path) as f:
+            buffered = f if isinstance(f, io.BufferedIOBase) else io.BufferedReader(f)
+            lines = []
+            for line in io.TextIOWrapper(buffered, encoding="utf-8", errors="ignore"):
+                lines.append(line)
+                if len(lines) >= limit:
+                    break
+            return "".join(lines)
+    except Exception:
+        return None
 
 
 def _lines(path: str, limit: int = 0, text: str | None = None):
     """Parsed JSON objects from a session file, compressed or not.
 
     A caller that has already decompressed a .jsonl.zst passes its text, so it
-    is decompressed once. The text is split into lines exactly as a plain file
-    is read: str.splitlines() would also split at a raw U+2028 inside a JSON
-    string, which Codex writes unescaped.
+    is decompressed once; one that wants only the first `limit` lines of one
+    has it decompressed only that far. The text is split into lines exactly
+    as a plain file is read: str.splitlines() would also split at a raw
+    U+2028 inside a JSON string, which Codex writes unescaped.
     """
     if text is None and path.endswith(".zst"):
-        try:
-            text = _decompress(path)
-        except _Damaged:
-            return
+        if limit:
+            text = _head(path, limit)
+        else:
+            try:
+                text = _decompress(path)
+            except _Damaged:
+                return
         if text is None:
             return
     if text is not None:
