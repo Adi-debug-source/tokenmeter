@@ -828,6 +828,34 @@ class TestMenuBarTokens(Base):
                          ["999", "1.0k", "1.00M", "1.00B"])
 
 
+class TestLoginItem(Base):
+    """The menu bar app's LaunchAgent, which install-login-item.sh writes with
+    __HOME__ filled in. Neither script is run by the tests."""
+
+    def root(self):
+        return os.path.join(os.path.dirname(FIXTURES), "..")
+
+    def test_errors_go_to_the_users_own_logs_folder(self):
+        """StandardErrorPath was /tmp/tokenmeter.err. /tmp is shared by every
+        account on the Mac and anyone can leave a file or a symlink there, and
+        launchd opens that path as this user without looking. The log now
+        lives under the user's own Library/Logs, as Bytemeter's does, and the
+        script that loads the agent makes the folder first, because launchd
+        does not."""
+        import plistlib
+        with open(os.path.join(self.root(), "costbar",
+                               "io.github.adi-debug-source.tokenmeter.plist"), "rb") as fh:
+            agent = plistlib.load(fh)
+        path = agent["StandardErrorPath"]
+        self.assertTrue(path.startswith("__HOME__/Library/Logs/"), path)
+        self.assertNotIn("/tmp/", path)
+        folder = os.path.dirname(path).replace("__HOME__", "$HOME")
+        script = slurp(os.path.join(self.root(), "costbar", "install-login-item.sh"),
+                       encoding="utf-8")
+        self.assertRegex(script, r'(?m)^mkdir -p .*"%s"' % re.escape(folder))
+        self.assertLess(script.index("mkdir -p"), script.index("launchctl bootstrap"))
+
+
 class TestInstallerSystemPython(Base):
     """install.sh is never run by the tests. Its check of the Python the menu
     bar runs is cut out of it and run in bash under set -e, with stand-ins for

@@ -94,6 +94,7 @@ if [ "$UNINSTALL" = 1 ]; then
     to_bin "$CLAUDE_DIR/commands/tokenmeter.md" "/tokenmeter command moved to the Bin"
     to_bin "$TARGET" "engine moved to the Bin"
     say "your usage ledger was kept: ${TOKENMETER_LEDGER:-$HOME/.claude/cost-ledger.jsonl}"
+    [ -d "$HOME/Library/Logs/Tokenmeter" ] && say "the menu bar app's error log stays in $HOME/Library/Logs/Tokenmeter"
     echo
     exit 0
 fi

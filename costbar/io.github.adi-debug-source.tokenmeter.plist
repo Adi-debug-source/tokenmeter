@@ -9,6 +9,12 @@
   </array>
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Interactive</string>
-  <key>StandardErrorPath</key><string>/tmp/tokenmeter.err</string>
+  <!--
+    Errors go to the user's own Logs folder, which survives a reboot and is
+    not shared: /tmp is shared by every account on the Mac, so a file or a
+    symlink another account left there would be written to as this one.
+    install-login-item.sh makes the folder before loading this.
+  -->
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/Tokenmeter/tokenmeter.err</string>
 </dict>
 </plist>

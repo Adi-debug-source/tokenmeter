@@ -13,7 +13,7 @@ if [ "$1" = "--remove" ]; then
     exit 0
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents"
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/Tokenmeter"
 sed "s|__HOME__|$HOME|g" "$(dirname "$0")/$LABEL.plist" > "$PLIST"
 plutil -lint "$PLIST" >/dev/null
 pkill -f "Tokenmeter.app/Contents/MacOS/Tokenmeter" 2>/dev/null || true

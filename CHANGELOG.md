@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- The menu bar app's error log is `~/Library/Logs/Tokenmeter/tokenmeter.err`,
+  not `/tmp/tokenmeter.err`. `/tmp` is shared by every account on the Mac,
+  and launchd opened whatever file or symlink was already there as you. The
+  login item's installer makes the folder, and `--uninstall` says the log
+  stays.
+
 ## 1.2.0, 16 October 2026
 
 Total tokens on every face, by one definition, beside the money, and the
