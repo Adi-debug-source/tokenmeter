@@ -81,10 +81,12 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 6 Oct 20
 
 ## Google
 
-Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 15 Oct 2026, checked against the published page; not yet against a real bill.
+Source: <https://ai.google.dev/gemini-api/docs/pricing>. Last verified 16 Oct 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `gemini-4-argon` | $2 | $0.10 | - | $10 | until 2026-12-01 |
+| `gemini-4-argon` | $4 | $0.20 | - | $20 | from 2026-12-01 |
 | `gemini-3.8-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01 |
 | `gemini-3.8-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01 |
 | `gemini-3.7-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; retirement 2026-10-08, kept at the last published price |

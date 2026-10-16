@@ -153,6 +153,7 @@ class TestOtherProvidersPublishedRates(Base):
         "o1": (15, 60, 7.50), "o1-pro": (150, 600, 150),
     }
     GOOGLE = {
+        # gemini-4-argon's dated rows are pinned in test_gemini_4_argon_doubles_on_1_december.
         "gemini-3.5-flash": (1.50, 9, 0.15), "gemini-3.5-flash-lite": (0.30, 2.50, 0.03),
         "gemini-3.1-flash-lite": (0.25, 1.50, 0.025), "gemini-3.1-pro-preview": (2, 12, 0.20),
         "gemini-3-flash-preview": (0.50, 3, 0.05), "gemini-2.5-pro": (1.25, 10, 0.125),
@@ -168,8 +169,8 @@ class TestOtherProvidersPublishedRates(Base):
 
     def check(self, provider, official):
         table = tm.TABLES[provider].PRICES
-        self.assertEqual(set(table) - {"gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"},
-                         set(official), f"{provider} table and pinned list differ")
+        dated = {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"}
+        self.assertEqual(set(table) - dated, set(official), f"{provider} table and pinned list differ")
         for model, (inp, out, hit) in official.items():
             with self.subTest(model=model):
                 row, known = tm.lookup(model, provider=provider)
@@ -205,6 +206,28 @@ class TestOtherProvidersPublishedRates(Base):
                 self.assertEqual(tm.lookup(model, before, "google")[0]["in"], 0.75)
                 self.assertEqual(tm.lookup(model, after, "google")[0]["in"], 1.50)
                 self.assertEqual(tm.lookup(model, after, "google")[0]["out"], 7.50)
+
+    def test_gemini_4_argon_doubles_on_1_december(self):
+        """Read off ai.google.dev/gemini-api/docs/pricing on 16 October 2026:
+        $2.00 in and $10.00 out through 30 November 2026, $4.00 and $20.00
+        from 1 December 2026, context caching $0.10 then $0.20 (0.05x input,
+        not the 0.1x every other Gemini model charges), no long-context tier.
+        The model was on the page from 13 October and the table lacked it,
+        so its calls were priced by the online lookup, and flagged as such,
+        and the page reader did not name it as missing."""
+        before, after = noon("2026-11-30"), noon("2026-12-01")
+        row, known = tm.lookup("gemini-4-argon", before, "google")
+        self.assertTrue(known)
+        self.assertEqual((row["in"], row["out"]), (2.00, 10.00))
+        self.assertAlmostEqual(row["in"] * row["cache_read_mult"], 0.10, places=9)
+        self.assertNotIn("long", row)
+        row, known = tm.lookup("gemini-4-argon", after, "google")
+        self.assertEqual((row["in"], row["out"]), (4.00, 20.00))
+        self.assertAlmostEqual(row["in"] * row["cache_read_mult"], 0.20, places=9)
+        c = tm.price_record("gemini-4-argon", usage(inp=1_000_000, read=1_000_000, out=100_000),
+                            when=before, provider="google")
+        self.assertAlmostEqual(cost_of(c), 2.00 + 0.10 + 1.00, places=9)
+        self.assertFalse(c["_unknown_model"])
 
     def test_gemini_flash_models_retired_on_8_october_2026_keep_their_price(self):
         """The Gemini API changelog, 8 October 2026: gemini-3.5-flash and

@@ -6,7 +6,8 @@ paid. Read twice, independently: once by hand with every figure quoted, and
 once by the page reader below, and the two agreed on every figure. Re-read in
 full on 6 October 2026, and again on 15 October 2026 (footer "Last updated
 2026-10-15 UTC"), by which time gemini-3.5-flash and gemini-3.7-flash had
-left the page; see RETIRED.
+left the page; see RETIRED. Gemini 4 Argon was read off the page on 16
+October 2026, the rest matching as before.
 
 **Published, not measured.** Nobody has yet compared these with a real Gemini
 bill or a harness's own cost report. Please do, and open an issue either way.
@@ -16,13 +17,15 @@ Rules taken from the page and modelled here:
   - Output is priced "including thinking tokens". Gemini's own usage report
     counts thoughts separately from the answer, so an adapter or import must
     add them into output.
-  - Cached input is 0.1x input on every text model that offers caching.
+  - Cached input is 0.1x input on every text model that offers caching,
+    except Gemini 4 Argon, at 0.05x (implicit caching only).
   - Long context: Gemini 3.1 Pro Preview, 2.5 Pro and 2.5 Computer Use charge
     2x input and cache rates and 1.5x output for prompts over 200K tokens.
   - Gemini 3.6 and 3.8 Flash have two published prices, one through 31
     December 2026 and a higher one from 1 January 2027, as 3.7 Flash had
-    before it was retired. Both are in the table as dated entries, so each
-    call is priced at the rate in force that day.
+    before it was retired, and Gemini 4 Argon one through 30 November 2026
+    and double from 1 December. Both are in the table as dated entries, so
+    each call is priced at the rate in force that day.
 
 Not modelled, and why:
 
@@ -41,7 +44,7 @@ import re
 PROVIDER = "google"
 NAME = "Google"
 SOURCE = "https://ai.google.dev/gemini-api/docs/pricing"
-VERIFIED_ON = "2026-10-15"
+VERIFIED_ON = "2026-10-16"
 MEASURED = False
 
 # Gemini has no per-token cache write fee; creating a cache bills as input.
@@ -67,6 +70,11 @@ def _row(inp, out, cached_mult=0.1, long=None, since=""):
 
 
 PRICES = {
+    # Added 16 October 2026: the flagship reasoning model, GA on 13 October
+    # 2026. Launch prices through 30 November 2026, then double from 1
+    # December; cached input is 0.05x, where every other model's is 0.1x.
+    # No long-context tier: the page gives one price whatever the prompt.
+    "gemini-4-argon":         [_row(2.00, 10.00, 0.05), _row(4.00, 20.00, 0.05, since="2026-12-01")],
     # Launch prices through 31 December 2026, then the published list price.
     "gemini-3.8-flash":       [_row(0.75, 3.75), _row(1.50, 7.50, since="2027-01-01")],
     "gemini-3.7-flash":       [_row(0.75, 3.75), _row(1.50, 7.50, since="2027-01-01")],
@@ -105,6 +113,10 @@ RETIRED = {
 ALIASES = {"gemini-3.1-pro-preview-customtools": "gemini-3.1-pro-preview"}
 
 FALLBACK_MODEL = "gemini-3.1-pro-preview"
+
+# A text model's id on the page, for page_rates(): see the note there.
+TEXT_MODEL = re.compile(r"gemini-[\d.]+-(?!(?:live|transcribe|tts|image|audio|embedding|robotics)\b)"
+                        r"[a-z]+(?:-lite)?(?:-preview)?")
 
 
 # ---- reading the published page, for --check-prices and the startup lookup
@@ -183,6 +195,11 @@ def page_rates(fetch, tables, want=None):
             rates.setdefault(mid, dict(r))
     # Only text models a coding harness would call are worth flagging; the page
     # also lists live, speech, image and robotics models on purpose left out.
+    # A text model is named gemini-<version>-<word>, with -lite or -preview
+    # after it: pro, flash and flash-lite, and from Gemini 4 a name such as
+    # argon, so the word is not fixed; only the words the other kinds use are
+    # left out. Matching pro, flash and flash-lite alone let Gemini 4 Argon
+    # sit on the page for three days unflagged.
     unknown = sorted(m for m in set(seen) if m not in PRICES and m not in ALIASES
-                     and re.fullmatch(r"gemini-[\d.]+-(pro|flash|flash-lite)(-preview)?", m))
+                     and TEXT_MODEL.fullmatch(m))
     return rates, unknown

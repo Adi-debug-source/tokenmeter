@@ -280,6 +280,53 @@ class TestPageRows(Base):
         self.assertNotIn("write_mult", row)
 
 
+class TestGooglePageReader(Base):
+    """pricing/google.py reads Google's HTML page: one heading per model, its
+    id in <code>, then a Standard table. The real page is not fetched here;
+    these blocks are shaped like it."""
+
+    def page(self, *models):
+        """One block per (id, input cell, output cell, caching cell)."""
+        out = ""
+        for mid, inp, out_, cache in models:
+            rows = "".join(f"<tr><td>{label}</td><td>Not available</td><td>{paid}</td></tr>"
+                           for label, paid in (("Input price", inp),
+                                               ("Output price (including thinking tokens)", out_),
+                                               ("Context caching price", cache)))
+            out += (f'<h2 id="{mid}">{mid}</h2><code>{mid}</code>'
+                    f'<div data-text="Standard"><table><tbody>{rows}</tbody></table></div>')
+        return out
+
+    def test_a_text_model_with_a_new_kind_of_name_is_flagged_as_unlisted(self):
+        """The unlisted filter named only ids shaped gemini-N-pro, -flash or
+        -flash-lite, so Gemini 4 Argon sat on the page for three days with
+        --check-prices saying every model matched. Any gemini-N-<word> text
+        model counts now; live, transcription, speech, image, audio, embedding
+        and robotics models are still left out, as they always were."""
+        names = ("gemini-5-boron", "gemini-4.2-pro-preview", "gemini-4.1-flash-lite",
+                 "gemini-4-live", "gemini-4-transcribe", "gemini-4-flash-tts", "gemini-4-flash-image",
+                 "gemini-4-flash-live-preview", "gemini-4-audio", "gemini-embedding-3",
+                 "gemini-4-argon")
+        page = self.page(*((m, "$1.00", "$2.00", "$0.10") for m in names))
+        rates, unknown = tm.TABLES["google"].page_rates(lambda url: page, tm.md_tables)
+        self.assertEqual(set(rates), set(names))
+        self.assertEqual(unknown, ["gemini-4.1-flash-lite", "gemini-4.2-pro-preview", "gemini-5-boron"])
+
+    def test_dated_prices_are_read_as_two_rows(self):
+        """Argon's cells as the page writes them on 16 October 2026."""
+        page = self.page(("gemini-4-argon", "$2.00 through November 30, 2026. $4.00 starting December 1, 2026.",
+                          "$10.00 through November 30, 2026. $20.00 starting December 1, 2026.",
+                          "$0.10 through November 30, 2026. $0.20 starting December 1, 2026. "
+                          "Implicit caching only (explicit caching is not supported)."))
+        rates, unknown = tm.TABLES["google"].page_rates(lambda url: page, tm.md_tables)
+        got = rates["gemini-4-argon"]
+        self.assertEqual((got["in"], got["out"], got["cached"]), (4.00, 20.00, 0.20))
+        self.assertEqual(got["_history"], [{"from": "", "in": 2.00, "out": 10.00, "cached": 0.10},
+                                           {"from": "2026-12-01", "in": 4.00, "out": 20.00, "cached": 0.20}])
+        self.assertNotIn("long_in", got)
+        self.assertEqual(unknown, [])
+
+
 class TestCheckPrices(Base):
     def anthropic_page(self, tweak=None):
         """The page as the table implies it. A model priced by prompt length

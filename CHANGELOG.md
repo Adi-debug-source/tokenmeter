@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Prices
+
+- Gemini 4 Argon, Google's flagship reasoning model (GA 13 October 2026), is
+  in the table, read off the pricing page on 16 October 2026: $2 in and $10
+  out per million through 30 November 2026, $4 and $20 from 1 December, with
+  cached input at $0.10 then $0.20 (0.05x input, where every other Gemini
+  model is 0.1x) and no long-context tier. Until now its calls were priced
+  by the online lookup and labelled as looked up. Google's table is marked
+  verified on 16 October 2026.
+- `--check-prices` flags any text model on Google's page that the table
+  lacks, whatever its name. It named only ids shaped like pro, flash or
+  flash-lite, so Gemini 4 Argon sat on the page unflagged for three days.
+
 ### Project
 
 - A `SECURITY.md` says how to report a vulnerability, and what counts as
