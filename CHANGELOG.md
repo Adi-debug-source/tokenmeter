@@ -9,6 +9,9 @@
 
 ### Fixes
 
+- An exchange rate that is not a positive number, in the service's reply or
+  in the saved file, is left out and its currency takes the built-in
+  estimate. It reached the money formatting and ended the run.
 - The online lookup fetches an OpenAI model's own page only for an id made of
   letters, digits, dots, hyphens and underscores. An id from a log or an
   import file went straight into the page's address.

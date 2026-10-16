@@ -432,6 +432,40 @@ class TestExchangeRates(Base):
         tm._FX_MEMO.clear()
         return tm.fx_rates()
 
+    def test_a_rate_that_is_not_a_number_is_not_used(self):
+        """The service's reply and the saved file are read as given, so a rate
+        written as text, a bool, zero or less, or infinity reached money()
+        and ended the run in a TypeError or a nonsense figure. Such a rate is
+        left out and its currency takes the built-in estimate; a reply with no
+        usable rate at all is treated as a failed fetch."""
+        import io
+        from unittest import mock
+        reply = {"result": "success", "time_last_update_utc": "Fri, 02 Oct 2026 00:02:31 +0000",
+                 "rates": {"GBP": "0.76", "EUR": True, "INR": 0, "CAD": -1.4, "AUD": 1.5,
+                           "JPY": float("inf"), "XXX": 3.0}}
+        tm.ONLINE_LOOKUP[0] = True
+        with mock.patch("urllib.request.urlopen",
+                        return_value=io.BytesIO(json.dumps(reply).encode())):
+            rates, when, live = self.new_run()
+        self.assertTrue(live)
+        self.assertEqual(rates, {"AUD": 1.5, "USD": 1.0})
+        tm.set_currency("GBP")
+        self.assertEqual(tm.DISPLAY["rate"], tm.FALLBACK_RATES["GBP"])
+        tm.set_currency("AUD")
+        self.assertEqual(tm.DISPLAY["rate"], 1.5)
+        # The same rule on the file a run saved, which anything may have written.
+        self.save(1, rates={"GBP": "nope", "EUR": None})
+        rates, when, live = self.new_run()
+        self.assertEqual(rates, tm.FALLBACK_RATES)
+        self.assertTrue(when.startswith("ESTIMATE"), when)
+        # No usable rate in the reply is a failed fetch, remembered as one.
+        with mock.patch("urllib.request.urlopen",
+                        return_value=io.BytesIO(b'{"result": "success", "rates": {"GBP": "x"}}')):
+            rates, when, live = self.new_run()
+        self.assertEqual(rates, tm.FALLBACK_RATES)
+        with open(tm.FX_CACHE) as f:
+            self.assertIn("failed", json.load(f))
+
     def test_offline_with_nothing_saved_makes_no_request(self):
         """Offline with no rate saved, it fetched one anyway."""
         rates, when, live = tm.fx_rates()

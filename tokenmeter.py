@@ -211,7 +211,7 @@ def _fx_lookup() -> tuple:
             saved["fetched"] = os.path.getmtime(FX_CACHE)
     except (OSError, ValueError):
         saved = {}
-    rates = saved.get("rates") if isinstance(saved.get("rates"), dict) else None
+    rates = usable_rates(saved.get("rates"))
     failed = saved.get("failed") if isinstance(saved.get("failed"), (int, float)) else 0
     day = saved.get("when") or "unknown"
     if rates and now - saved["fetched"] < FX_TTL:
@@ -226,10 +226,9 @@ def _fx_lookup() -> tuple:
             import urllib.request
             with urllib.request.urlopen(FX_URL, timeout=8) as r:
                 payload = json.load(r)
-            if payload.get("result") == "success":
-                fresh = {k: v for k, v in payload["rates"].items() if k in CURRENCIES}
-                fresh["USD"] = 1.0
-                when = payload.get("time_last_update_utc", "")[:16]
+            fresh = usable_rates(payload.get("rates")) if payload.get("result") == "success" else None
+            if fresh:
+                when = str(payload.get("time_last_update_utc", ""))[:16]
                 _save_fx({"rates": fresh, "when": when, "live": True, "fetched": now})
                 return fresh, when, True
         except Exception:
@@ -244,6 +243,24 @@ def _fx_lookup() -> tuple:
     if rates:
         return rates, f"stale, {day}", False
     return FALLBACK_RATES, FX_ESTIMATE, False
+
+
+def usable_rates(rates) -> dict | None:
+    """The rates in a response or a saved file that can be used: a finite
+    number above zero for each currency this tool knows, USD at 1. None when
+    there is no such currency. A response or a file is outside this program,
+    so a rate that is a string, a bool or a nonsense number is left out
+    rather than multiplied; the currency then takes the built-in estimate.
+    """
+    if not isinstance(rates, dict):
+        return None
+    out = {}
+    for code, value in rates.items():
+        if (code in CURRENCIES and isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value > 0 and value != float("inf")):
+            out[code] = float(value)
+    out["USD"] = 1.0
+    return out if len(out) > 1 else None
 
 
 def _save_fx(data: dict) -> None:
