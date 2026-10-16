@@ -414,23 +414,27 @@ After each release:
 
 ## Screenshots
 
-The README's images are made from an invented history, never from real
-usage, so they show nobody's spend, projects or working days.
+The README's terminal and dashboard images are made from an invented history,
+never from real usage, so they show nobody's spend, projects or working days;
+the menu bar image is to be captured from the same history, as step 4 says.
 `docs/screenshots/make_demo.py` writes it: a home folder holding three months
 of a made-up user's Claude Code transcripts, a few Codex, Gemini CLI and
 OpenCode sessions, and a ledger to match. `docs/screenshots/shoot.py` takes
 six of the images from it:
 
     DEMO=/tmp/tokenmeter-demo
-    python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force
-    python3 docs/screenshots/shoot.py "$DEMO"
+    TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force
+    TZ=Europe/London python3 docs/screenshots/shoot.py "$DEMO"
 
-1. **The same `--now` gives the same files**, byte for byte, except the
-   header of OpenCode's SQLite database, which names the SQLite that wrote
-   it. The engine takes today and the last 7 and 30 days from the real
-   clock, so make the demo on the day the images are taken, with that day's
-   date in `--now`; the README's were made on 16 October 2026 with the
-   commands above. Another `--now` gives another history, equally invented.
+1. **The same `--now` in the same time zone gives the same files**, byte for
+   byte, except the header of OpenCode's SQLite database, which names the
+   SQLite that wrote it. `--now` is a local time, so another zone moves every
+   call and writes another history; the README's were made in
+   `Europe/London`, which is why both commands set `TZ`. The engine takes
+   today and the last 7 and 30 days from the real clock, so make the demo on
+   the day the images are taken, with that day's date in `--now`; the
+   README's were made on 16 October 2026 with the commands above. Another
+   `--now` gives another history, equally invented.
 2. **Nothing real is read.** `$DEMO/env.sh` points every reader and cache at
    the demo: `HOME` (the only way to move Gemini CLI's folder, and what makes
    every printed path read as `~`), `CLAUDE_CONFIG_DIR`,
@@ -438,26 +442,37 @@ six of the images from it:
    `TOKENMETER_OFFLINE=1`, `TOKENMETER_CURRENCY=USD`, `CODEX_HOME`,
    `XDG_DATA_HOME` and `OPENCODE_DB`, and `PYTHONDONTWRITEBYTECODE=1`, so no
    Python caches land in the demo's home. `shoot.py` runs the engine with that
-   environment and nothing from your own shell. To look at the demo yourself,
-   use a subshell, `(. "$DEMO/env.sh"; python3 tokenmeter.py --list-adapters)`:
-   every path it prints starts with `~`, which there is `$DEMO/home`.
+   environment, `TZ` when it is set, and nothing else from your own shell.
+   It gives Chrome your own `HOME`, so it works the same from a shell that has
+   sourced `env.sh`. To look at the demo yourself, use a subshell,
+   `(. "$DEMO/env.sh"; python3 tokenmeter.py --list-adapters)`: every path it
+   prints starts with `~`, which there is `$DEMO/home`.
 3. **What `shoot.py` does.** It needs Google Chrome, `sips` and, for
    `--check-prices`, the network, and opens no window. A terminal image is
    the engine's output with `FORCE_COLOR=1`, drawn by `terminal_page.py` in a
    window 120 columns wide. The dashboard is drawn 1400 CSS pixels wide at
-   twice the size, in dark mode with reduced motion, cropped to section 01,
-   sections 02 to 04 and sections 05 and 06, and saved as JPEGs 1600 pixels
-   wide. Every image is plain sRGB holding nothing but what its format needs,
-   and `shoot.py` lists each file's chunks or segments to show it. If the
-   dashboard's sections move, the crops follow them; `CROPS` in `shoot.py`
-   holds only the margins.
+   twice the size, in dark mode with reduced motion, and cropped three ways:
+   the page's top through section 01, sections 02 to 04, and sections 05 and
+   06, each saved as a JPEG 1600 pixels wide. It is measured and shot in one
+   page, which `shoot.py` drives over Chrome's DevTools protocol, once both
+   typefaces have loaded and the sections have stopped moving. When it was
+   measured in one run of Chrome and shot in another, the boxes were often
+   taken before the typefaces reached the layout, and two crops cut through
+   sections. So before anything is written, `shoot.py` checks the pixels at
+   every section edge a crop follows, on the whole page and in the crop:
+   bare page beyond the edge and something drawn just inside it. A crop that
+   would start or end inside a section stops the run. Every image is plain
+   sRGB holding nothing but what its format needs, and `shoot.py` lists each
+   file's chunks or segments to show it. If the dashboard's sections move,
+   the crops follow them; `CROPS` in `shoot.py` holds only the margins.
 4. **`menu-bar.png` is the real menu, running against the same demo.** The
    app finds the installed engine through your real home folder, which a
    changed `HOME` does not move, and the engine inherits the app's
    environment, so a second copy started like this shows the demo and
    nothing else:
 
-       env HOME="$DEMO/home" CLAUDE_CONFIG_DIR="$DEMO/home/.claude" \
+       env TZ=Europe/London HOME="$DEMO/home" \
+         CLAUDE_CONFIG_DIR="$DEMO/home/.claude" \
          TOKENMETER_CLAUDE_PROJECTS="$DEMO/home/.claude/projects" \
          TOKENMETER_LEDGER="$DEMO/home/.claude/cost-ledger.jsonl" \
          TOKENMETER_PRICE_CACHE="$DEMO/fetched-prices.json" TOKENMETER_OFFLINE=1 \
@@ -467,18 +482,26 @@ six of the images from it:
          PYTHONDONTWRITEBYTECODE=1 \
          ~/Applications/Tokenmeter.app/Contents/MacOS/Tokenmeter
 
-   That is `env.sh` spelled out. The copy runs the installed engine, so
-   install the version the images are for first. Open the demo's menu,
-   capture it (Cmd+Shift+4, then drag a box just inside the menu's edge, so
-   there is no shadow), save it as `docs/screenshots/menu-bar.png`, then make
-   it plain, which swaps the display's colour profile for sRGB:
+   That is `env.sh` spelled out, with the time zone the demo was made in.
+   The copy runs the installed engine, so install the version the images
+   are for first. Capture it on the `--now` day: Today, Last 7 days and
+   Last 30 days come from the real clock, so only then does the menu match
+   the dashboard images (16 October 2026 for the README's demo). Two
+   identical Tokenmeter icons are now in the menu bar: the demo's menu is
+   the one whose All time reads $174.69, for the README's demo. The copy
+   shares the installed app's settings, its currency included, so make the
+   capture while the app is set to US dollars, or it will not match the
+   dollar images. Open the demo's menu, capture it (Cmd+Shift+4, then drag a
+   box just inside the menu's edge, so there is no shadow), save it as
+   `docs/screenshots/menu-bar.png`, then make it plain, which swaps the
+   display's colour profile for sRGB:
 
        python3 docs/screenshots/shoot.py --plain docs/screenshots/menu-bar.png
 
-   Choose Quit from the demo's menu to end the copy. It shares the installed
-   app's settings, so leave its currency (the README's is in dollars) and
-   Show tokens as they are, and do not choose Open the full dashboard from
-   it: that writes the demo's page over `~/Downloads/Tokenmeter.html`.
+   Choose Quit from the demo's menu to end the copy. Leave Show tokens as it
+   is, since the setting is shared, and do not choose Open the full
+   dashboard from the copy: that writes the demo's page over
+   `~/Downloads/Tokenmeter.html`.
 
 ## What a Linux port would need
 
