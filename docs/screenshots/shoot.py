@@ -31,19 +31,25 @@ How each image is made
 2. The dashboard is the engine's --html page, drawn by headless Chrome 1400
    CSS pixels wide at twice the size, in dark mode and with reduced motion,
    which shows every section at once instead of fading each in on scroll.
-   The page is shot from a copy with one script added at its end, which
-   does two things and changes nothing else: it marks every section as
-   scrolled into view, as the page's own observer does when one is, because
-   a heading's rule waits for that even with reduced motion and headless
-   Chrome sometimes shot the page first; and it records where each section
-   sits, which the crops follow. Each crop is scaled to 1600 pixels wide
-   and saved as a JPEG.
+   It is measured and shot in one page, which shoot.py drives over Chrome's
+   DevTools protocol (Browser). A script run in the page (SETTLE) marks
+   every section as scrolled into view, as the page's own observer does
+   when one is, because a heading's rule waits for that even with reduced
+   motion; waits until both typefaces have loaded; and reads where each
+   section sits until six readings 100 ms apart agree. The page is then
+   shot whole, in a window as tall as itself, and each crop follows the
+   sections. Before anything is written, check_edges() looks at the pixels:
+   beyond every section edge a crop follows there must be bare page, and
+   just inside it something drawn, both on the whole page and in the crop,
+   so a crop that would start or end inside a section stops the run. Each
+   crop is scaled to 1600 pixels wide and saved as a JPEG.
 3. Every image is matched to sRGB with sips, then rewritten with nothing but
    what its format needs: a PNG keeps IHDR, IDAT, IEND and an sRGB mark, and
    a JPEG its JFIF header and the EXIF block that marks it sRGB. Nothing in
    a file names a device, a path or a person.
 
-Headless Chrome can hang, so every call to it is given 60 seconds.
+Headless Chrome can hang, so every call to it is given 60 seconds, and the
+dashboard's page 120.
 
 macOS only: it needs Google Chrome and sips. Python 3.9 or later, standard
 library only.
@@ -52,6 +58,7 @@ library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -93,20 +100,46 @@ CROPS = [
     ("dashboard-harnesses.jpg", (5, "top", 0), (6, "bottom", 19)),
 ]
 
-SHOT_SCRIPT = """<script>
-document.querySelectorAll('.fade,.reveal-on').forEach(el => el.classList.add('reveal'));
-document.fonts.ready.then(function () {
-  function box(el) {
-    const r = el.getBoundingClientRect();
-    return [r.top + window.scrollY, r.bottom + window.scrollY];
+# The typefaces the page embeds (FONTS in tokenmeter.py), at the ends of the
+# weights each one covers. A face starts loading only when it is first
+# needed, so the page is measured only once every one of them has loaded.
+FACES = ['400 16px "Inter Tight"', '700 16px "Inter Tight"', '300 16px Fraunces',
+         '700 16px Fraunces']
+
+# Run in the dashboard by Browser.settle(). It marks every section as
+# scrolled into view, as the page's own observer does when one is, because a
+# heading's rule waits for that even with reduced motion; waits for the
+# typefaces; then reads where each section sits every 100 ms until six
+# readings in a row agree, so nothing is still moving.
+SETTLE = """new Promise(function (done) {
+  document.querySelectorAll('.fade,.reveal-on').forEach(el => el.classList.add('reveal'));
+  function measure() {
+    const view = document.querySelector('.view[data-view="all"]') || document.body;
+    return JSON.stringify({height: Math.ceil(document.documentElement.scrollHeight),
+      sections: Array.prototype.slice.call(view.querySelectorAll('section'))
+        .filter(s => s.parentElement === view).map(function (s) {
+          const r = s.getBoundingClientRect();
+          return [r.top + window.scrollY, r.bottom + window.scrollY];
+        })});
   }
-  const view = document.querySelector('.view[data-view="all"]') || document.body;
-  const sections = Array.prototype.slice.call(view.querySelectorAll('section'))
-    .filter(s => s.parentElement === view).map(box);
-  document.documentElement.dataset.boxes = JSON.stringify({
-    height: Math.ceil(document.documentElement.scrollHeight), sections: sections});
-});
-</script>"""
+  const started = performance.now();
+  Promise.all(FACES.map(f => document.fonts.load(f))).then(() => document.fonts.ready)
+    .then(function () {
+      let last = '', same = 0;
+      (function poll() {
+        const now = measure();
+        same = now === last ? same + 1 : 0;
+        last = now;
+        if (same < 5 && performance.now() - started < 15000) {
+          setTimeout(() => requestAnimationFrame(poll), 100);
+          return;
+        }
+        const faces = [];
+        document.fonts.forEach(f => faces.push(f.family.replace(/["']/g, '') + ' ' + f.status));
+        done(JSON.stringify({boxes: JSON.parse(now), settled: same >= 5, faces: faces}));
+      })();
+    });
+})""".replace("FACES", json.dumps(FACES))
 
 
 def demo_folder(path: str) -> str:
@@ -136,16 +169,21 @@ def tokenmeter(folder: str, *args: str) -> str:
     return out.stdout
 
 
+def chrome_command(folder: str) -> list:
+    """Headless Chrome with a profile of its own inside the demo folder."""
+    return [CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+            f"--user-data-dir={os.path.join(folder, 'chrome-profile')}", "--no-first-run",
+            "--no-default-browser-check"]
+
+
 def chrome(folder: str, *args: str, timeout: int = 60) -> str:
-    """Headless Chrome with a profile of its own inside the demo folder,
-    stopped after `timeout` seconds if it hangs."""
-    cmd = ["perl", "-e", f"alarm {timeout}; exec @ARGV", CHROME, "--headless=new",
-           "--disable-gpu", "--hide-scrollbars", f"--force-device-scale-factor={SCALE}",
+    """One page in headless Chrome, as the command line drives it, stopped
+    after `timeout` seconds if it hangs."""
+    cmd = ["perl", "-e", f"alarm {timeout}; exec @ARGV", *chrome_command(folder),
+           f"--force-device-scale-factor={SCALE}",
            # Every frame finished before it is drawn: without it the masthead's
            # first line was missing from one capture in three.
-           "--run-all-compositor-stages-before-draw",
-           f"--user-data-dir={os.path.join(folder, 'chrome-profile')}", "--no-first-run",
-           "--no-default-browser-check", *args]
+           "--run-all-compositor-stages-before-draw", *args]
     out = subprocess.run(cmd, capture_output=True, text=True)
     if out.returncode:
         sys.exit(f"shoot.py: Chrome failed or hung: {' '.join(args[-2:])}\n{out.stderr[-2000:]}")
@@ -161,6 +199,112 @@ def dumped(folder: str, page: str, attr: str, size: str, *flags: str) -> str:
     if not m:
         sys.exit(f"shoot.py: no {attr} in {page}")
     return m.group(1).replace("&quot;", '"')
+
+
+class Browser:
+    """One page in headless Chrome, driven over the DevTools protocol on a
+    pipe: Chrome reads commands on its descriptor 3 and answers on 4, which
+    sh joins to this process's pipes. The dashboard is measured and shot in
+    this one page. Read in one run of Chrome and shot in another, under
+    --virtual-time-budget, the boxes were taken before the embedded
+    typefaces reached the layout, at a moment no script in the page could
+    see, and the crops cut through sections."""
+
+    def __init__(self, folder: str, *flags: str, timeout: int = 120):
+        self.proc = subprocess.Popen(
+            ["perl", "-e", f"alarm {timeout}; exec @ARGV", "sh", "-c",
+             'exec "$@" 3<&0 4>&1 0</dev/null 1>/dev/null', "sh", *chrome_command(folder),
+             "--remote-debugging-pipe", *flags, "about:blank"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.waiting, self.events, self.count, self.session = b"", [], 0, None
+        try:
+            target = self.call("Target.createTarget", url="about:blank")["targetId"]
+            self.session = self.call("Target.attachToTarget", targetId=target,
+                                     flatten=True)["sessionId"]
+        except BaseException:
+            self.stop()
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.stop()
+
+    def stop(self) -> None:
+        """Chrome closed, whether the run worked or stopped."""
+        if self.proc.poll() is None:
+            try:
+                self.call("Browser.close")
+                self.proc.wait(timeout=30)
+            except (OSError, SystemExit, subprocess.TimeoutExpired):
+                self.proc.kill()
+                self.proc.wait()
+        self.proc.stdin.close()
+        self.proc.stdout.close()
+
+    def message(self) -> dict:
+        while b"\0" not in self.waiting:
+            chunk = os.read(self.proc.stdout.fileno(), 1 << 20)
+            if not chunk:
+                sys.exit("shoot.py: Chrome stopped or hung while drawing the dashboard")
+            self.waiting += chunk
+        text, self.waiting = self.waiting.split(b"\0", 1)
+        return json.loads(text)
+
+    def call(self, method: str, **params) -> dict:
+        self.count += 1
+        sent = {"id": self.count, "method": method, "params": params}
+        if self.session and not method.startswith("Browser."):
+            sent["sessionId"] = self.session
+        self.proc.stdin.write(json.dumps(sent).encode() + b"\0")
+        self.proc.stdin.flush()
+        while True:
+            got = self.message()
+            if got.get("id") == self.count:
+                if "error" in got:
+                    sys.exit(f"shoot.py: Chrome refused {method}: {got['error']}")
+                return got["result"]
+            self.events.append(got.get("method"))
+
+    def open(self, page: str, height: int) -> None:
+        self.size(height)
+        self.call("Page.enable")
+        self.events = []
+        if self.call("Page.navigate", url="file://" + page).get("errorText"):
+            sys.exit(f"shoot.py: Chrome could not open {page}")
+        while "Page.loadEventFired" not in self.events:
+            self.events.append(self.message().get("method"))
+
+    def size(self, height: int) -> None:
+        self.call("Emulation.setDeviceMetricsOverride", width=DASH_WIDTH, height=height,
+                  deviceScaleFactor=SCALE, mobile=False)
+
+    def settle(self) -> dict:
+        """Where each section sits, once the page has its typefaces and has
+        stopped moving (SETTLE)."""
+        result = self.call("Runtime.evaluate", expression=SETTLE, awaitPromise=True,
+                           returnByValue=True)
+        if "exceptionDetails" in result:
+            sys.exit("shoot.py: the dashboard could not be measured: "
+                     + json.dumps(result["exceptionDetails"]))
+        found = json.loads(result["result"]["value"])
+        families = sorted({face.split(" ", 2)[2].strip('"') for face in FACES})
+        missing = [f for f in families if f + " loaded" not in found["faces"]]
+        if missing:
+            sys.exit("shoot.py: the dashboard did not load its typefaces: " + ", ".join(missing))
+        if not found["settled"]:
+            sys.exit("shoot.py: the dashboard's sections were still moving after 15 seconds")
+        return found["boxes"]
+
+    def shot(self, path: str, top: int = 0, height: int = 0) -> None:
+        """The page from `top`, `height` CSS pixels of it, or all of it."""
+        params = {"format": "png"}
+        if height:
+            params["clip"] = {"x": 0, "y": top, "width": DASH_WIDTH, "height": height,
+                              "scale": 1}
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(self.call("Page.captureScreenshot", **params)["data"]))
 
 
 def sips(*args: str) -> None:
@@ -316,41 +460,106 @@ def terminal_images(folder: str, out_dir: str, work: str) -> list:
     return made
 
 
+# What check_edges() counts as drawn. The page's ground is #090a0c under a
+# grain that lifts a channel to 21 at most; the faintest thing a section
+# draws at its edges, a 1 pixel rule in --line (#212429), reaches 41.
+INK = 28
+CLEAR = 40   # CSS pixels: sections stand 52 apart, and this much beyond an edge must be bare
+REACH = 8    # CSS pixels: a section draws this close inside its edge; a heading's text is 5.5 in
+
+
+def drawn_rows(png: str, work: str) -> list:
+    """For each row of pixels in a PNG, whether anything is drawn in it.
+    sips turns the PNG into an uncompressed 24-bit BMP, whose rows can be
+    read as they are."""
+    bmp = os.path.join(work, "rows.bmp")
+    sips("-s", "format", "bmp", png, "--out", bmp)
+    try:
+        with open(bmp, "rb") as f:
+            data = f.read()
+    finally:
+        os.remove(bmp)
+    start = struct.unpack("<I", data[10:14])[0]
+    width, height = struct.unpack("<ii", data[18:26])
+    if data[:2] != b"BM" or struct.unpack("<H", data[28:30])[0] != 24:
+        sys.exit(f"shoot.py: could not read the pixels of {png}")
+    stride = (width * 3 + 3) & ~3
+    rows = [max(data[at:at + width * 3]) > INK
+            for at in range(start, start + abs(height) * stride, stride)]
+    return rows if height < 0 else rows[::-1]
+
+
+def check_edges(rows: list, origin: int, picture: str, edges: list) -> None:
+    """Stop the run unless a picture shows each section edge a crop follows
+    where it was measured: bare beyond the edge, for CLEAR pixels or the
+    crop's whole margin if that is more, and something drawn within REACH
+    pixels inside it. `rows` are the picture's drawn_rows(), and its first
+    row is `origin` CSS pixels down the page; a band is checked as far as
+    the picture reaches. Boxes that do not match the picture put a crop's
+    edge inside a section, which fails one test or the other."""
+    def any_drawn(a: float, b: float) -> bool:
+        a, b = int((a - origin) * SCALE), int((b - origin) * SCALE)
+        return any(rows[max(0, a):max(0, min(len(rows), b))])
+
+    for at, side, offset in edges:
+        margin = max(CLEAR, abs(offset))
+        if side == "top":
+            beyond, inside = any_drawn(at - margin, at - 1), any_drawn(at, at + REACH)
+        else:
+            beyond, inside = any_drawn(at + 1, at + margin), any_drawn(at - REACH, at)
+        if beyond or not inside:
+            found = "something is drawn beyond it" if beyond else "nothing is drawn inside it"
+            sys.exit(f"shoot.py: {picture} does not show a section's {side} at {at:.1f} CSS "
+                     f"pixels, where it was measured: {found}")
+
+
 def dashboard_images(folder: str, out_dir: str, work: str) -> list:
     page = os.path.join(work, "Tokenmeter.html")
     tokenmeter(folder, "--html", page, "--no-open")
-    with open(page, encoding="utf-8") as f:
-        html = f.read()
-    shot = os.path.join(work, "Tokenmeter-shot.html")
-    with open(shot, "w", encoding="utf-8") as f:
-        f.write(html.replace("</body>", SHOT_SCRIPT + "</body>"))
-    look = ["--force-dark-mode", "--blink-settings=preferredColorScheme=0",
-            "--force-prefers-reduced-motion"]
-    # Measured at the width the screenshots are taken at, or the text wraps
-    # differently and every box is somewhere else.
-    boxes = json.loads(dumped(folder, shot, "data-boxes", f"{DASH_WIDTH},1200", *look))
+    with Browser(folder, "--force-dark-mode", "--blink-settings=preferredColorScheme=0",
+                 "--force-prefers-reduced-motion") as browser:
+        return dashboard_crops(browser, page, out_dir, work)
+
+
+def dashboard_crops(browser: Browser, page: str, out_dir: str, work: str) -> list:
+    browser.open(page, 1200)
+    boxes = browser.settle()
+    # Then a window as tall as the page, so the page's grain, which is fixed
+    # to the window, covers all of it, as it does on screen.
+    for _ in range(3):
+        browser.size(boxes["height"])
+        settled = browser.settle()
+        if settled == boxes:
+            break
+        boxes = settled
+    else:
+        sys.exit("shoot.py: the dashboard did not keep one height in a window as tall as itself")
     sections = [(0.0, 0.0)] + [tuple(b) for b in boxes["sections"]]
+    full = os.path.join(work, "dashboard-full.png")
+    browser.shot(full)
+    rows = drawn_rows(full, work)
 
     def edge(spec):
         index, side, offset = spec
         return sections[index][0 if side == "top" else 1] + offset
 
-    made = []
+    crops = []
     for name, top_spec, bottom_spec in CROPS:
-        top, bottom = round(edge(top_spec)), round(edge(bottom_spec))
+        edges = [(sections[i][0 if side == "top" else 1], side, offset)
+                 for i, side, offset in (top_spec, bottom_spec) if i]
+        check_edges(rows, 0, f"the whole dashboard, around {name}", edges)
+        crops.append((name, round(edge(top_spec)), round(edge(bottom_spec)), edges))
+    # Each crop is checked again as it is shot, since that is what the README
+    # shows, and nothing is written until all of them pass.
+    for name, top, bottom, edges in crops:
         raw = os.path.join(work, name.replace(".jpg", ".png"))
-        if top == 0:
-            # sips cannot crop from the very top (an offset of 0 0 means
-            # centred), so the top crop is a window of exactly its height.
-            chrome(folder, *look, f"--window-size={DASH_WIDTH},{bottom}",
-                   "--virtual-time-budget=4000", f"--screenshot={raw}", "file://" + shot)
-        else:
-            full = os.path.join(work, "dashboard-full.png")
-            if not os.path.exists(full):
-                chrome(folder, *look, f"--window-size={DASH_WIDTH},{boxes['height']}",
-                       "--virtual-time-budget=4000", f"--screenshot={full}", "file://" + shot)
-            sips("-c", str((bottom - top) * SCALE), str(DASH_WIDTH * SCALE),
-                 "--cropOffset", str(top * SCALE), "0", full, "--out", raw)
+        browser.shot(raw, top, bottom - top)
+        check_edges(drawn_rows(raw, work), top, name, edges)
+    if browser.settle() != boxes:
+        sys.exit("shoot.py: the dashboard's sections moved while it was shot")
+    made = []
+    for name, *_ in crops:
+        raw = os.path.join(work, name.replace(".jpg", ".png"))
         target = os.path.join(out_dir, name)
         sips("--matchTo", SRGB, raw, "--out", raw)
         sips("--resampleWidth", str(JPEG_WIDTH), raw, "--out", raw)
@@ -404,9 +613,6 @@ def main(argv=None) -> None:
     os.makedirs(args.out, exist_ok=True)
     work = os.path.join(folder, "shots")
     os.makedirs(work, exist_ok=True)
-    for name in os.listdir(work):
-        if name == "dashboard-full.png":
-            os.remove(os.path.join(work, name))
     made = []
     if args.only != "dashboard":
         made += terminal_images(folder, args.out, work)
