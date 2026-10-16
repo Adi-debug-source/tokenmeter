@@ -9,6 +9,9 @@
 
 ### Fixes
 
+- The online lookup fetches an OpenAI model's own page only for an id made of
+  letters, digits, dots, hyphens and underscores. An id from a log or an
+  import file went straight into the page's address.
 - The menu bar app's error log is `~/Library/Logs/Tokenmeter/tokenmeter.err`,
   not `/tmp/tokenmeter.err`. `/tmp` is shared by every account on the Mac,
   and launchd opened whatever file or symlink was already there as you. The

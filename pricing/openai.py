@@ -64,6 +64,9 @@ WEB_SEARCH_PER_1K = 10.0
 # OpenAI snapshots carry a dashed date: gpt-5-2025-08-07.
 SNAPSHOT = r"-\d{4}-\d{2}-\d{2}$"
 
+# The ids whose model page the startup lookup may fetch; see page_rates().
+PAGE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
 # Long context: above this many prompt tokens. The startup lookup applies it
 # to a model the page gives long-context rates for.
 LONG_OVER = 272_000
@@ -197,6 +200,12 @@ def page_rates(fetch, tables, want=None):
                     rates[mid]["fast_out"] = money(r[4])
     for mid in (PRICES if want is None else want):
         if mid in rates:
+            continue
+        # A model id names its own page. One from a log or an import file can
+        # be anything, so only an id shaped like OpenAI's is put in the
+        # address: letters, digits, dots, hyphens and underscores, never a
+        # slash, a dot pair, a query or a fragment.
+        if not PAGE_ID.fullmatch(mid):
             continue
         r = {}
         for title, header, rows in tables(fetch(MODEL_PAGE_MD.format(model=mid))):

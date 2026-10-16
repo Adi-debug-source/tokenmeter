@@ -104,6 +104,29 @@ class TestOnlineLookup(Base):
         self.assertIn("claude-opus-9 is priced at $6 in and $30 out", notes)
         self.assertIn("not checked by hand", notes)
 
+    def test_only_an_id_shaped_like_openais_reaches_a_model_page(self):
+        """OpenAI's lookup fetches a model's own page, whose address is the
+        model id. The id comes from a log or an import file, so "../x",
+        "a/b", "x?y" and "x#y" were put straight into the address. Only an
+        id of letters, digits, dots, hyphens and underscores is fetched; the
+        rest are left for LiteLLM's list, like any other unknown model."""
+        asked = []
+
+        def fetch(url):
+            asked.append(url)
+            if url == tm.LITELLM_URL:
+                return "{}"
+            return ""       # OpenAI's main page lists nothing
+        bad = ("../../../etc/passwd", "gpt/evil", "gpt-6?x=1", "gpt-6#frag", "gpt 6", "", ".hidden")
+        tm.resolve_prices([("openai", m) for m in bad], fetch=fetch)
+        pages = [u for u in asked if "/models/" in u]
+        self.assertEqual(pages, [], pages)
+        asked.clear()
+        tm.resolve_prices([("openai", "gpt-9-nova_2"), ("openai", "o5")], fetch=fetch)
+        self.assertEqual(sorted(u for u in asked if "/models/" in u),
+                         [tm.TABLES["openai"].MODEL_PAGE_MD.format(model=m)
+                          for m in ("gpt-9-nova_2", "o5")])
+
     def down(self, url):
         """A network that is not there."""
         self.fetched.append(url)
