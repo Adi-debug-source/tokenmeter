@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.2.1, 16 October 2026
+
+The menu bar app's log moves out of `/tmp`, the online lookup fetches a
+model page only for an id shaped like a model id, Gemini 4 Argon is priced
+from the table, and `--project .`, the Codex reader and the exchange rates
+are tidied, after a review of 16 October 2026.
 
 ### Prices
 
