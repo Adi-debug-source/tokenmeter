@@ -8,6 +8,8 @@ On a subscription, a coding agent's usage is not billed per token, so you never 
 
 ![The Tokenmeter dashboard](docs/screenshots/dashboard-overview.jpg)
 
+The dashboard and terminal images in this README show an invented history, made by [`docs/screenshots/make_demo.py`](docs/screenshots/make_demo.py), not anyone's real usage.
+
 It has four faces over one engine:
 
 | Face | What it is |
