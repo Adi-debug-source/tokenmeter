@@ -52,6 +52,17 @@ class TestDashboard(Base):
         self.assertEqual(numbers, [f"{i:02d}" for i in range(1, len(numbers) + 1)])
         self.assertNotIn("\u00a7NO\u00a7", page)
 
+    def test_a_path_that_cannot_be_written_is_one_line_not_a_traceback(self):
+        """--html with a folder, or a path in a folder that does not exist,
+        ended in a traceback from open()."""
+        from helpers import cli
+        self.write("a.jsonl", record("msg_1", out=900))
+        for out in (self.tmp, os.path.join(self.tmp, "no-such-folder", "d.html")):
+            with self.subTest(out=out), self.assertRaises(SystemExit) as stop:
+                cli("--html", out, "--no-open", "--no-ledger")
+            self.assertIn("cannot write the dashboard to", str(stop.exception))
+            self.assertNotIn("Traceback", str(stop.exception))
+
     def test_a_session_with_no_time_is_a_question_mark(self):
         """The empty "Last seen" cell was an em dash, the only dash character
         the engine printed; the terminal's sessions list has always said "?"."""

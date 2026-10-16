@@ -3703,8 +3703,13 @@ def write_dashboard(overall, groups, meta, unknown, label, out, paths, parts,
     harness, for a page per harness."""
     if out == "auto":
         out = default_dashboard_path()
-    render_html(overall, groups, meta, unknown, label, out,
-                covered=covered_span(groups, paths), views=harness_pages(parts, paths))
+    try:
+        render_html(overall, groups, meta, unknown, label, out,
+                    covered=covered_span(groups, paths), views=harness_pages(parts, paths))
+    except OSError as e:
+        # A folder, a missing folder or a read-only disk ended the run in a
+        # traceback. One line, and the usual exit status for a refused run.
+        sys.exit(f"cannot write the dashboard to {tilde(out)}: {e.strerror or e}")
     print(f"wrote {out}")
     if show:
         open_file(out)

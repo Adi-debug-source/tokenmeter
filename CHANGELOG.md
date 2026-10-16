@@ -9,6 +9,8 @@
 
 ### Fixes
 
+- `--html` with a path that cannot be written, such as a folder, stops with
+  one line naming it, not a traceback.
 - An exchange rate that is not a positive number, in the service's reply or
   in the saved file, is left out and its currency takes the built-in
   estimate. It reached the money formatting and ended the run.
