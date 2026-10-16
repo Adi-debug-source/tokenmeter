@@ -28,39 +28,86 @@ class TestProjectNames(Base):
 
     WHERE = "/Users/sam/code/My App"
 
+    # Each project's folder slug, its message and the working folder its
+    # transcript records. Beside the project are a sibling whose name starts
+    # with its own, and a scratch folder inside it.
+    PROJECTS = (("-Users-sam-code-My-App", "msg_mine", "/Users/sam/code/My App"),
+                ("-Users-sam-code-Other", "msg_other", "/Users/sam/code/Other"),
+                ("-Users-sam-code-My-App-v2", "msg_v2", "/Users/sam/code/My App-v2"),
+                ("-Users-sam-code-My-App-scratch", "msg_scratch", "/Users/sam/code/My App/scratch"))
+
     def setUp(self):
         super().setUp()
-        for slug, mid in (("-Users-sam-code-My-App", "msg_mine"),
-                          ("-Users-sam-code-Other", "msg_other")):
+        for slug, mid, cwd in self.PROJECTS:
             folder = os.path.join(self.tmp, "projects", slug)
             os.makedirs(folder)
+            line = json.loads(record(mid, out=100))
+            line["cwd"] = cwd
             with open(os.path.join(folder, "sess-" + mid + ".jsonl"), "w") as f:
-                f.write(record(mid, out=100) + "\n")
+                f.write(json.dumps(line) + "\n")
 
     def calls(self, *argv):
         return json.loads(cli("--json", *argv))["calls"]
 
     def test_a_name_a_path_and_dot_each_find_it(self):
         self.assertEqual(tm.claude_code.slug(self.WHERE), "-Users-sam-code-My-App")
-        cli("--json")                              # both now in the ledger too
-        for wanted in ("My App", "my app", self.WHERE, "code-My-App", "-Users-sam-code-My-App", "."):
+        cli("--json")                              # all four now in the ledger too
+        # A name or a path finds every project whose path contains it: the
+        # project, the sibling named after it and the scratch folder inside it.
+        for wanted in ("My App", "my app", self.WHERE, "code-My-App", "-Users-sam-code-My-App"):
             for ledger in ([], ["--no-ledger"]):
                 with self.subTest(project=wanted, ledger=ledger), \
                         unittest.mock.patch("os.getcwd", return_value=self.WHERE):
-                    self.assertEqual(self.calls("--project=" + wanted, *ledger), 1)
+                    self.assertEqual(self.calls("--project=" + wanted, *ledger), 3)
         with self.assertRaises(SystemExit):
             self.calls("--project", "No Such App")
+
+    def test_dot_is_this_folder_and_those_under_it(self):
+        """--project . matched any project whose slug contained the current
+        folder's, so from My App it also counted My App-v2, a sibling that
+        starts with the same name. It now means the current folder and the
+        folders under it, as a worktree or a scratch folder of this project
+        is, decided by the working folder each transcript records."""
+        for ledger in ([], ["--no-ledger"]):
+            with self.subTest(ledger=ledger), \
+                    unittest.mock.patch("os.getcwd", return_value=self.WHERE):
+                got = json.loads(cli("--json", "--project", ".", "--by", "project", *ledger))
+            self.assertEqual(got["calls"], 2)
+            self.assertEqual(sorted(g["key"] for g in got["groups"]),
+                             ["-Users-sam-code-My-App", "-Users-sam-code-My-App-scratch"])
+
+    def test_the_rule_for_dot_on_its_own(self):
+        """project_matches() with under=True, for a call with a working
+        folder and for one the ledger alone holds, which has none and goes
+        by its slug, where a slash and a hyphen read alike."""
+        match = tm.claude_code.project_matches
+        here = "/Users/sam/code/app"
+        for cwd, want in (("/Users/sam/code/app", True), ("/Users/sam/code/APP", True),
+                          ("/Users/sam/code/app/.claude/worktrees/x", True),
+                          ("/Users/sam/code/app-v2", False), ("/Users/sam/code/myapp", False),
+                          ("/Users/sam/code", False), ("/Users/sam/code/apple", False)):
+            with self.subTest(cwd=cwd):
+                self.assertIs(match(here, "-whatever", cwd, under=True), want)
+        for project, want in (("-Users-sam-code-app", True), ("-Users-sam-code-app-x", True),
+                              ("-Users-sam-code-apple", False), ("-Users-sam-code", False),
+                              ("/Users/sam/code/app", True), ("/Users/sam/code/app/x", True),
+                              ("/Users/sam/code/apple", False)):
+            with self.subTest(project=project):
+                self.assertIs(match(here, project, "", under=True), want)
+        # The plain match is what it was.
+        self.assertTrue(match("app", "-Users-sam-code-app-v2"))
+        self.assertTrue(match(here, "-Users-sam-code-app-v2"))
 
     def test_the_current_folder_is_named_in_the_label(self):
         with unittest.mock.patch("os.getcwd", return_value=self.WHERE), \
                 unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
             label = json.loads(cli("--json", "--project", ".", "--no-ledger"))["label"]
         self.assertEqual(label, "all time \u00b7 code/My App")
-        # Run from the home folder, which holds both projects.
+        # Run from the home folder, which holds every project.
         with unittest.mock.patch("os.getcwd", return_value="/Users/sam"), \
                 unittest.mock.patch.dict(os.environ, {"HOME": "/Users/sam"}):
             got = json.loads(cli("--json", "--project", ".", "--no-ledger"))
-        self.assertEqual((got["label"], got["calls"]), ("all time \u00b7 ~", 2))
+        self.assertEqual((got["label"], got["calls"]), ("all time \u00b7 ~", 4))
 
     def test_an_imports_real_path_still_matches(self):
         trial = os.path.join(self.tmp, "trial.jsonl")

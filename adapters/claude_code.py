@@ -64,7 +64,7 @@ def slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", text)
 
 
-def project_matches(wanted: str, project: str) -> bool:
+def project_matches(wanted: str, project: str, cwd: str = "", under: bool = False) -> bool:
     """Whether --project's text names this project, ignoring case: found in
     it as written, or its slug found in the project's slug.
 
@@ -73,9 +73,26 @@ def project_matches(wanted: str, project: str) -> bool:
     slug and any part of these each find the project whichever way it was
     recorded. Matching the text alone found nothing for a folder whose name
     has a space or punctuation, or for a full path.
+
+    With under=True, wanted is a folder (--project ., the current one) and the
+    project matches only if it is that folder or one inside it: a worktree or
+    a scratch folder under it counts, a sibling that merely starts with its
+    name (app-v2 beside app) does not. The call's own working folder, cwd,
+    decides where a transcript recorded one; a call that only the ledger
+    holds has no cwd, and its project's slug stands in, where a slash and a
+    hyphen read alike. Finding the folder's slug anywhere in the project's,
+    as the plain match does, took the sibling and anything named like it.
     """
     wanted, project = wanted.lower(), project.lower()
-    return wanted in project or slug(wanted) in slug(project)
+    if not under:
+        return wanted in project or slug(wanted) in slug(project)
+    folder = wanted.rstrip(os.sep) or os.sep
+    if cwd:
+        cwd = cwd.lower()
+        return cwd == folder or cwd.startswith(folder.rstrip(os.sep) + os.sep)
+    if project == folder or project.startswith(folder.rstrip(os.sep) + os.sep):
+        return True
+    return slug(project) == slug(folder) or slug(project).startswith(slug(folder) + "-")
 
 
 def session_files(path: str) -> list:

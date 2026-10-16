@@ -95,6 +95,9 @@ _OWNER: dict = {}
 # to --session holds.
 _PROJECT: list = []
 _SESSION: list = []
+# Set when --project was ".": the project is the current folder or one under
+# it, not any project whose path merely contains the folder's.
+_UNDER: list = []
 
 
 def adapter_roots(name: str) -> list:
@@ -1314,7 +1317,8 @@ def kept(ev: dict) -> bool:
     because a call restored from the ledger has no file to filter on."""
     if _ONLY and ev["source"] not in _ONLY:
         return False
-    if _PROJECT and not claude_code.project_matches(_PROJECT[0], ev["project"] or ""):
+    if _PROJECT and not claude_code.project_matches(_PROJECT[0], ev["project"] or "",
+                                                    ev.get("cwd") or "", under=bool(_UNDER)):
         return False
     if _SESSION and not any((ev["session"] or "").startswith(s) for s in _SESSION):
         return False
@@ -3386,7 +3390,7 @@ def reset_run() -> None:
     because the status line and other scripts import them by name. The colour
     codes are strings, so they are bound afresh; nothing imports them.
     """
-    for value in (_ROOTS, ADAPTER_ROOTS, _ONLY, _IMPORTS, _OWNER, _PROJECT, _SESSION, _LEDGER,
+    for value in (_ROOTS, ADAPTER_ROOTS, _ONLY, _IMPORTS, _OWNER, _PROJECT, _SESSION, _UNDER, _LEDGER,
                   CURRENT_RATES, LOOKUPS, FETCHED_USED, _FX_MEMO, importer.PROBLEMS,
                   importer.STDIN):
         value.clear()
@@ -3431,8 +3435,9 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--session", default="",
                       help="a session id, or the path of a session's log file from any harness")
     read.add_argument("--project", default="",
-                      help="part of a project's folder name or path, or . for the current "
-                           "folder; either finds every project whose path contains it")
+                      help="part of a project's folder name or path, which finds every "
+                           "project whose path contains it; or . for the current folder, "
+                           "which finds that folder's project and those under it")
     read.add_argument("--adapter", action="append", default=[], metavar="NAME",
                       choices=sorted(ALL_SOURCES),
                       help=f"read only this source: {', '.join(sorted(ALL_SOURCES))}; "
@@ -3565,8 +3570,11 @@ def logs_to_read(args, project: str) -> tuple:
             _SESSION[:] = [args.session]
             session_label = f"session {args.session[:8]}"
     else:
+        # The adapters narrow their files by the plain match, which keeps
+        # too many rather than too few; kept() then applies the exact rule.
         paths = transcripts(project=project)
         _PROJECT[:] = [project] if project else []
+        _UNDER[:] = [True] if args.project == "." else []
     if not paths and not filtered() and (args.no_ledger or not read_ledger()):
         sys.exit(nothing_found())
     return paths, session_label
