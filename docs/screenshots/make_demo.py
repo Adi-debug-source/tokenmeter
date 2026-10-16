@@ -17,7 +17,8 @@ TIME is a local date and time such as 2026-10-16T17:40. The history ends at
 that minute, and nothing is dated after it. Without --now it ends at the
 current minute. Tokenmeter works out today, the last 7 days and the last 30
 from the real clock, so make the demo on the day it is used: the README's
-images were made with --now 2026-10-16T17:40 on 16 October 2026.
+images were made with --now 2026-10-16T17:40 on 16 October 2026, in
+Europe/London (TZ=Europe/London).
 
 Every figure is invented
 ------------------------

@@ -2,10 +2,11 @@
 """
 Take the README's screenshots from a demo made by make_demo.py.
 
-    python3 docs/screenshots/make_demo.py /tmp/tokenmeter-demo --now 2026-10-16T17:40 --force
-    python3 docs/screenshots/shoot.py /tmp/tokenmeter-demo
+    DEMO=/tmp/tokenmeter-demo
+    TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force
+    TZ=Europe/London python3 docs/screenshots/shoot.py "$DEMO"
 
-The second command rewrites six images in docs/screenshots: the three
+The last command rewrites six images in docs/screenshots: the three
 terminal images and the three dashboard crops. menu-bar.png is captured by
 hand from the menu bar app run against the same demo (MAINTENANCE.md says
 how), then made plain like the others with
@@ -16,10 +17,12 @@ and icon.png is drawn from the app icon. Neither is otherwise touched here.
 
 Every run of the engine here reads the demo and nothing else. The
 environment it is given is built from scratch: the demo's (make_demo.py's
-demo_env(), the one definition), the PATH, and nothing from the shell that
-started it, so a TOKENMETER_ setting of your own cannot leak in. It refuses a
-folder make_demo.py did not make. --check-prices reads each provider's
-public pricing page, so that image needs the network; the others do not.
+demo_env(), the one definition), the PATH, TZ if it is set, and nothing else
+from the shell that started it, so a TOKENMETER_ setting of your own cannot
+leak in. It refuses a folder make_demo.py did not make. --check-prices reads
+each provider's public pricing page, so that image needs the network; the
+others do not. Chrome is given the account's own HOME, so it works the same
+from a shell that has sourced the demo's env.sh.
 
 How each image is made
 ----------------------
@@ -61,6 +64,7 @@ import argparse
 import base64
 import json
 import os
+import pwd
 import re
 import struct
 import subprocess
@@ -151,9 +155,12 @@ def demo_folder(path: str) -> str:
 
 def engine_env(folder: str) -> dict:
     """A from-scratch environment that reads the demo and nothing else, with
-    the colours kept for a pipe."""
+    the colours kept for a pipe. TZ is passed on when it is set, because the
+    engine's days, and so every window and the daily chart, are local ones."""
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "en_GB.UTF-8",
            "PYTHONIOENCODING": "utf-8", "TMPDIR": os.path.join(folder, "tmp")}
+    if os.environ.get("TZ"):
+        env["TZ"] = os.environ["TZ"]
     os.makedirs(env["TMPDIR"], exist_ok=True)
     env.update(make_demo.demo_env(folder))
     env["FORCE_COLOR"] = "1"
@@ -167,6 +174,17 @@ def tokenmeter(folder: str, *args: str) -> str:
     if out.returncode:
         sys.exit(f"shoot.py: tokenmeter.py {' '.join(args)} failed:\n{out.stderr}")
     return out.stdout
+
+
+def chrome_env() -> dict:
+    """Chrome's environment: this process's, with HOME set back to the
+    account's own home folder. A shell that has sourced a demo's env.sh
+    points HOME at the demo, and headless Chrome then hung for its teardown
+    watchdog after every page and failed the run. Chrome reads nothing of
+    the person's here: its profile is the demo's chrome-profile folder."""
+    env = dict(os.environ)
+    env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    return env
 
 
 def chrome_command(folder: str) -> list:
@@ -184,7 +202,7 @@ def chrome(folder: str, *args: str, timeout: int = 60) -> str:
            # Every frame finished before it is drawn: without it the masthead's
            # first line was missing from one capture in three.
            "--run-all-compositor-stages-before-draw", *args]
-    out = subprocess.run(cmd, capture_output=True, text=True)
+    out = subprocess.run(cmd, capture_output=True, text=True, env=chrome_env())
     if out.returncode:
         sys.exit(f"shoot.py: Chrome failed or hung: {' '.join(args[-2:])}\n{out.stderr[-2000:]}")
     return out.stdout
@@ -215,7 +233,8 @@ class Browser:
             ["perl", "-e", f"alarm {timeout}; exec @ARGV", "sh", "-c",
              'exec "$@" 3<&0 4>&1 0</dev/null 1>/dev/null', "sh", *chrome_command(folder),
              "--remote-debugging-pipe", *flags, "about:blank"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=chrome_env())
         self.waiting, self.events, self.count, self.session = b"", [], 0, None
         try:
             target = self.call("Target.createTarget", url="about:blank")["targetId"]
