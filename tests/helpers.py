@@ -84,6 +84,7 @@ class Base(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop("OPENCODE_DB", None)
+        os.environ.pop("KILO_DB", None)
         # Each test starts as a new run would, with nothing left from the last.
         tm.reset_run()
         tm._ROOTS[:] = [os.path.join(self.tmp, "projects")]

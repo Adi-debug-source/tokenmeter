@@ -3,6 +3,7 @@ the fixtures in tests/fixtures/, and the import format.
 """
 
 import datetime as dt
+import glob
 import io
 import json
 import os
@@ -16,7 +17,7 @@ from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, t
                      zstd_compress)
 
 from adapters import codex as codex_module
-from adapters import claude_code, deepseek_harness, gemini_cli, kimi_code, opencode
+from adapters import claude_code, deepseek_harness, gemini_cli, kilo_code, kimi_code, opencode
 from adapters.common import parse_time
 
 
@@ -2992,6 +2993,277 @@ class TestOpenCodeDatabaseVariable(Base):
         reader stripped it and read the wrong file, or none."""
         _opencode_db(os.path.join(self.root, " spaced.sqlite"), "openai", "gpt-6.1-sol")
         self.assertEqual(self.found(" spaced.sqlite"), [" spaced.sqlite", "opencode.db"])
+
+
+_KILO_HERE = os.path.join(FIXTURES, "kilo-code")
+
+
+def _kilo_ms(when):
+    return int(when.timestamp() * 1000)
+
+
+class KiloBase(Base):
+    def setUp(self):
+        super().setUp()
+        env = unittest.mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(kilo_code.DB_ENV, None)
+        self.root = os.path.join(self.tmp, "kilo-data", "kilo")
+        os.makedirs(self.root)
+        self.db = os.path.join(self.root, "kilo.db")
+        con = sqlite3.connect(self.db)
+        con.executescript(slurp(os.path.join(_KILO_HERE, "build_db.sql")))
+        con.commit()
+        con.close()
+        self.expected = json.loads(slurp(os.path.join(_KILO_HERE, "expected.json")))
+        kilo_code.reset()
+
+    def sql(self, *statements):
+        con = sqlite3.connect(self.db)
+        for s in statements:
+            con.execute(s)
+        con.commit()
+        con.close()
+
+    def events(self, path=None):
+        return list(kilo_code.records(path or self.db))
+
+    def calls(self):
+        """One call per key, as the engine keeps it: the earliest sighting."""
+        kept = {}
+        for key, ev in self.events():
+            if key not in kept or ev["when"] < kept[key]["when"]:
+                kept[key] = ev
+        return kept
+
+    def engine(self):
+        tm.ADAPTER_ROOTS[kilo_code.NAME] = [self.root]
+        tm._ONLY[:] = [kilo_code.NAME]
+        with unittest.mock.patch.dict(tm.ADAPTERS, {kilo_code.NAME: kilo_code}), \
+                unittest.mock.patch.dict(tm.ALL_SOURCES, {kilo_code.NAME: kilo_code}):
+            return tm.collect(tm.transcripts(), ledger=False)
+
+
+class TestKiloCodeRecords(KiloBase):
+
+    def test_every_call_is_read_as_the_source_writes_it(self):
+        """Kilo Code 7 keeps one step-finish row per API call, with input
+        excluding cache and, from 7.2.6, output excluding reasoning; a reader
+        that counted message rows, or left reasoning out, would be wrong."""
+        got = sorted((ev["model"], ev["provider"], _kilo_ms(ev["when"]), ev["_usage"]["input_tokens"],
+                      ev["_usage"]["output_tokens"], ev["_usage"]["cache_read_input_tokens"],
+                      ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"], ev["sidechain"])
+                     for ev in self.calls().values())
+        want = sorted((c["model"], c["provider"], c["timestamp_ms"], c["uncached_input"], c["output"],
+                       c["cache_read"], c["cache_write"], c["sidechain"])
+                      for c in self.expected["calls"])
+        self.assertEqual(got, want)
+
+    def test_reasoning_is_said_to_be_part_of_output(self):
+        """thinking must say how much of output was reasoning, or the report
+        shows reasoning nowhere."""
+        thinking = sorted(ev["_usage"]["output_tokens_details"]["thinking_tokens"]
+                          for ev in self.calls().values())
+        self.assertEqual(thinking, sorted(c["thinking"] for c in self.expected["calls"]))
+
+    def test_a_fork_copy_counts_once_with_its_original(self):
+        """Forking copies every step-finish row under a new id with the
+        tokens kept; keyed by part id, each forked call would count twice."""
+        keys = {}
+        for key, ev in self.events():
+            keys.setdefault(key, set()).add(ev["session"])
+        shared = [s for s in keys.values() if len(s) > 1]
+        self.assertIn({"ses_kilomain0001", "ses_kilofork0001"}, shared)
+        self.assertIn({"ses_kiloold00001", "ses_kilooldfork1"}, shared)
+        self.assertEqual(len(self.calls()), len(self.expected["calls"]))
+
+    def test_a_copy_whose_original_was_deleted_still_counts_at_its_own_time(self):
+        """A copy is the only record left once its original session is
+        deleted. Skipping copies would lose the call; dating it by its row
+        would put it months late, in the wrong window and price period."""
+        self.sql("DELETE FROM part WHERE session_id = 'ses_kiloold00001'",
+                 "DELETE FROM message WHERE session_id = 'ses_kiloold00001'",
+                 "DELETE FROM session WHERE id = 'ses_kiloold00001'")
+        old = [ev for ev in self.calls().values() if ev["model"] == "gpt-5.1"]
+        self.assertEqual(len(old), 2)
+        self.assertEqual({ev["session"] for ev in old}, {"ses_kilooldfork1"})
+        # The copied message's completion, never the September copy time.
+        self.assertEqual(sorted(_kilo_ms(ev["when"]) for ev in old), [1776000050000, 1776000099000])
+
+    def test_old_rows_are_settled_by_their_total(self):
+        """Up to 7.2.4 output came from AI SDK 5, with reasoning inside it for
+        OpenAI and outside it for Google (7.2.5, on AI SDK 6, had it inside
+        for all); adding reasoning to both counts OpenAI's reasoning twice,
+        adding it to neither drops Google's."""
+        by_model = {ev["model"]: ev for ev in self.calls().values()
+                    if ev["session"] == "ses_kiloold00001" and ev["_usage"]["input_tokens"] > 1000}
+        self.assertEqual(by_model["gpt-5.1"]["_usage"]["output_tokens"], 900)
+        self.assertEqual(by_model["gemini-3.1-pro-preview"]["_usage"]["output_tokens"], 756)
+
+    def test_an_unsettled_old_row_is_left_out_and_said_so(self):
+        """A pre-7.4.16 row with reasoning and no total that settles it cannot
+        be read exactly; counting it would guess, and leaving it out without
+        a word would hide a call. Its fork copy is the same call."""
+        self.events()
+        self.assertFalse(any(ev["_usage"]["input_tokens"] == 1200 for ev in self.calls().values()))
+        notes = kilo_code.notes()
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("1 Kilo Code call from before 7.4.16 was not counted"))
+        kilo_code.reset()
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_a_routed_call_uses_the_provider_its_row_names(self):
+        """A custom auto router sends the call to one of the user's own
+        providers and records it on the step; the message names only the
+        kilo-auto router, which no table prices."""
+        routed = [ev for ev in self.calls().values() if ev["model"] == "gpt-5.2-codex"]
+        self.assertEqual([ev["provider"] for ev in routed], ["openai"])
+
+    def test_the_kilo_gateway_is_not_mapped_to_a_maker(self):
+        """Kilo's gateway serves several makers; mapping it from the model
+        name would be a guess, so it keeps the no-price-table note."""
+        gateway = [ev for ev in self.calls().values() if ev["model"] == "anthropic/claude-sonnet-4.5"]
+        self.assertEqual([ev["provider"] for ev in gateway], ["kilo"])
+
+    def test_one_maker_plan_routes_map_to_that_makers_table(self):
+        """Decision 1: a plan route serving one maker is priced from that
+        maker's table; left as the route name it would have no table."""
+        tokens = {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        counts = kilo_code._counts(tokens)
+        for route, table in (("zai-coding-plan", "zai"), ("kimi-for-coding", "moonshot"),
+                             ("minimax-coding-plan", "minimax"), ("xiaomi", "mimo"),
+                             ("moonshotai", "moonshot"), ("anthropic", "anthropic"),
+                             ("kilo", "kilo"), ("openrouter", "openrouter"),
+                             ("github-copilot", "github-copilot"),
+                             ("moonshotai-cn", "moonshotai-cn"), ("zhipuai", "zhipuai"),
+                             ("kimi-code-plan-cn", "moonshot"), ("kimi-code-plan-global", "moonshot"),
+                             ("xiaomi-token-plan-ams", "mimo"), ("xiaomi-token-plan-sgp", "mimo")):
+            _, ev = kilo_code._event("k", None, "m", route, "", "s", False, counts, 5)
+            self.assertEqual(ev["provider"], table, route)
+
+    def test_china_platforms_and_their_plans_pass_through(self):
+        """The makers' China platforms bill from yuan lists, plans included
+        (zhipuai-coding-plan is open.bigmodel.cn, minimax-cn-coding-plan is
+        api.minimax.cn); mapped to the international tables they were priced
+        at rates nobody charged."""
+        counts = kilo_code._counts({"input": 10, "output": 5})
+        for route in ("zhipuai", "zhipuai-coding-plan", "moonshotai-cn", "minimax-cn",
+                      "minimax-cn-coding-plan", "xiaomi-token-plan-cn"):
+            _, ev = kilo_code._event("k", None, "m", route, "", "s", False, counts, 5)
+            self.assertEqual(ev["provider"], route)
+
+    def test_a_subagent_session_is_a_sidechain(self):
+        """The task tool runs a subagent in a child session (parent_id set);
+        reports show those calls apart."""
+        side = {ev["session"] for ev in self.calls().values() if ev["sidechain"]}
+        self.assertEqual(side, {"ses_kilochild001"})
+
+    def test_rows_without_usage_or_unreadable_are_skipped(self):
+        """A step-finish with zero tokens, none, or broken JSON is no call;
+        reading one as zero would add a call that never happened."""
+        mine = [ev for key, ev in self.events()
+                if ev["session"] == "ses_kilomain0001" and ev["model"] in ("glm-5.1", "claude-sonnet-4-5")
+                and _kilo_ms(ev["when"]) >= 1790000140000]
+        self.assertEqual(len(mine), 1)
+
+    def test_the_event_sourced_layout_is_read_too(self):
+        """Rows written through the /api/session routes live in
+        session_message; reading only part would miss them."""
+        v2 = [ev for ev in self.calls().values() if ev["session"] == "ses_kilov2000001"]
+        self.assertEqual([(ev["model"], ev["provider"], ev["_usage"]["input_tokens"]) for ev in v2],
+                         [("claude-haiku-4-5", "anthropic", 900)])
+
+    def test_project_is_the_recorded_folder(self):
+        """--project matches the folder Kilo Code recorded for the call."""
+        self.assertEqual({ev["project"] for ev in self.calls().values()}, {"/home/dev/projects/shop"})
+
+
+class TestKiloCodeThroughTheEngine(KiloBase):
+
+    def test_the_engine_counts_each_call_once(self):
+        """Through the engine: every call once, forks and repeats folded, the
+        totals the fixture's figures add up to."""
+        overall, groups, *_ = self.engine()
+        calls = self.expected["calls"]
+        self.assertEqual(overall["calls"], len(calls))
+        self.assertEqual(overall["tokens"]["input"], sum(c["uncached_input"] for c in calls))
+        self.assertEqual(overall["tokens"]["output"], sum(c["output"] for c in calls))
+        self.assertEqual(overall["tokens"]["cache_read"], sum(c["cache_read"] for c in calls))
+        self.assertEqual(overall["tokens"]["cache_write"], sum(c["cache_write"] for c in calls))
+
+    def test_a_second_database_with_the_same_rows_counts_once(self):
+        """A channel build's kilo-<channel>.db, or a pre-rename
+        opencode-<channel>.db, can hold the same sessions (kilo import keeps
+        ids); each call must still count once."""
+        shutil.copy(self.db, os.path.join(self.root, "kilo-dev.db"))
+        shutil.copy(self.db, os.path.join(self.root, "opencode-local.db"))
+        overall, *_ = self.engine()
+        self.assertEqual(overall["calls"], len(self.expected["calls"]))
+
+
+class TestKiloCodeFiles(KiloBase):
+
+    def test_every_kilo_database_is_found_and_the_export_queue_is_not(self):
+        """kilo.db, kilo-<channel>.db and opencode-<channel>.db are session
+        databases; session-export.db is an upload queue."""
+        for name in ("kilo-dev.db", "opencode-local.db", "session-export.db", "kilo.db-wal"):
+            open(os.path.join(self.root, name), "w").close()
+        names = [os.path.basename(p) for p in kilo_code.files([self.root])]
+        self.assertEqual(names, ["kilo-dev.db", "kilo.db", "opencode-local.db"])
+
+    def test_kilo_db_names_another_file(self):
+        """KILO_DB moves the database, relative to the data folder unless
+        absolute; ':memory:' writes nothing to read."""
+        elsewhere = os.path.join(self.tmp, "elsewhere.sqlite")
+        shutil.copy(self.db, elsewhere)
+        os.environ[kilo_code.DB_ENV] = elsewhere
+        self.assertIn(elsewhere, kilo_code.files([self.root]))
+        shutil.copy(self.db, os.path.join(self.root, "custom.sqlite"))
+        os.environ[kilo_code.DB_ENV] = "custom.sqlite"
+        self.assertIn(os.path.join(self.root, "custom.sqlite"), kilo_code.files([self.root]))
+        os.environ[kilo_code.DB_ENV] = ":memory:"
+        self.assertEqual([os.path.basename(p) for p in kilo_code.files([self.root])], ["kilo.db"])
+
+    def test_default_root_follows_xdg_data_home(self):
+        """Kilo Code keeps its data in $XDG_DATA_HOME/kilo, else
+        ~/.local/share/kilo, on every platform (xdg-basedir), stripping line
+        breaks first."""
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg")
+        self.assertEqual(kilo_code.default_roots(), [os.path.join(self.tmp, "xdg", "kilo")])
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg") + "\n"
+        self.assertEqual(kilo_code.default_roots(), [os.path.join(self.tmp, "xdg", "kilo")])
+        os.environ["XDG_DATA_HOME"] = ""
+        self.assertEqual(kilo_code.default_roots(),
+                         [os.path.join(os.path.expanduser("~/.local/share"), "kilo")])
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_a_relative_xdg_data_home_reads_the_default_and_says_so(self):
+        """Decision 4: a relative XDG_DATA_HOME is resolved against the folder
+        Kilo Code started in, which Tokenmeter cannot know."""
+        os.environ["XDG_DATA_HOME"] = "data"
+        self.assertEqual(kilo_code.default_roots(),
+                         [os.path.join(os.path.expanduser("~/.local/share"), "kilo")])
+        notes = kilo_code.notes()
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith('XDG_DATA_HOME is "data", which Kilo Code reads'))
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg")
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_looks_like_rejects_every_other_readers_format(self):
+        """Kilo Code's logs are a database, never a text file to recognise; a
+        loose looks_like would claim another harness's lines."""
+        lines = [json.dumps(record("msg_1"))]
+        for path in glob.glob(os.path.join(FIXTURES, "**", "*"), recursive=True):
+            if not os.path.isfile(path) or os.sep + "kilo-code" + os.sep in path:
+                continue
+            try:
+                text = slurp(path)
+            except (UnicodeDecodeError, ValueError):
+                continue
+            lines.extend(line for line in text.splitlines()[:3] if line.strip())
+        self.assertGreater(len(lines), 20)
+        self.assertFalse(any(kilo_code.looks_like(line) for line in lines))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
