@@ -1,10 +1,11 @@
 """OpenAI Codex CLI sessions. Unverified.
 
 Built from the published source of openai/codex (read at commit e72da2b, 26
-September 2026, and at tags rust-v0.30.0 to rust-v0.45.0) and checked against
-the Codex parser in ccusage. It has not yet been run against real session
-files, so every report that uses it says so. If a figure looks wrong, please
-open an issue with a sample.
+September 2026, rechecked at commit a098129, 1 November 2026, and at tags
+rust-v0.30.0 to rust-v0.45.0) and checked against the Codex parser in
+ccusage. It has not yet been run against real session files, so every report
+that uses it says so. If a figure looks wrong, please open an issue with a
+sample.
 
 What Codex writes, and what this reader does with it:
 
@@ -16,9 +17,24 @@ What Codex writes, and what this reader does with it:
   - The same token_count is re-sent whenever rate limits refresh, with an
     unchanged total, and sometimes with "info": null. A token_count counts only
     when the running total has moved.
+  - Since e72da2b, a response that ends incomplete (response.incomplete) has
+    its usage added to the running total, and its own token_count follows at
+    once (core/src/session/turn.rs, compact.rs, compact_remote_v2.rs), but
+    that token_count's last_token_usage is still the one before. So when
+    last_token_usage repeats the previous token_count's, the call is the
+    total's move since that token_count, which is always one response; when
+    it is new, it is the call.
+  - The first token_count in a file has no previous one to compare with, and
+    a forked or sub-agent thread starts from its parent's figures without its
+    parent's lines. There the token_usage_record written just before (one per
+    response, with the usage the total gained) says which response it was.
+    When nothing can say, the call is not counted and the report says how
+    many such counts there were, rather than count the earlier response twice
+    or a sum of calls as one.
   - Current versions also write a token_usage_record for every response, with
     the same numbers. Only one stream may be counted, or every figure doubles;
-    this reader counts token_count, the stream every generation has.
+    this reader counts token_count, the stream every generation has, and
+    reads token_usage_record only to tell a file's first call, as above.
   - Codex follows OpenAI's convention: input_tokens INCLUDES cached reads and
     cache writes, and output_tokens INCLUDES reasoning. Uncached input is
     input minus both, which is what the engine calls input.
@@ -75,6 +91,10 @@ ZSTD_PATHS = ("/opt/homebrew/bin/zstd", "/usr/local/bin/zstd")
 # call read from both sessions/ and archived_sessions/ is counted once.
 _STATE = {"guessed": set(), "compressed_unread": 0, "compressed_damaged": 0}
 
+# Per run: the keys of token_counts that moved the running total when nothing
+# said which response moved it, kept as a set for the same reason.
+_UNATTRIBUTED = set()
+
 
 def default_roots() -> list:
     homes = os.environ.get("CODEX_HOME", "").strip() or "~/.codex"
@@ -118,6 +138,11 @@ def notes() -> list:
         out.append(f"{n:,} Codex call{'' if n == 1 else 's'} came from sessions older than "
                    f"Codex 0.36, which record no model, and {'was' if n == 1 else 'were'} "
                    f"priced as {LEGACY_MODEL}, Codex's default at the time")
+    if _UNATTRIBUTED:
+        n = len(_UNATTRIBUTED)
+        out.append(f"{n:,} Codex token count{'' if n == 1 else 's'} moved the running total "
+                   f"without saying which response did it, so {'its' if n == 1 else 'their'} "
+                   "tokens are not counted")
     if _STATE["compressed_unread"]:
         n = _STATE["compressed_unread"]
         out.append(f"{n:,} compressed Codex session{'' if n == 1 else 's'} (.jsonl.zst) could "
@@ -132,6 +157,7 @@ def notes() -> list:
 
 def reset() -> None:
     _STATE.update(guessed=set(), compressed_unread=0, compressed_damaged=0)
+    _UNATTRIBUTED.clear()
 
 
 def _zstd_tool():
@@ -323,6 +349,44 @@ def _minus(a: tuple, b: tuple) -> tuple:
     return tuple(max(0, x - y) for x, y in zip(a, b))
 
 
+UNATTRIBUTED = "unattributed"
+
+
+def _call(total, last, previous, previous_last, recorded):
+    """The counts of the one response a token_count reports, None when it
+    reports none, or UNATTRIBUTED when the total moved but nothing says by
+    which response. `previous` and `previous_last` are the total and
+    last_token_usage of the token_count before it in this file (None for the
+    first); `recorded` the usage of each token_usage_record since then."""
+    if last is None:
+        return _minus(total, previous or (0,) * 5) if total is not None else None
+    if total is None:
+        return last
+    if previous is not None and previous_last is not None:
+        if last != previous_last:
+            return last
+        # An incomplete response: the total gained it, last_token_usage did
+        # not. Its token_count is written at once, so the move is that one
+        # response. A total that went down cannot be one response.
+        if all(x >= y for x, y in zip(total, previous)):
+            return _minus(total, previous)
+        return UNATTRIBUTED
+    # The first token_count in this file.
+    if total == last:
+        return last  # a thread's first response
+    if not any(last):
+        # A context estimate (not a call), unless a response was recorded:
+        # then the total is that response only if the two are equal.
+        if recorded:
+            return recorded[0] if recorded == [total] else UNATTRIBUTED
+        return None
+    if not recorded or last in recorded:
+        return last  # a response in a thread that began from its parent's figures
+    if len(recorded) == 1:
+        return recorded[0]  # an incomplete one: last_token_usage is the parent's
+    return UNATTRIBUTED
+
+
 def records(path: str):
     """Yield (key, event) for every response in one session file."""
     text = None
@@ -341,7 +405,9 @@ def records(path: str):
     thread = name.split(".")[0][len("rollout-") + 20:] if name.startswith("rollout-") else name
     session = root = thread
     project, model, provider, speed = "", "", PROVIDER, "standard"
-    previous = None       # the running total at the last counted token_count
+    previous = None       # the running total at the last token_count
+    previous_last = None  # last_token_usage at the last token_count
+    recorded = []         # token_usage_record usage since the last token_count
     searches = 0          # web searches since the last counted response
 
     for obj in _lines(path, text=text):
@@ -358,6 +424,9 @@ def records(path: str):
         elif kind == "turn_context":
             model = payload.get("model") or model
             project = payload.get("cwd") or project
+        elif kind == "token_usage_record":
+            if isinstance(payload.get("usage"), dict):
+                recorded.append(_counts(payload["usage"]))
         elif kind == "response_item":
             if payload.get("type") == "web_search_call" and payload.get("status", "completed") == "completed":
                 searches += 1
@@ -378,16 +447,23 @@ def records(path: str):
                 total = info.get("total_token_usage")
                 last = info.get("last_token_usage")
                 total_c = _counts(total) if isinstance(total, dict) else None
+                last_c = _counts(last) if isinstance(last, dict) else None
+                since, recorded = recorded, []
+                before_last = previous_last
+                if last_c is not None:
+                    # Kept even from a re-sent total: a context estimate
+                    # changes last_token_usage and nothing else.
+                    previous_last = last_c
                 if total_c is not None and total_c == previous:
                     continue  # the same snapshot re-sent
-                if isinstance(last, dict):
-                    got = _counts(last)
-                elif total_c is not None:
-                    got = _minus(total_c, previous or (0, 0, 0, 0, 0))
-                else:
-                    continue
+                got = _call(total_c, last_c, previous, before_last, since)
                 if total_c is not None:
                     previous = total_c
+                if got is None:
+                    continue
+                if got == UNATTRIBUTED:
+                    _UNATTRIBUTED.add(f"codex:{root}:{':'.join(map(str, total_c))}")
+                    continue
                 inp, cached, written, out, reasoning = got
                 if not any((inp, cached, written, out)):
                     continue

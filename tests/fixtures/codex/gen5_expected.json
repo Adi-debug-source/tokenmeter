@@ -1,0 +1,22 @@
+{
+  "_about": "Per-call figures a correct Codex reader extracts from gen5_incomplete_response.jsonl. Synthetic: ids, paths and numbers are invented. Field names and nesting are taken from the openai/codex source at commit a09812981de703f18f38015cd5d500ab373f616c (1 November 2026): TokenUsage, TokenUsageInfo, TokenCountEvent and TokenUsageRecord in codex-rs/protocol/src/protocol.rs, and the incomplete-response path in codex-rs/core/src/session/mod.rs (record_incomplete_response_usage, TokenUsageContext::SpendingOnly), codex-rs/core/src/session/turn.rs and codex-rs/core/src/compact.rs.",
+  "notes": [
+    "Line 7 follows an incomplete response (line 6 is its token_usage_record): the running total moved by that response, but last_token_usage still holds the response before it (line 5). The call is the total's move, not last_token_usage.",
+    "Line 8 repeats line 7's snapshot when rate limits refreshed and must be dropped.",
+    "Line 9 changes the model mid-session.",
+    "Line 12 is a recomputed context estimate: last_token_usage is zero bar total_tokens and the total is unchanged. It is not a call.",
+    "Line 14 follows an incomplete compaction request: the total moved, last_token_usage is still line 12's estimate.",
+    "service_tier is absent from thread_settings, as the source writes it when no tier was chosen: standard speed."
+  ],
+  "expected_turns": [
+    {"line": 5, "model": "gpt-6.1-sol", "input_tokens_raw": 6000, "cached_input_tokens": 0, "cache_write_input_tokens": 5120, "uncached_input_tokens": 880, "output_tokens": 700, "reasoning_output_tokens": 300},
+    {"line": 7, "model": "gpt-6.1-sol", "input_tokens_raw": 7400, "cached_input_tokens": 5120, "cache_write_input_tokens": 1792, "uncached_input_tokens": 488, "output_tokens": 2048, "reasoning_output_tokens": 2048},
+    {"line": 10, "model": "gpt-6.1-terra", "input_tokens_raw": 9100, "cached_input_tokens": 6912, "cache_write_input_tokens": 0, "uncached_input_tokens": 2188, "output_tokens": 410, "reasoning_output_tokens": 128},
+    {"line": 14, "model": "gpt-6.1-terra", "input_tokens_raw": 9800, "cached_input_tokens": 8960, "cache_write_input_tokens": 0, "uncached_input_tokens": 840, "output_tokens": 1200, "reasoning_output_tokens": 0}
+  ],
+  "expected_skipped_lines": [
+    {"line": 8, "reason": "same snapshot re-sent"},
+    {"line": 12, "reason": "context estimate, total unchanged"}
+  ],
+  "expected_session_totals": {"input_tokens_raw": 32300, "cached_input_tokens": 20992, "cache_write_input_tokens": 6912, "output_tokens": 4358, "reasoning_output_tokens": 2476}
+}

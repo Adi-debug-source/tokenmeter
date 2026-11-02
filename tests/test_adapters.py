@@ -20,6 +20,47 @@ from adapters import gemini_cli, opencode
 from adapters.common import parse_time
 
 
+# The Codex reader rechecked against openai/codex at a098129 (1 November
+# 2026). Since e72da2b, a response that ends incomplete has its usage added to
+# the running total while the token_count that follows still carries the
+# previous response as last_token_usage.
+_CODEX_FIXTURE = "gen5_incomplete_response.jsonl"
+
+
+def _codex_usage(inp, cached=0, written=0, out=0, reasoning=0):
+    return {"input_tokens": inp, "cached_input_tokens": cached,
+            "cache_write_input_tokens": written, "output_tokens": out,
+            "reasoning_output_tokens": reasoning, "total_tokens": inp + out}
+
+
+def _codex_count(total, last, at="2026-10-28T10:00:05.000Z"):
+    return {"timestamp": at, "type": "event_msg",
+            "payload": {"type": "token_count",
+                        "info": {"total_token_usage": total, "last_token_usage": last,
+                                 "model_context_window": 258400}, "rate_limits": None}}
+
+
+def _codex_record(u, response="resp_1", at="2026-10-28T10:00:04.900Z"):
+    return {"timestamp": at, "type": "token_usage_record",
+            "payload": {"thread_id": "t1", "turn_id": "turn_1", "session_id": "t1",
+                        "root_turn_id": "turn_1", "response_id": response, "usage": u,
+                        "turn_token_usage": u, "thread_token_usage": u}}
+
+
+def _codex_session(*lines, meta=None):
+    head = [{"timestamp": "2026-10-28T10:00:00.000Z", "type": "session_meta",
+             "payload": dict({"id": "t1", "session_id": "t1",
+                              "cwd": "/Users/example/code/demo"}, **(meta or {}))},
+            {"timestamp": "2026-10-28T10:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}}]
+    return head + list(lines)
+
+
+def _codex_calls(path):
+    tm.codex.reset()
+    return list(tm.codex.records(path))
+
+
 # Gemini CLI reader, rechecked against google-gemini/gemini-cli at 6814e00
 # (30 October 2026). The reader was built from 2fe7c2d (25 September 2026); in
 # between Gemini CLI began writing $patch lines and stopped writing the $set
@@ -689,6 +730,185 @@ class TestCodexAdapter(Base):
         tm._ONLY[:] = ["claude-code"]
         after, *_ = tm.collect(tm.transcripts(), ledger=False)
         self.assertEqual(before["total"], after["total"])
+
+
+class TestCodexIncompleteResponses(Base):
+    """Codex at a098129: an incomplete response adds its usage to the running
+    total while the next token_count still names the previous response."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "codex-home")
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.home, "sessions"),
+                                     os.path.join(self.home, "archived_sessions")]
+        tm._ONLY[:] = ["codex"]
+        self.expected = json.loads(slurp(os.path.join(FIXTURES, "codex", "gen5_expected.json")))
+
+    def place(self, where="sessions"):
+        d = os.path.join(self.home, where, "2026", "10", "28")
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, "rollout-2026-10-28T09-12-04-0199a2e4-3b7c-7d10-8f21-6a4c9e0b5d32.jsonl")
+        shutil.copy(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE), dest)
+        return dest
+
+    def test_an_incomplete_response_is_counted_as_itself(self):
+        """After an incomplete response, token_count's last_token_usage is the
+        response before it: the reader counted that earlier response twice and
+        never the incomplete one."""
+        got = [ev for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        want = self.expected["expected_turns"]
+        self.assertEqual(len(got), len(want))
+        for ev, w in zip(got, want):
+            u = ev["_usage"]
+            self.assertEqual(u["input_tokens"], w["uncached_input_tokens"], w["line"])
+            self.assertEqual(u["cache_read_input_tokens"], w["cached_input_tokens"], w["line"])
+            self.assertEqual(u["cache_creation"]["ephemeral_5m_input_tokens"],
+                             w["cache_write_input_tokens"], w["line"])
+            self.assertEqual(u["output_tokens"], w["output_tokens"], w["line"])
+            self.assertEqual(u["output_tokens_details"]["thinking_tokens"],
+                             w["reasoning_output_tokens"], w["line"])
+            self.assertEqual(ev["model"], w["model"], w["line"])
+            self.assertEqual(ev["provider"], "openai")
+            self.assertEqual(u["speed"], "standard")
+
+    def test_an_incomplete_response_after_an_estimate_is_not_lost(self):
+        """A recomputed context estimate zeroes last_token_usage; an incomplete
+        response after it moved the total with a zero last_token_usage, and
+        the reader dropped it as a call with no usage."""
+        got = [ev for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        self.assertEqual(got[-1]["_usage"]["cache_read_input_tokens"], 8960)
+        self.assertEqual(got[-1]["_usage"]["output_tokens"], 1200)
+
+    def test_the_calls_add_up_to_the_running_total(self):
+        """Per-call figures that do not add up to Codex's own running total
+        mean a call was dropped or counted twice."""
+        got = [ev["_usage"] for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        total = self.expected["expected_session_totals"]
+        written = sum(u["cache_creation"]["ephemeral_5m_input_tokens"] for u in got)
+        read = sum(u["cache_read_input_tokens"] for u in got)
+        self.assertEqual(sum(u["input_tokens"] for u in got) + read + written,
+                         total["input_tokens_raw"])
+        self.assertEqual(read, total["cached_input_tokens"])
+        self.assertEqual(written, total["cache_write_input_tokens"])
+        self.assertEqual(sum(u["output_tokens"] for u in got), total["output_tokens"])
+        self.assertEqual(sum(u["output_tokens_details"]["thinking_tokens"] for u in got),
+                         total["reasoning_output_tokens"])
+
+    def test_two_identical_responses_are_both_counted(self):
+        """A last_token_usage equal to the one before is also what two
+        identical responses look like; the incomplete-response rule must not
+        turn the second into anything but itself."""
+        u = {"input_tokens": 1000, "cached_input_tokens": 0, "cache_write_input_tokens": 0,
+             "output_tokens": 50, "reasoning_output_tokens": 0, "total_tokens": 1050}
+        double = {k: v * 2 for k, v in u.items()}
+        lines = [
+            {"timestamp": "2026-10-28T10:00:00.000Z", "type": "session_meta",
+             "payload": {"id": "t1", "session_id": "t1", "cwd": "/Users/example/code/demo"}},
+            {"timestamp": "2026-10-28T10:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}},
+            {"timestamp": "2026-10-28T10:00:05.000Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": {"total_token_usage": u, "last_token_usage": u}}},
+            {"timestamp": "2026-10-28T10:00:09.000Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": {"total_token_usage": double, "last_token_usage": u}}},
+        ]
+        path = os.path.join(self.tmp, "rollout-2026-10-28T10-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        got = [ev["_usage"] for _, ev in _codex_calls(path)]
+        self.assertEqual([g["input_tokens"] for g in got], [1000, 1000])
+
+    def write_session(self, lines):
+        path = os.path.join(self.tmp, "rollout-2026-10-28T10-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        return path
+
+    def inputs(self, path):
+        return [ev["_usage"]["input_tokens"] + ev["_usage"]["cache_read_input_tokens"]
+                for _, ev in _codex_calls(path)]
+
+    def test_two_incomplete_responses_in_a_row_are_two_calls(self):
+        """Each incomplete response writes its own token_count; were they
+        merged, one call of their summed input could cross a long-context
+        threshold neither crossed."""
+        a, b, c = _codex_usage(1000, out=50), _codex_usage(2000, out=0), _codex_usage(3000, out=0)
+        ab = {k: a[k] + b[k] for k in a}
+        abc = {k: ab[k] + c[k] for k in a}
+        path = self.write_session(_codex_session(_codex_record(a), _codex_count(a, a),
+                                         _codex_record(b, "resp_2"), _codex_count(ab, a),
+                                         _codex_record(c, "resp_3"), _codex_count(abc, a)))
+        self.assertEqual(self.inputs(path), [1000, 2000, 3000])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_forked_threads_first_call_incomplete_is_not_its_parents(self):
+        """A forked or sub-agent thread starts from its parent's figures
+        without its parent's lines; if its first response is incomplete,
+        last_token_usage is the parent's last response, which the reader
+        counted again in place of the incomplete one."""
+        parent_total = _codex_usage(50000, cached=40000, out=900)
+        parent_last = _codex_usage(9000, out=300)
+        mine = _codex_usage(7000, cached=6000, out=0)
+        total = {k: parent_total[k] + mine[k] for k in mine}
+        path = self.write_session(_codex_session(_codex_record(mine), _codex_count(total, parent_last),
+                                         meta={"forked_from_id": "t0"}))
+        got = [ev["_usage"] for _, ev in _codex_calls(path)]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["cache_read_input_tokens"], 6000)
+        self.assertEqual(got[0]["input_tokens"], 1000)
+
+    def test_a_forked_threads_first_call_complete_is_itself(self):
+        """The rule for a forked thread's first incomplete response must not
+        replace a complete first response, whose last_token_usage is its own."""
+        parent_total, mine = _codex_usage(50000, out=900), _codex_usage(7000, out=40)
+        total = {k: parent_total[k] + mine[k] for k in mine}
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_record(mine),
+                                                               _codex_count(total, mine)))),
+                         [7000])
+        # Codex versions before token_usage_record: last_token_usage is the call.
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_count(total, mine)))), [7000])
+
+    def test_a_threads_first_response_incomplete_is_counted(self):
+        """A new thread whose first response is incomplete writes a zero
+        last_token_usage; the reader dropped the call as one with no usage."""
+        mine = _codex_usage(4000, out=100)
+        zero = _codex_usage(0)
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_record(mine),
+                                                               _codex_count(mine, zero)))),
+                         [4000])
+
+    def test_a_move_nothing_can_attribute_is_reported_not_guessed(self):
+        """Where nothing says which response moved the total, the reader must
+        neither count the previous response again nor invent one call from a
+        sum; the report says how many such counts it left out."""
+        parent_total, parent_last = _codex_usage(50000, out=900), _codex_usage(9000, out=300)
+        one, two = _codex_usage(7000), _codex_usage(8000)
+        total = {k: parent_total[k] + one[k] + two[k] for k in one}
+        path = self.write_session(_codex_session(_codex_record(one), _codex_record(two, "resp_2"),
+                                         _codex_count(total, parent_last)))
+        self.assertEqual(_codex_calls(path), [])
+        self.assertEqual(len(tm.codex.notes()), 1)
+        self.assertIn("1 Codex token count moved the running total", tm.codex.notes()[0])
+        # A total that went down with last_token_usage unchanged: not a call.
+        a, b = _codex_usage(1000, out=50), _codex_usage(500)
+        path = self.write_session(_codex_session(_codex_count(a, a), _codex_count(b, a)))
+        self.assertEqual(self.inputs(path), [1000])
+        self.assertEqual(len(tm.codex.notes()), 1)
+        tm.codex.reset()
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_through_the_engine_and_labelled_unverified(self):
+        """The fixed figures reach the report, a copy in archived_sessions
+        counts once, and the report still says Codex is unverified."""
+        self.place()
+        self.place(where="archived_sessions")
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 4)
+        warns = [t for level, t in tm.report_notes(groups, unknown) if level == "warn"]
+        self.assertTrue(any("Codex figures are unverified" in t for t in warns))
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 4)
+        # Codex's own total_tokens at the session's last token_count.
+        self.assertEqual(out["tokens_on_disk"], 36658)
 
 
 class TestGeminiCliAdapter(Base):
