@@ -189,22 +189,23 @@ class TestOnlineLookup(Base):
         self.assertEqual(entry["checked"], dt.date.today().isoformat())
         self.assertNotIn("tried", entry)
 
+    # In the Markdoc the page has been written in since it moved to
+    # aistudio.google.com (2 November 2026); it was HTML before.
     GOOGLE_PAGE = (
-        '<h2 id="g">Gemini 9 Flash</h2><p><code>gemini-9-flash</code></p><table><tbody>'
-        '<tr><td>Input price</td><td>Free</td>'
-        '<td>$0.75 ; $1.50 starting January 1, 2027</td></tr>'
-        '<tr><td>Output price</td><td>Free</td>'
-        '<td>$3.75 ; $7.50 starting January 1, 2027</td></tr>'
-        '<tr><td>Context caching price</td><td>Free</td>'
-        '<td>$0.075 ; $0.15 starting January 1, 2027</td></tr>'
-        '</tbody></table>')
+        '## Gemini 9 Flash  {% id="gemini-9-flash" %}\n'
+        '*[`gemini-9-flash`](/docs/models/gemini-9-flash)*\n'
+        '{% table %}\n'
+        '* Input price\n* Free\n* $0.75\n$1.50 starting January 1, 2027\n---\n'
+        '* Output price\n* Free\n* $3.75\n$7.50 starting January 1, 2027\n---\n'
+        '* Context caching price\n* Free\n* $0.075\n$0.15 starting January 1, 2027\n'
+        '{% /table %}\n')
 
     def test_a_looked_up_price_keeps_its_dates(self):
         """A page with a launch price and a later one was saved as one row at
         the later price, so every call was charged it from the first day."""
         def fetch(url):
             self.fetched.append(url)
-            if url == tm.TABLES["google"].SOURCE:
+            if url == tm.TABLES["google"].SOURCE_MD:
                 return self.GOOGLE_PAGE
             raise OSError("offline in tests")
         tm.resolve_prices([("google", "gemini-9-flash")], fetch=fetch)
@@ -296,20 +297,23 @@ class TestPageRows(Base):
 
 
 class TestGooglePageReader(Base):
-    """pricing/google.py reads Google's HTML page: one heading per model, its
-    id in <code>, then a Standard table. The real page is not fetched here;
-    these blocks are shaped like it."""
+    """pricing/google.py reads Google's page in Markdoc: one "## " heading per
+    model, its id in backticks, then a Standard tab holding a table of
+    three-cell rows. The real page is not fetched here; these blocks are
+    shaped like it. They were HTML until the page moved to
+    aistudio.google.com and the reader with it (2 November 2026)."""
 
     def page(self, *models):
         """One block per (id, input cell, output cell, caching cell)."""
         out = ""
         for mid, inp, out_, cache in models:
-            rows = "".join(f"<tr><td>{label}</td><td>Not available</td><td>{paid}</td></tr>"
-                           for label, paid in (("Input price", inp),
-                                               ("Output price (including thinking tokens)", out_),
-                                               ("Context caching price", cache)))
-            out += (f'<h2 id="{mid}">{mid}</h2><code>{mid}</code>'
-                    f'<div data-text="Standard"><table><tbody>{rows}</tbody></table></div>')
+            rows = "---\n".join(f"* {label}\n* Not available\n* {paid}\n"
+                                for label, paid in (("Input price", inp),
+                                                    ("Output price (including thinking tokens)", out_),
+                                                    ("Context caching price", cache)))
+            out += (f'## {mid}  {{% id="{mid}" %}}\n*[`{mid}`](/docs/models/{mid})*\n'
+                    f'{{% tabs %}}\n{{% tab title="Standard" %}}\n{{% table %}}\n{rows}'
+                    f'{{% /table %}}\n{{% /tab %}}\n{{% /tabs %}}\n')
         return out
 
     def test_a_text_model_with_a_new_kind_of_name_is_flagged_as_unlisted(self):
@@ -799,6 +803,122 @@ class TestAnthropicPageReader(Base):
         rates, _ = self.read(ANTHROPIC_PAGE, want=("claude-opus-9",))
         self.assertAlmostEqual(rates["claude-opus-9"]["in"], 6, places=9)
         self.assertAlmostEqual(rates["claude-opus-9"]["out"], 30, places=9)
+
+
+# Google (Gemini API): the page reader in pricing/google.py, run on a saved
+# copy of the page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/google_page.md, is five model sections cut
+# verbatim, in page order, from https://aistudio.google.com/docs/pricing.md as
+# fetched on 2 November 2026, each from its "## " heading to the next: Gemini 4
+# Argon (dated prices), 3.5 Flash-Lite, the 3.8 Live section (a model kind the
+# reader leaves out), 3.1 Pro Preview (long context, two ids) and 2.5 Flash
+# (audio prices beside the text ones). Nothing in it was typed by hand. A test
+# that needs a different page builds it from that copy. It replaced a cut of
+# the HTML page at https://ai.google.dev/gemini-api/docs/pricing of 27 October
+# 2026, because the page moved and its HTML no longer holds the tables.
+
+GOOGLE_PAGE_FILE = os.path.join(FIXTURES, "pages", "google_page.md")
+
+
+# Typed from the page on 27 October 2026, not copied from the table: the
+# Standard and Priority tables of each text model. The copy of 2 November
+# 2026 that the saved page is cut from prints the same figures.
+GOOGLE_ON_THE_PAGE = {
+    "gemini-4-argon": {
+        "in": 4.00, "out": 20.00, "cached": 0.20, "fast_in": 7.20, "fast_out": 36.00,
+        "_history": [
+            {"from": "", "in": 2.00, "out": 10.00, "cached": 0.10, "fast_in": 3.60, "fast_out": 18.00},
+            {"from": "2026-12-01", "in": 4.00, "out": 20.00, "cached": 0.20,
+             "fast_in": 7.20, "fast_out": 36.00}]},
+    "gemini-3.5-flash-lite": {"in": 0.30, "out": 2.50, "cached": 0.03, "fast_in": 0.54, "fast_out": 4.50},
+    "gemini-3.1-pro-preview": {"in": 2.00, "out": 12.00, "cached": 0.20, "long_in": 4.00,
+                               "long_out": 18.00, "long_cached": 0.40, "long_over": 200_000,
+                               "fast_in": 3.60, "fast_out": 21.60},
+    "gemini-2.5-flash": {"in": 0.30, "out": 2.50, "cached": 0.03, "fast_in": 0.54, "fast_out": 4.50},
+}
+GOOGLE_ON_THE_PAGE["gemini-3.1-pro-preview-customtools"] = GOOGLE_ON_THE_PAGE["gemini-3.1-pro-preview"]
+
+
+# The live section's ids: on the page, and on purpose not text models.
+GOOGLE_LIVE = ("gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-3.1-flash-live-preview")
+
+
+class TestGooglePageReaderOnTheSavedPage(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["google"]
+        self.html = slurp(GOOGLE_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def read(self, html):
+        def fetch(url):
+            self.urls.append(url)
+            return html
+        return self.table.page_rates(fetch, tm.md_tables)
+
+    def test_every_text_model_is_read_figure_for_figure(self):
+        """The reader read only the Standard table, so --check-prices could
+        never see a Priority figure, nor the "> 200k" cache price or the
+        threshold the page states. Every one of them, in every dated entry,
+        must come out of the saved page as printed, and the audio and storage
+        figures beside them must not."""
+        rates, unknown = self.read(self.html)
+        self.assertEqual({m: r for m, r in rates.items() if m not in GOOGLE_LIVE}, GOOGLE_ON_THE_PAGE)
+        self.assertEqual(unknown, [])
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
+
+    def test_the_page_is_read_where_it_now_lives(self):
+        """By 2 November 2026 Google's pricing page had moved to
+        aistudio.google.com and was rendered in the browser from Markdoc, so
+        the reader, which looked for <h2> headings and <tbody> tables in the
+        HTML, found no rates at all and --check-prices could check nothing.
+        The reader must fetch the page's Markdoc copy at the new address and
+        read every text model's Standard and Priority figures from it."""
+        self.assertTrue(self.table.SOURCE.startswith("https://aistudio.google.com/"))
+        self.assertEqual(self.table.SOURCE_MD, self.table.SOURCE + ".md")
+        rates, _ = self.read(self.html)
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
+        self.assertEqual(rates["gemini-3.1-pro-preview"]["fast_out"], 21.60)
+        self.assertEqual(sorted(m for m in rates if m not in GOOGLE_LIVE), sorted(GOOGLE_ON_THE_PAGE))
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """A table row that drifted from the page, in any column the page
+        lists, Priority and the long tier included, would price every
+        Gemini call wrongly and still be reported as checked."""
+        c = tm.compare_with_page(self.table, lambda url: self.html)
+        self.assertEqual((c["error"], c["found"]), ("", True))
+        self.assertEqual((c["diffs"], c["unlisted"]), ([], []))
+        self.assertEqual(c["matched"], 4)
+        self.assertNotIn("gemini-4-argon", c["absent"])
+
+    def test_a_changed_priority_figure_is_reported(self):
+        """The Priority figures are checked, not just read: a page whose
+        Priority output moved must show as a difference against the table."""
+        page = self.html.replace("$21.60, prompts <= 200k", "$22.00, prompts <= 200k")
+        self.assertNotEqual(page, self.html)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertIn(("gemini-3.1-pro-preview", "fast_out", 21.60, 22.00), c["diffs"])
+
+    def test_a_model_with_no_priority_table_has_no_fast_figures(self):
+        """A tier is read from its own table only. Searching past the end of
+        a section's tiers would hand one model the next model's Priority
+        figures; with the Priority tables taken out, no model has any."""
+        page = self.html.replace('{% tab title="Priority" %}', '{% tab title="Removed" %}')
+        rates, _ = self.read(page)
+        for mid, r in rates.items():
+            self.assertNotIn("fast_in", r, mid)
+            for h in r.get("_history", []):
+                self.assertNotIn("fast_in", h, mid)
+        self.assertEqual(rates["gemini-2.5-flash"]["in"], 0.30)
+
+    def test_a_text_model_new_on_the_page_is_named(self):
+        """A model the page sells and the table lacks must be named, or a new
+        model would be priced by the lookup with nobody told."""
+        page = self.html.replace("gemini-3.5-flash-lite", "gemini-4.5-flash-lite")
+        rates, unknown = self.read(page)
+        self.assertEqual(unknown, ["gemini-4.5-flash-lite"])
+        self.assertEqual(rates["gemini-4.5-flash-lite"]["in"], 0.30)
 
 
 if __name__ == "__main__":

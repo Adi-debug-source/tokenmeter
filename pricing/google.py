@@ -22,6 +22,14 @@ Use, 3.5 Flash and 3.7 Flash) were read off the live page before it dropped
 them, except the Priority pairs of 3.5 and 3.7 Flash, added on 27 October
 from capture 20261008045525 (see RETIRED).
 
+By 2 November 2026 the page had moved: the old address above redirects to
+https://aistudio.google.com/docs/pricing, which is rendered in the browser
+from Markdoc, so the old reader found no rates in it. The page reader now
+reads the same Markdoc at SOURCE_MD, and on 2 November 2026 it found every
+figure of the ten current text models as this table holds it. The old
+address's own markdown copy (pricing.md.txt) is still served but no longer
+agrees with the page in every tier, so it is not read.
+
 **Published, not measured.** Nobody has yet compared these with a real Gemini
 bill or a harness's own cost report. Please do, and open an issue either way.
 
@@ -126,8 +134,10 @@ import re
 
 PROVIDER = "google"
 NAME = "Google"
-SOURCE = "https://ai.google.dev/gemini-api/docs/pricing"
-VERIFIED_ON = "2026-10-27"
+SOURCE = "https://aistudio.google.com/docs/pricing"
+# The same page's Markdoc source, which the page itself carries verbatim.
+SOURCE_MD = "https://aistudio.google.com/docs/pricing.md"
+VERIFIED_ON = "2026-11-02"
 MEASURED = False
 
 # Gemini has no per-token cache write fee; creating a cache bills as input.
@@ -290,18 +300,31 @@ TEXT_MODEL = re.compile(r"gemini-[\d.]+-(?!(?:live|transcribe|tts|image|audio|em
 # ---- reading the published page, for --check-prices and the startup lookup
 
 
+# Markdoc's own tags ({% sup %}, {% /tab %}, ...) and a markdown link's target.
+_TAG = re.compile(r"\{%.*?%\}")
+_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# A Markdoc table, a tier's tab, a row's rule and a cell's bullet.
+_TABLE = re.compile(r"\{% table %\}(.*?)\{% /table %\}", re.S)
+_RULE = re.compile(r"^[ \t]*---[ \t]*$", re.M)
+_BULLET = re.compile(r"^[ \t]*\* ", re.M)
+
+
+def _plain(text: str) -> str:
+    """Markdoc text with its tags, link targets and code ticks taken out."""
+    return _LINK.sub(r"\1", _TAG.sub("", text)).replace("`", "")
+
+
 def _paid_cell(cell: str) -> dict:
     """One paid-tier cell as {"base", "long", "over", "dated"}.
 
-    A cell can hold several prices at once: text and audio, short and long
-    context, a launch price and a later one, and a storage price. Each dollar
-    figure is classified by the words that follow it. The cells also hold
-    unescaped "<" and ">" (prompts <= 200k tokens), so tags are removed by name
-    and never by a blanket pattern, which would eat the long-context half.
-    "over" is the long-context threshold in tokens, read from "> 200k".
+    A cell can hold several prices at once, one to a line: text and audio,
+    short and long context, a launch price and a later one, and a storage
+    price. Each dollar figure is classified by the words that follow it, up
+    to the next figure; the cell's lines are joined with " ; " so that the
+    words of one line never run into the next. "over" is the long-context
+    threshold in tokens, read from "> 200k".
     """
-    text = re.sub(r"<br\s*/?>", " ; ", cell)
-    text = re.sub(r"</?(a|code|span|em|strong|p|sup)\b[^>]*>", "", text)
+    text = " ; ".join(line.strip() for line in _plain(cell).splitlines())
     out = {}
     for figure, tail in re.findall(r"\$([\d.,]+)([^$]*)", text):
         value = float(figure.replace(",", "").rstrip("."))
@@ -320,23 +343,30 @@ def _paid_cell(cell: str) -> dict:
     return out
 
 
-def _cells(tbody: str) -> dict:
-    """A table body's rows as {row label: _paid_cell() of the Paid Tier}."""
+def _cells(table: str) -> dict:
+    """A Markdoc table's rows as {row label: _paid_cell() of the Paid Tier}.
+
+    Rows are separated by a "---" line, and each row is three bullets
+    (label, Free Tier, Paid Tier); a cell's further lines carry no bullet.
+    A row of any other shape is not a price row and is skipped."""
     cells = {}
-    for label, paid in re.findall(r"<tr>\s*<td>(.*?)</td>\s*<td>.*?</td>\s*<td>(.*?)</td>\s*</tr>",
-                                  tbody, re.S):
-        cells[re.sub(r"<[^>]+>", "", label).strip().lower()] = _paid_cell(paid)
+    for row in _RULE.split(table):
+        parts = _BULLET.split(row)[1:]
+        if len(parts) == 3:
+            label = " ".join(_plain(parts[0]).split()).lower()
+            cells[label] = _paid_cell(parts[2])
     return cells
 
 
-def _tier(block: str, name: str) -> dict:
+def _tier(section: str, name: str) -> dict:
     """A model's table for one tier, as _cells() gives it, or {}.
 
-    The tier's table is the first after its heading and before the next
-    tier's, so a model with no table of that tier gives nothing rather than
-    the next tier's figures."""
-    m = re.search(r'data-text="%s"(?:(?!data-text=).)*?<tbody>(.*?)</tbody>' % name, block, re.S)
-    return _cells(m.group(1)) if m else {}
+    The tier's table is the one inside its own {% tab %}, which ends at
+    {% /tab %}, so a model with no table of that tier gives nothing rather
+    than the next tier's figures."""
+    tab = re.search(r'\{%% tab title="%s" %%\}(.*?)\{%% /tab %%\}' % re.escape(name), section, re.S)
+    table = _TABLE.search(tab.group(1)) if tab else None
+    return _cells(table.group(1)) if table else {}
 
 
 def _in_out(cells: dict) -> tuple:
@@ -351,13 +381,17 @@ def page_rates(fetch, tables, want=None):
     models on it that this table lacks.
 
     Used by --check-prices, which reports differences and never edits this
-    file, and by the startup lookup for a model this table lacks. The page is
-    server-rendered HTML: one <h2> per model with its id in <code> (a section
-    can name two ids, as 3.1 Pro Preview's does), then one <h3 data-text=...>
-    per tier, each with a three-column table (label, Free Tier, Paid Tier).
-    The page names models by id, so PAGE_NAMES is not needed, and the
-    markdown form is not read, so `tables` is unused; every id is returned,
-    so `want` needs no filtering.
+    file, and by the startup lookup for a model this table lacks. Since the
+    page moved to aistudio.google.com (by 2 November 2026) it is rendered in
+    the browser from Markdoc source, which the HTML carries verbatim in a
+    <pre> block and which Google also serves alone at SOURCE_MD; that plain
+    copy is what is read. It has one "## " heading per model, its ids in
+    backticks above the tables (a section can name two ids, as 3.1 Pro
+    Preview's does), then one {% tab title=... %} per tier, each with a
+    {% table %} of three-cell rows (label, Free Tier, Paid Tier). The page
+    names models by id, so PAGE_NAMES is not needed; the tables are Markdoc,
+    not markdown, so `tables` is unused; every id is returned, so `want`
+    needs no filtering.
 
     From the Standard table, or a model's only table: `in`, `out`, `cached`
     (input when no caching row is printed), `long_in`, `long_out`,
@@ -367,14 +401,16 @@ def page_rates(fetch, tables, want=None):
     Batch are not read, nor audio and storage prices, none of which the table
     models.
     """
-    text = fetch(SOURCE)
+    text = fetch(SOURCE_MD)
     rates, seen = {}, []
-    for block in re.split(r"<h2 ", text)[1:]:
-        ids = re.findall(r"<code[^>]*>(gemini-[a-z0-9.\-]+)</code>", block[:2000])
+    for block in re.split(r"^## ", text, flags=re.M)[1:]:
+        # The ids are named above the first tab or table, not in its prose.
+        head = re.split(r"\{% (?:tabs|table) %\}", block, maxsplit=1)[0]
+        ids = re.findall(r"`(gemini-[a-z0-9.\-]+)`", head)
         # The Standard table, or a model's only table when it has just one.
         std = _tier(block, "Standard")
         if not std:
-            only = re.search(r"<tbody>(.*?)</tbody>", block, re.S)
+            only = _TABLE.search(block)
             std = _cells(only.group(1)) if only else {}
         if not ids or not std:
             continue
