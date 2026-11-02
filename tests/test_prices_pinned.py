@@ -1221,17 +1221,20 @@ class TestMistralLarge4PublishedRates(Base):
     Neither page prints a prompt-length tier, although the card gives a 1M
     context, so a long prompt is pinned at the same rate.
 
-    Launch price. The changelog (saved as mistral_2026-11-02_changelogs.html)
+    Earlier prices. The changelog (saved as mistral_2026-11-02_changelogs.html)
     says, under October 6 of 2026, that Large 4 "is now available in Public
     Preview" and "Launch pricing: 50% off for 2 weeks." The changelog prints
-    no figures, but the pricing page did: Internet Archive copies of it
-    print "Sale price" $0.68 in, $0.07 cached, $2.09 out against "Original
-    price" $1.36, $0.14, $4.18 (11 and 17 October 2026), then $1.36, $0.14,
-    $4.18 alone (21 and 29 October 2026), then $0.7, $0.07, $2.1 (1 November
-    2026). Archive prices are taken only for a retired model, and neither
-    boundary is printed to the day, so no dated row is pinned here: the row
-    is the price the live page prints on 2 November 2026, and whether to add
-    the archived prices as dated rows is an open question.
+    no figures, but the pricing page did. Internet Archive copies of it,
+    https://web.archive.org/web/<capture>/https://docs.mistral.ai/inference/pricing,
+    fetched on 2 November 2026, print in the Large 4 row:
+    - 20261017055018 and 20261019141922: "Sale price" $0.68 in, $0.07
+      cached, $2.09 out, against "Original price" $1.36, $0.14, $4.18;
+    - 20261021005556 and 20261029025927: $1.36, $0.14, $4.18 alone;
+    - 20261101130106: $0.7, $0.07, $2.1.
+    No capture lies inside either window. On the maintainer's decision of 2
+    November 2026 each price is a dated row from the UTC date of the first
+    capture showing it, 21 October and 1 November 2026, so each day is
+    approximate to its window.
     """
 
     OFFICIAL = {
@@ -1239,6 +1242,25 @@ class TestMistralLarge4PublishedRates(Base):
         "mistral-large-4": (0.7, 2.1, 0.07),
         "mistral-large-4-0": (0.7, 2.1, 0.07),
     }
+
+    # The rows' starts and figures, typed from the captures: (from, (Input,
+    # Output, Cached input)), oldest first.
+    DATED = [("", (0.68, 2.09, 0.07)),
+             ("2026-10-21", (1.36, 4.18, 0.14)),
+             ("2026-11-01", (0.7, 2.1, 0.07))]
+
+    def test_every_dated_row(self):
+        """Guards Large 4's earlier prices against the archive captures: a
+        mistyped figure, a cached rate taken as a tenth of input, a row
+        starting on the wrong day, or a row added or dropped."""
+        rows = tm.TABLES["mistral"].PRICES["mistral-large-4"]
+        self.assertEqual(len(rows), len(self.DATED))
+        for row, (start, (inp, out, hit)) in zip(rows, self.DATED):
+            with self.subTest(start=start):
+                self.assertEqual(row["from"], start)
+                self.assertAlmostEqual(row["in"], inp, places=9)
+                self.assertAlmostEqual(row["out"], out, places=9)
+                self.assertAlmostEqual(row["in"] * row["cache_read_mult"], hit, places=9)
 
     def test_every_rate(self):
         """Guards a Large 4 rate that differs from the page, or a Large 4 id

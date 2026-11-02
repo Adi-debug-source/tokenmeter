@@ -1320,5 +1320,67 @@ class TestZaiWebSearch(Base):
         self.assertAlmostEqual(cost_of(c), 0.01, places=9)
 
 
+def local(*parts):
+    """A local wall-clock time as an aware datetime. Token rates change at
+    the start of a row's day in local time (rate_on()), so the instants on
+    either side of a cut-off are built here and hold in every time zone."""
+    return dt.datetime(*parts).astimezone()
+
+
+class TestMistralLarge4DatedRows(Base):
+    """Mistral Large 4's three prices, each from the day the table starts
+    it: the launch sale, $1.36 from 21 October 2026, $0.70 from 1 November
+    2026 (pricing/mistral.py gives the archive captures behind each day)."""
+
+    # (input, output, cached input), dollars per million tokens.
+    SALE = (0.68, 2.09, 0.07)
+    AFTER_SALE = (1.36, 4.18, 0.14)
+    NOW = (0.70, 2.10, 0.07)
+
+    def cost(self, when, model="mistral-large-4"):
+        return cost_of(tm.price_record(model, usage(inp=M, out=M, read=M), when=when,
+                                       provider="mistral"))
+
+    def test_each_cut_off_prices_the_call_on_each_side_at_its_own_row(self):
+        """Guards Large 4's history being priced at one figure: a single row
+        at $0.70 charged calls between the end of the launch sale and the
+        cut at about half what Mistral's page printed, and the sale a little
+        high. A call a second before each cut-off prices at the row before,
+        and a call at the cut-off at the new row, input, output and cache
+        reads alike."""
+        cases = [
+            (local(2026, 10, 6, 12, 0), self.SALE),
+            (local(2026, 10, 20, 23, 59, 59), self.SALE),
+            (local(2026, 10, 21, 0, 0, 0), self.AFTER_SALE),
+            (local(2026, 10, 31, 23, 59, 59), self.AFTER_SALE),
+            (local(2026, 11, 1, 0, 0, 0), self.NOW),
+        ]
+        for when, (inp, out, hit) in cases:
+            for model in ("mistral-large-4", "mistral-large-4-0"):
+                with self.subTest(when=when, model=model):
+                    self.assertAlmostEqual(self.cost(when, model), inp + out + hit, places=9)
+
+    def test_each_row_has_its_own_cached_rate(self):
+        """Guards the cached rate of an earlier price taken as a tenth of its
+        input, as on every other Mistral row: the page printed $0.07 cached
+        against $0.68 in, and $0.14 against $1.36, so a million cache reads
+        cost those figures, not $0.068 or $0.136."""
+        for when, hit in ((local(2026, 10, 10, 12, 0), 0.07),
+                          (local(2026, 10, 25, 12, 0), 0.14),
+                          (local(2026, 11, 2, 12, 0), 0.07)):
+            with self.subTest(when=when):
+                c = tm.price_record("mistral-large-4", usage(read=M), when=when,
+                                    provider="mistral")
+                self.assertAlmostEqual(c["cache_read"], hit, places=9)
+
+    def test_a_call_with_no_timestamp_takes_todays_price(self):
+        """Guards a call with no timestamp, or under --current-rates, being
+        priced at the launch sale, the first row, rather than the price in
+        force now."""
+        self.assertAlmostEqual(self.cost(None), sum(self.NOW), places=9)
+        tm.CURRENT_RATES.append(True)
+        self.assertAlmostEqual(self.cost(local(2026, 10, 10, 12, 0)), sum(self.NOW), places=9)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

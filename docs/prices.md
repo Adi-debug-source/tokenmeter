@@ -201,7 +201,9 @@ Source: <https://docs.mistral.ai/inference/pricing>. Last verified 2 Nov 2026, c
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
-| `mistral-large-4` | $0.70 | $0.07 | - | $2.10 | also mistral-large-4-0 |
+| `mistral-large-4` | $0.68 | $0.07 | - | $2.09 | until 2026-10-21; also mistral-large-4-0 |
+| `mistral-large-4` | $1.36 | $0.14 | - | $4.18 | from 2026-10-21; also mistral-large-4-0 |
+| `mistral-large-4` | $0.70 | $0.07 | - | $2.10 | from 2026-11-01; also mistral-large-4-0 |
 | `mistral-large-2512` | $0.50 | $0.05 | - | $1.50 | retirement 2027-04-30, kept at the last published price |
 | `mistral-medium-3-5` | $1.50 | $0.15 | - | $7.50 | retirement 2027-04-30, kept at the last published price |
 | `mistral-small-2603` | $0.15 | $0.015 | - | $0.60 |  |

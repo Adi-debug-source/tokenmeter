@@ -64,7 +64,11 @@
 - **DeepSeek**, checked 2 November 2026: web search as above. No token rate
   moved.
 - **Mistral**, checked 2 November 2026: Mistral Large 4 added ($0.70 in,
-  $0.07 cached, $2.10 out, also as mistral-large-4-0) and made the fallback.
+  $0.07 cached, $2.10 out, also as mistral-large-4-0) and made the fallback,
+  with its earlier prices from Internet Archive copies of the pricing page
+  as dated rows: the launch sale ($0.68, $0.07, $2.09) to 20 October 2026,
+  then $1.36, $0.14, $4.18 to 31 October 2026, $0.70 from 1 November 2026.
+  Each change's day is approximate to the window between two captures.
   Mistral Large 3 (mistral-large-2512) and Mistral Medium 3.5
   (mistral-medium-3-5) left the page when Mistral deprecated them on 31
   October 2026, and are kept as retired at their last published price.

@@ -93,7 +93,9 @@ into a checked figure.
 
 Add a row with the date it took effect. **Never edit the old row.** Calls
 before that date keep the old rate, which is the whole point: history stays
-what it was.
+what it was. The one exception is an earlier price found later in an archive
+copy: it goes in as a dated row before the existing one, whose start moves to
+the day the later price began, with its figures unchanged.
 
 ```python
 # Illustrative figures, not a real price change.

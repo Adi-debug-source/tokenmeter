@@ -1168,12 +1168,12 @@ class TestGooglePageReaderOnTheSavedPage(Base):
 #
 # Mistral Large 4 (mistral-large-4), on the page since its Public Preview on 6
 # October 2026, went into the table on 2 November 2026 at the price the page
-# prints that day, as one row from launch. Mistral's changelog says "Launch
-# pricing: 50% off for 2 weeks" without figures, but Internet Archive copies
-# of the pricing page printed a sale price and then a higher one before the
-# cut to today's price; pricing/mistral.py's docstring gives them. The table
-# has no dated rows for them yet, because it takes archive prices only for a
-# retired model and neither boundary is printed to the day.
+# prints that day. Mistral's changelog says "Launch pricing: 50% off for 2
+# weeks" without figures, but Internet Archive copies of the pricing page
+# printed a sale price and then a higher one before the cut to today's price.
+# On the maintainer's decision of 2 November 2026 each is a dated row, from
+# a day approximate to the window between two captures; pricing/mistral.py
+# names them.
 
 MISTRAL_PAGE_FILE = os.path.join(FIXTURES, "pages", "mistral_page_2026-11-02.html")
 
@@ -1322,29 +1322,28 @@ class TestMistralPageReader(Base):
         rates, _ = self.read()
         self.assertEqual(rates["mistral-large-4"], {"in": 0.7, "cached": 0.07, "out": 2.1})
 
-    def test_large_4_has_one_row_at_the_price_the_page_prints(self):
-        """Guards a dated Large 4 row typed from an Internet Archive copy
-        before it is settled. The live page prints $0.70 in, $2.10 out and
-        $0.07 cached; archive copies of it printed a launch sale ($0.68,
-        $2.09, $0.07) and then $1.36, $4.18 and $0.14 until a cut between 29
-        October and 1 November 2026. The table takes archive prices only
-        for a retired model, so Large 4 keeps a single row from launch, and
-        a call on 10 October 2026 prices the same as one on 2 November 2026.
-        If dated rows are approved, this test changes with them."""
+    def test_large_4_has_a_row_for_each_price_the_page_printed(self):
+        """Guards Large 4's rows: the live page prints $0.70 in, $2.10 out
+        and $0.07 cached, the row in force from 1 November 2026; archive
+        copies of it printed a launch sale ($0.68, $2.09, $0.07) and then
+        $1.36, $4.18 and $0.14 from about 21 October 2026. A call on 10
+        October 2026 prices at the sale, one on 25 October at $1.36 and one
+        on 2 November 2026 at the live page's price."""
         rows = self.table.PRICES["mistral-large-4"]
-        self.assertEqual([r["from"] for r in rows], [""])
-        self.assertEqual((rows[0]["in"], rows[0]["out"]), (0.70, 2.10))
-        self.assertAlmostEqual(rows[0]["in"] * rows[0]["cache_read_mult"], 0.07, places=9)
+        self.assertEqual([r["from"] for r in rows], ["", "2026-10-21", "2026-11-01"])
+        self.assertEqual((rows[-1]["in"], rows[-1]["out"]), (0.70, 2.10))
+        self.assertAlmostEqual(rows[-1]["in"] * rows[-1]["cache_read_mult"], 0.07, places=9)
         self.assertEqual(self.table.CACHE_WRITE_5M_MULT, 1.0)
-        for when in (dt.datetime(2026, 10, 10, 12, tzinfo=dt.timezone.utc),
-                     dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc)):
+        for when, total in ((dt.datetime(2026, 10, 10, 12, tzinfo=dt.timezone.utc), 0.68 + 2.09 + 0.07),
+                            (dt.datetime(2026, 10, 25, 12, tzinfo=dt.timezone.utc), 1.36 + 4.18 + 0.14),
+                            (dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc), 0.70 + 2.10 + 0.07)):
             with self.subTest(when=when):
                 row, ok = tm.lookup("mistral-large-4", when=when, provider="mistral")
                 self.assertTrue(ok)
                 c = tm.price_record("mistral-large-4",
                                     usage(inp=1_000_000, out=1_000_000, read=1_000_000),
                                     when=when, provider="mistral")
-                self.assertAlmostEqual(cost_of(c), 0.70 + 2.10 + 0.07, places=9)
+                self.assertAlmostEqual(cost_of(c), total, places=9)
 
     def test_the_fallback_is_a_current_model_not_a_deprecated_one(self):
         """Guards an unknown Mistral id being priced at Mistral Medium 3.5,

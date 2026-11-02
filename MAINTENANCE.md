@@ -90,7 +90,9 @@ The harness owns its log format, so an update can move the ground.
 Everything about adding a model, recording a rate change and checking a table
 is in [pricing/README.md](pricing/README.md). In short:
 
-- A rate change is a new dated row. Never edit the old one.
+- A rate change is a new dated row. Never edit the old one. The one exception
+  is an earlier price found later in an archive copy: a dated row goes in
+  before the existing one, whose start moves, its figures unchanged.
 - Every rate is pinned by a test typed from the provider's page.
 - `tokenmeter.py --check-prices` compares every table with its live page and
   changes nothing.

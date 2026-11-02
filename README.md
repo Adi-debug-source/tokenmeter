@@ -152,7 +152,7 @@ There are three levels of confidence, and every report says which one each figur
 | MiniMax | 2 | 2 Nov 2026 | not yet |
 | Xiaomi MiMo | 3 | 2 Nov 2026 | not yet |
 
-Every price in a table is the one the model's maker publishes on its own site, in US dollars, read on a recorded date: never from memory, a blog or an aggregator such as OpenRouter or LiteLLM. The one other source is an Internet Archive copy of the maker's own pricing page, and only for a retired model. A price published only in another currency is not converted; that model is left out. A retired model keeps its last published price, so older usage is still priced, and the table counts it as retired.
+Every price in a table is the one the model's maker publishes on its own site, in US dollars, read on a recorded date: never from memory, a blog or an aggregator such as OpenRouter or LiteLLM. The one other source is an Internet Archive copy of the maker's own pricing page: for a retired model's last price, and for an earlier price of a current model that the live page no longer prints (Mistral Large 4's launch sale and its price from 21 to 31 October 2026), dated from the first capture showing it. Those earlier prices cannot be re-confirmed against the live page. A price published only in another currency is not converted; that model is left out. A retired model keeps its last published price, so older usage is still priced, and the table counts it as retired.
 
 The same rules decide which price a call gets when someone other than the maker served or billed it:
 

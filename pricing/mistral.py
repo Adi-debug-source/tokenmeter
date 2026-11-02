@@ -10,35 +10,34 @@ name, mistral-large-4-0) from its model card and Mistral's changelog.
 Mistral bill. Please do, and open an issue either way.
 
 Rules taken from the page and modelled here: cached input at the published
-rate (a tenth of input on every model), no cache write charge, no long-context
+rate (a tenth of input on every model the page prices today; Mistral Large
+4's two earlier prices, below, are not), no cache write charge, no long-context
 tier. "-latest" aliases are not mapped, because the pages do not say which
 model each points to today; a harness that records one is priced by the
 online lookup and says so.
 
-Mistral Large 4 has one row, from launch, at the price the page prints on 2
-November 2026: $0.70 in, $0.07 cached, $2.10 out. Mistral did not charge
-that for the whole of Large 4's life. Internet Archive copies of this same
-pricing page (https://web.archive.org/web/<capture>/ followed by SOURCE)
-print three prices for it, per million tokens:
+Mistral Large 4 has three dated rows, one for each price Mistral printed
+for it. The live page prints only today's; the earlier two come from
+Internet Archive copies of this same pricing page
+(https://web.archive.org/web/<capture>/ followed by SOURCE), added on the
+maintainer's decision of 2 November 2026 although the model is not
+retired. Per million tokens:
 
-- Launch sale. Mistral's changelog, 6 October 2026: "Launch pricing: 50% off
-  for 2 weeks". The captures of 11 and 17 October 2026 (20261011225712,
-  20261017055018) print "Sale price" $0.68 in, $0.07 cached, $2.09 out,
-  against "Original price" $1.36, $0.14 and $4.18.
-- After the sale: $1.36 in, $0.14 cached, $4.18 out, in the captures of 21
-  and 29 October 2026 (20261021005556, 20261029025927).
-- From a cut made between the captures of 29 October 2026, 02:59 UTC, and 1
-  November 2026, 13:01 UTC (20261101130106): $0.70, $0.07 and $2.10.
+- Launch sale, from launch. Mistral's changelog, 6 October 2026: "Launch
+  pricing: 50% off for 2 weeks". The captures of 11, 17 and 19 October 2026
+  print "Sale price" $0.68 in, $0.07 cached, $2.09 out, against "Original
+  price" $1.36, $0.14 and $4.18.
+- From 21 October 2026: $1.36 in, $0.14 cached, $4.18 out, in the captures
+  of 21 and 29 October 2026.
+- From 1 November 2026: $0.70 in, $0.07 cached, $2.10 out, in the capture
+  of 1 November 2026 and on the live page of 2 November 2026.
 
-So a call in the launch sale is priced a little above what Mistral charged
-($0.70 against $0.68 in, $2.10 against $2.09 out), and a call between the
-end of the sale (after 17 October and by 21 October) and the cut at about
-half of it: a million tokens in and a million out cost $2.80 here against
-$5.54 on the page then. These are not dated rows yet,
-because these tables take a price from an archive copy only for a retired
-model, and neither boundary is printed to the day. Whether to add them is an
-open question. If they are added, each needs its own cache_read_mult: the
-archived cached rates are 0.07/0.68 and 0.14/1.36 of input, not a tenth.
+Mistral printed neither change's day. Each row starts on the UTC date of the
+first capture showing its price, so the day is approximate to the window
+between that capture and the last one showing the price before; the comment
+on each row names both. Each row has its own cache_read_mult, the cached
+rate over input as the page prints them: 0.07/0.68 and 0.14/1.36 are about
+0.103, not the tenth of every other model.
 
 FALLBACK_MODEL is mistral-large-4, the dearest of Mistral's own models the
 page prices, and the model Mistral names as the replacement for both Mistral
@@ -67,8 +66,32 @@ def _row(inp, out):
     return [{"from": "", "in": inp, "out": out, "cache_read_mult": 0.1, "fast": None}]
 
 
+def _dated(frm, inp, out, cached):
+    return {"from": frm, "in": inp, "out": out, "cache_read_mult": cached / inp, "fast": None}
+
+
 PRICES = {
-    "mistral-large-4":    _row(0.70, 2.10),
+    "mistral-large-4": [
+        # Launch sale, $0.68 in, $0.07 cached, $2.09 out, from launch on 6
+        # October 2026. Last capture showing it:
+        # https://web.archive.org/web/20261019141922/https://docs.mistral.ai/inference/pricing
+        _dated("", 0.68, 2.09, 0.07),
+        # $1.36 in, $0.14 cached, $4.18 out. The day is approximate to the
+        # window between the last sale capture, 19 October 2026 14:19 UTC,
+        # https://web.archive.org/web/20261019141922/https://docs.mistral.ai/inference/pricing
+        # and the first showing this price, 21 October 2026 00:55 UTC,
+        # https://web.archive.org/web/20261021005556/https://docs.mistral.ai/inference/pricing
+        _dated("2026-10-21", 1.36, 4.18, 0.14),
+        # $0.70 in, $0.07 cached, $2.10 out, the live page's price. The day
+        # is approximate to the window between the last capture at $1.36,
+        # 29 October 2026 02:59 UTC,
+        # https://web.archive.org/web/20261029025927/https://docs.mistral.ai/inference/pricing
+        # and the first at this price, 1 November 2026 13:01 UTC,
+        # https://web.archive.org/web/20261101130106/https://docs.mistral.ai/inference/pricing
+        # The figures are the single row's that stood here before, as
+        # _row(0.70, 2.10) wrote it, with only the start added.
+        {"from": "2026-11-01", "in": 0.70, "out": 2.10, "cache_read_mult": 0.1, "fast": None},
+    ],
     "mistral-large-2512": _row(0.50, 1.50),
     "mistral-medium-3-5": _row(1.50, 7.50),
     "mistral-small-2603": _row(0.15, 0.60),
