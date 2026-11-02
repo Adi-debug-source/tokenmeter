@@ -46,6 +46,7 @@ from adapters import claude_code, codex, importer
 from adapters.common import parse_time
 from pricing import TABLES
 from pricing import anthropic as _anthropic
+from pricing.names import NAMES
 
 __version__ = "1.2.1"
 
@@ -406,6 +407,52 @@ def table_name(table, model: str) -> str:
     if base in prices:
         return base
     return ""
+
+
+def maker_name(source: str, provider: str, model: str) -> tuple:
+    """(provider, model) a call is priced under: the maker's table and id for
+    a host's or harness's spelling of it, or the call's own when there is none.
+
+    Hosts and harnesses spell ids their own way (OpenRouter's
+    moonshotai/kimi-k3, Kimi Code's bare k3), and an open-weight model is
+    priced at its maker's rate whoever served it. pricing/names.py holds the
+    spellings, keyed (harness, provider, model) as recorded, "" for the
+    harness meaning any. Exact matches only, so an id it does not list passes
+    through to its table or the online lookup unchanged.
+
+    The recorded table wins: an id it already lists, exactly, by alias or by
+    snapshot, is never moved, so a call a table prices today keeps its price.
+    A call under a host's spelling that the online lookup priced at the
+    host's rate does move, to the maker's rate (decision 4): OpenRouter's
+    moonshotai/kimi-k3 now prices as Moonshot's kimi-k3, and
+    z-ai/glm-4.7-flash as Z.ai's glm-4.7-flash, which Z.ai lists as free. An
+    entry is skipped when its table is not registered in TABLES or does not
+    list its id, so a spelling can be recorded before its table lands.
+
+    Applied where calls are priced (iter_events() and session_totals()),
+    never where they are stored: the ledger keeps the spelling as recorded,
+    and a row read back from it is translated as a fresh record is, so a
+    call prices the same either way.
+    """
+    table = TABLES.get(provider)
+    if table is not None and table_name(table, model):
+        return provider, model
+    got = NAMES.get((source, provider, model)) or NAMES.get(("", provider, model))
+    if got is None:
+        return provider, model
+    to, mid = got
+    target = TABLES.get(to)
+    if target is None or not table_name(target, mid):
+        return provider, model
+    return to, mid
+
+
+def maker_names(events) -> None:
+    """maker_name() applied to each event in place, by the harness that
+    recorded it."""
+    for ev in events:
+        ev["provider"], ev["model"] = maker_name(ev.get("source") or "", ev["provider"],
+                                                 ev["model"])
 
 
 def verification(provider: str) -> dict:
@@ -810,6 +857,7 @@ def session_totals(path: str) -> tuple:
                        + int(usage.get("cache_creation_input_tokens") or 0)
                        + int(usage.get("cache_read_input_tokens") or 0))
             merge(best, key, ev)
+    maker_names(best.values())
     total = 0.0
     for ev in best.values():
         # Dated, like everywhere else: a session resumed from weeks ago is
@@ -1326,6 +1374,10 @@ def iter_events(paths, since=None, ledger=True, until=None, online=None):
         # Not read, so nothing to report. The last run that did read it left
         # its figures here, and a covered line printed them as this run's.
         LEDGER_STATE.update(LEDGER_UNUSED)
+    # After the ledger is written, which keeps each spelling as recorded, and
+    # before anything is looked up or priced: transcript and ledger calls
+    # alike are priced under their maker's name (maker_name()).
+    maker_names(best.values())
     if online is None or online:
         # The startup check: every model seen gets a price before anything is
         # priced. Instant when the tables already cover everything.

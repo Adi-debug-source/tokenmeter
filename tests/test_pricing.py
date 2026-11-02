@@ -7,7 +7,9 @@ import datetime as dt
 import json
 import os
 import re
+import types
 import unittest
+import unittest.mock
 
 from helpers import Base, cli, cost_of, noon, tm, usage
 
@@ -1116,6 +1118,193 @@ class TestDatedWebSearchRate(Base):
                 froms = [r["from"] for r in table.WEB_SEARCH_RATES]
                 self.assertEqual(froms[0], "")
                 self.assertNotIn("", froms[1:])
+
+
+# The name translation: host and harness spellings of a model priced at the
+# maker's table and id (pricing/names.py, maker_name() in the engine).
+
+NAMES_WHEN = "2026-10-20T10:00:00Z"
+
+
+# One OpenRouter call to an open-weight model, in the import format.
+OPENROUTER_K3 = {"id": "or-1", "timestamp": NAMES_WHEN, "provider": "openrouter",
+                 "model": "moonshotai/kimi-k3", "input": 1000, "cache_read": 9000, "output": 500}
+
+
+class NamesBase(Base):
+    def imported(self, *calls):
+        """An import file holding these calls, registered as --import would."""
+        path = os.path.join(self.tmp, "calls.jsonl")
+        with open(path, "w") as f:
+            f.write("".join(json.dumps(c) + "\n" for c in calls))
+        tm._IMPORTS.append(path)
+        return path
+
+    def events(self, ledger=False):
+        return list(tm.iter_events(tm.transcripts(), ledger=ledger))
+
+    def maker_cost(self, ev, provider, model):
+        """What the event's tokens cost at this table and id, priced directly."""
+        tokens = ev["cost"]["_tokens"]
+        usage = {"input_tokens": tokens["input"], "output_tokens": tokens["output"],
+                 "cache_read_input_tokens": tokens["cache_read"]}
+        return tm.price_record(model, usage, "standard", ev["when"], provider)
+
+
+class TestHostServedOpenWeights(NamesBase):
+    def test_openrouter_kimi_k3_prices_at_moonshots_table(self):
+        """Guards an open-weight model served by a host being priced at the
+        host's rate, or at nothing, instead of its maker's. OpenRouter records
+        moonshotai/kimi-k3; the call must be priced from Moonshot's table as
+        kimi-k3, recognised, with no online lookup involved."""
+        self.imported(OPENROUTER_K3)
+        [ev] = self.events()
+        self.assertEqual((ev["provider"], ev["model"]), ("moonshot", "kimi-k3"))
+        self.assertEqual(ev["source"], "import")
+        self.assertTrue(tm.lookup("kimi-k3", ev["when"], "moonshot")[1])
+        want = self.maker_cost(ev, "moonshot", "kimi-k3")
+        self.assertGreater(cost_of(want), 0)
+        self.assertEqual(ev["cost"], want)
+
+    def test_kimi_code_bare_k3_is_moonshots_kimi_k3_for_that_harness_only(self):
+        """Guards Kimi Code's bare "k3" (the model as sent, never the alias
+        kimi-code/k3) pricing at Moonshot's fallback as an unrecognised id,
+        and guards the opposite mistake: another harness's "k3" being caught
+        by a mapping that belongs to Kimi Code alone."""
+        self.assertEqual(tm.maker_name("kimi-code", "moonshot", "k3"), ("moonshot", "kimi-k3"))
+        self.assertEqual(tm.maker_name("import", "moonshot", "k3"), ("moonshot", "k3"))
+        self.assertEqual(tm.maker_name("opencode", "moonshot", "k3"), ("moonshot", "k3"))
+        self.assertFalse(tm.lookup("k3", None, "moonshot")[1])
+
+    def test_status_line_session_cost_uses_the_makers_name_too(self):
+        """Guards the status line's session cost (session_totals()) pricing a
+        host's spelling differently from every report, which go through
+        iter_events(): both must price OpenRouter's moonshotai/kimi-k3 as
+        Moonshot's kimi-k3."""
+        path = self.imported(OPENROUTER_K3)
+        [ev] = self.events()
+        tm.transcripts()
+        total, _ = tm.session_totals(path)
+        want = cost_of(self.maker_cost(ev, "moonshot", "kimi-k3"))
+        self.assertGreater(want, 0)
+        self.assertAlmostEqual(total, want, places=12)
+        self.assertAlmostEqual(total, cost_of(ev["cost"]), places=12)
+
+
+class TestUnmappedIds(NamesBase):
+    def test_an_unmappable_id_stays_with_the_lookup(self):
+        """Guards the translation guessing. OpenRouter's
+        anthropic/claude-sonnet-4.5 is a frontier model bought per token
+        through a host, which keeps the host's price: it is not in the map,
+        so it passes through as recorded and is priced by the online lookup's
+        saved rate, labelled as looked up."""
+        self.assertEqual(tm.maker_name("import", "openrouter", "anthropic/claude-sonnet-4.5"),
+                         ("openrouter", "anthropic/claude-sonnet-4.5"))
+        with open(tm.PRICE_CACHE, "w") as f:
+            json.dump({"fetched": {"openrouter:anthropic/claude-sonnet-4.5": {
+                "rows": [{"from": "", "in": 3.0, "out": 15.0, "cache_read_mult": 0.1,
+                          "fast": None}],
+                "via": "a saved lookup", "checked": "2026-10-20"}}, "misses": {}}, f)
+        self.imported(dict(OPENROUTER_K3, model="anthropic/claude-sonnet-4.5"))
+        [ev] = self.events()
+        self.assertEqual((ev["provider"], ev["model"]),
+                         ("openrouter", "anthropic/claude-sonnet-4.5"))
+        row, recognised = tm.lookup(ev["model"], ev["when"], ev["provider"])
+        self.assertTrue(recognised)
+        self.assertEqual(row["_via"], "a saved lookup")
+        # 1,000 input at $3, 9,000 cache reads at $0.30, 500 output at $15.
+        self.assertAlmostEqual(cost_of(ev["cost"]), 0.003 + 0.0027 + 0.0075, places=12)
+
+    def test_an_id_its_recorded_table_lists_is_never_moved(self):
+        """Guards the translation changing a price the engine already gets
+        right: an id the recorded table lists (exactly, by alias or by
+        snapshot) keeps that table's price even if a mapping names it."""
+        bad = {("", "moonshot", "kimi-k3"): ("zai", "glm-5.3"),
+               ("", "openai", "gpt-4-turbo"): ("zai", "glm-5.3")}
+        with unittest.mock.patch.dict(tm.NAMES, bad):
+            self.assertEqual(tm.maker_name("import", "moonshot", "kimi-k3"), ("moonshot", "kimi-k3"))
+            self.assertEqual(tm.maker_name("codex", "openai", "gpt-4-turbo"),
+                             ("openai", "gpt-4-turbo"))
+
+
+class TestFreshAndLedger(NamesBase):
+    def test_the_same_call_prices_the_same_fresh_and_from_the_ledger(self):
+        """Guards a call costing one thing while its log exists and another
+        once only the ledger holds it. The ledger keeps the spelling as
+        recorded (moonshotai/kimi-k3 through openrouter), and a row read back
+        is translated exactly as a fresh record is, so a fixture ledger row
+        and the same call read fresh both price as Moonshot's kimi-k3."""
+        self.imported(OPENROUTER_K3)
+        [fresh] = self.events(ledger=False)
+
+        with open(self.ledger, "w") as f:
+            f.write(json.dumps({"i": "or-1", "t": NAMES_WHEN, "m": "moonshotai/kimi-k3",
+                                "pv": "openrouter", "a": "import",
+                                "in": 1000, "r": 9000, "o": 500}) + "\n")
+        tm._IMPORTS.clear()
+        [restored] = self.events(ledger=True)
+        self.assertTrue(restored.get("ledger_only"))
+        self.assertEqual((restored["provider"], restored["model"]), ("moonshot", "kimi-k3"))
+        self.assertEqual(restored["cost"], fresh["cost"])
+
+    def test_the_ledger_keeps_the_spelling_as_recorded(self):
+        """Guards the translation being written into the ledger, which would
+        freeze today's map into history: a mapping corrected later could
+        never reach rows already written. The row keeps the recorded model
+        and provider."""
+        self.imported(OPENROUTER_K3)
+        self.events(ledger=True)
+        [row] = tm.read_ledger().values()
+        self.assertEqual((row["m"], row["pv"]), ("moonshotai/kimi-k3", "openrouter"))
+
+
+class TestUnregisteredTables(NamesBase):
+    def test_a_mapping_to_an_unregistered_table_passes_through(self):
+        """Guards a spelling recorded before its table is registered (MiniMax
+        and MiMo until 2 November 2026) raising an error or pricing at another
+        table: it passes through as recorded, without an error, and starts
+        to map once the table is in TABLES."""
+        spelling = ("", "openrouter", "example/open-model")
+        with unittest.mock.patch.dict(tm.NAMES, {spelling: ("example", "open-model")}):
+            self.assertNotIn("example", tm.TABLES)
+            self.assertEqual(tm.maker_name("import", "openrouter", "example/open-model"),
+                             ("openrouter", "example/open-model"))
+            table = types.SimpleNamespace(
+                PROVIDER="example", SNAPSHOT=r"(?!)",
+                PRICES={"open-model": [{"from": "", "in": 1.0, "out": 2.0,
+                                        "cache_read_mult": 0.1, "fast": None}]})
+            with unittest.mock.patch.dict(tm.TABLES, {"example": table}):
+                self.assertEqual(tm.maker_name("import", "openrouter", "example/open-model"),
+                                 ("example", "open-model"))
+
+    def test_minimax_and_mimo_spellings_wait_for_their_tables(self):
+        """Guards OpenRouter's minimax/minimax-m3 and xiaomi/mimo-v2.6-pro
+        failing or mispricing while their tables are not registered: each
+        passes through unchanged until its table is in TABLES, then maps."""
+        for spelling, target in ((("", "openrouter", "minimax/minimax-m3"), "minimax"),
+                                 (("", "openrouter", "xiaomi/mimo-v2.6-pro"), "mimo")):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(tm.NAMES[spelling][0], target)
+                got = tm.maker_name(*spelling)
+                if target in tm.TABLES:
+                    self.assertEqual(got, tm.NAMES[spelling])
+                else:
+                    self.assertEqual(got, spelling[1:])
+
+
+class TestTheMap(unittest.TestCase):
+    def test_every_entry_names_an_id_its_table_lists(self):
+        """Guards a mapping that is silently skipped because its maker's table
+        renamed or dropped the id it points at: every entry whose table is
+        registered must point at an id that table lists, and no target may
+        itself be a key, so translating twice changes nothing."""
+        for key, (table, mid) in tm.NAMES.items():
+            with self.subTest(key=key):
+                self.assertEqual(len(key), 3)
+                if table in tm.TABLES:
+                    self.assertTrue(tm.table_name(tm.TABLES[table], mid), (table, mid))
+                self.assertNotIn((key[0], table, mid), tm.NAMES)
+                self.assertNotIn(("", table, mid), tm.NAMES)
 
 
 class TestZaiWebSearch(Base):
