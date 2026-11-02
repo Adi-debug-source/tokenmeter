@@ -50,6 +50,11 @@
   Anthropic API calls. Read at RooCodeInc/Roo-Code b867ec9 (15 May 2026,
   the day the extension was shut down). The finding is in
   `adapters/README.md`.
+- Continue gets no reader: its IDE extensions log only Continue's own
+  tokenizer estimates (`~/.continue/dev_data`), and its CLI's session files
+  keep the provider's usage per message but with no time or provider, and
+  lose compacted, subagent and title calls. Read at continuedev/continue
+  5522c6f (21 July 2026). The finding is in `adapters/README.md`.
 
 ## 1.2.1, 16 October 2026
 
