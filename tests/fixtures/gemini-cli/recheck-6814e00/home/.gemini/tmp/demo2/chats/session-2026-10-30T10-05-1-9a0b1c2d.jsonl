@@ -1,0 +1,4 @@
+{"sessionId":"9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d","projectHash":"9d4c1e7a0b3f5d2c8e6a4b1f7c9d0e2a3b5c7d9e1f0a2b4c6d8e0f1a3b5c7d9e","startTime":"2026-10-30T10:05:40.000Z","lastUpdated":"2026-10-30T10:05:40.000Z","kind":"main"}
+{"id":"3f5a7c9e-1b3d-4f5a-8c7e-9a1b3c5d7e9f","timestamp":"2026-10-30T10:05:41.200Z","type":"user","content":[{"text":"What does this repo do?"}]}
+{"id":"7a9c1e3a-5c7e-4a9c-8e1a-2b4d6f8a0c3e","timestamp":"2026-10-30T10:05:43.915Z","type":"gemini","content":"It is a small CLI that reads a config file.","thoughts":[],"tokens":{"input":2048,"output":64,"cached":1024,"thoughts":0,"tool":0,"total":2112},"model":"gemini-2.5-pro"}
+{"$set":{"lastUpdated":"2026-10-30T10:05:43.920Z"}}

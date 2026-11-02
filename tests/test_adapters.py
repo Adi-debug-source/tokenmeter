@@ -7,11 +7,47 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import unittest
+import unittest.mock
 
 from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, tm, usage,
                      zstd_compress)
+
+from adapters import codex as codex_module
+from adapters import gemini_cli, opencode
+from adapters.common import parse_time
+
+
+# Gemini CLI reader, rechecked against google-gemini/gemini-cli at 6814e00
+# (30 October 2026). The reader was built from 2fe7c2d (25 September 2026); in
+# between Gemini CLI began writing $patch lines and stopped writing the $set
+# full-history checkpoint. The message records, and when tokens reach them,
+# did not move. These tests pin the newer files to the per-call figures in
+# tests/fixtures/gemini-cli/recheck-6814e00/expected.json.
+_GEMINI_HERE = os.path.join(FIXTURES, "gemini-cli", "recheck-6814e00")
+_GEMINI_MAIN = "session-2026-10-30T10-05-7c2e9d41.jsonl"
+_GEMINI_MAIN_ID = "7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35"
+_GEMINI_SUB = os.path.join(_GEMINI_MAIN_ID, "0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60.jsonl")
+_GEMINI_COLLIDED = "session-2026-10-30T10-05-1-9a0b1c2d.jsonl"
+_GEMINI_COLLIDED_ID = "9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d"
+
+# A Qwen Code session line, with the field names and nesting of ChatRecord in
+# QwenLM/qwen-code packages/core/src/services/chatRecordingService.ts (dd020dd).
+_GEMINI_QWEN_ASSISTANT = json.dumps({
+    "uuid": "0f1e2d3c-4b5a-4968-8776-655443322110", "parentUuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "sessionId": "5d6e7f80-91a2-4b3c-8d4e-5f6071829304", "timestamp": "2026-10-30T10:05:14.920Z",
+    "type": "assistant", "provenance": "assistant_output", "cwd": "/Users/example/code/demo2",
+    "version": "0.9.0", "message": {"role": "model", "parts": [{"text": "Done."}]},
+    "usageMetadata": {"promptTokenCount": 5200, "candidatesTokenCount": 240,
+                      "cachedContentTokenCount": 0, "thoughtsTokenCount": 410, "totalTokenCount": 5850},
+    "model": "qwen3-coder-plus"})
+_GEMINI_QWEN_USER = json.dumps({
+    "uuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "parentUuid": None,
+    "sessionId": "5d6e7f80-91a2-4b3c-8d4e-5f6071829304", "timestamp": "2026-10-30T10:05:08.301Z",
+    "type": "user", "provenance": "real_user", "cwd": "/Users/example/code/demo2", "version": "0.9.0",
+    "message": {"role": "user", "parts": [{"text": "Find where the config file is parsed."}]}})
 
 
 class TestWorkflowAgents(Base):
@@ -713,6 +749,131 @@ class TestGeminiCliAdapter(Base):
         self.assertEqual(overall["calls"], 3)
 
     def test_labelled_unverified(self):
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("Gemini CLI figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+
+class TestGeminiCliRecheck6814e00(Base):
+    """Gemini CLI session files as 6814e00 writes them."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "gemini-home")
+        shutil.copytree(os.path.join(_GEMINI_HERE, "home"), self.home)
+        self.root = os.path.join(self.home, ".gemini", "tmp")
+        self.chats = os.path.join(self.root, "demo2", "chats")
+        tm.ADAPTER_ROOTS[gemini_cli.NAME] = [self.root]
+        tm._ONLY[:] = [gemini_cli.NAME]
+        self.expected = json.loads(slurp(os.path.join(_GEMINI_HERE, "expected.json")))
+
+    def _calls(self):
+        """Every record the reader yields, last copy of each key kept."""
+        got = {}
+        for path in gemini_cli.files([self.root]):
+            for key, ev in gemini_cli.records(path):
+                got[key] = (path, ev)
+        return got
+
+    def test_each_call_reads_as_the_source_says(self):
+        """Guards the per-call translation of a 6814e00 message: uncached input
+        is input minus cached plus tool, output adds thoughts, and the model,
+        time and folder are the ones the file records. A drift in any field
+        name since 2fe7c2d would show here as a wrong or missing call."""
+        got = self._calls()
+        self.assertEqual(sorted(got), sorted(c["key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                path, ev = got[c["key"]]
+                self.assertEqual(os.path.relpath(path, self.chats), c["file"])
+                u = ev["_usage"]
+                self.assertEqual((ev["model"], ev["provider"], ev["project"]),
+                                 (c["model"], "google", self.expected["project"]))
+                self.assertEqual(ev["when"], parse_time(c["timestamp"]))
+                self.assertEqual((u["input_tokens"], u["cache_read_input_tokens"], u["output_tokens"],
+                                  u["output_tokens_details"]["thinking_tokens"]),
+                                 (c["input"], c["cache_read"], c["output"], c["thinking"]))
+                self.assertEqual(sum(u["cache_creation"].values()), 0)
+
+    def test_engine_totals_equal_the_per_call_figures(self):
+        """Guards against a message counted twice through the engine: one
+        call is written three times (first with tokens, then with tool calls,
+        then inside a legacy $set checkpoint), another twice."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(overall["tokens"]["thinking"], t["thinking"])
+        self.assertEqual(set(groups["project"]), {self.expected["project"]})
+        self.assertEqual(set(groups["provider"]), {"google"})
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], t["calls"])
+
+    def test_patch_set_and_rewind_lines_yield_nothing(self):
+        """Guards against a $patch, $set or $rewindTo line, new or changed
+        since 2fe7c2d, being read as a message: none carries tokens, and a
+        $set checkpoint's messages were already appended one by one."""
+        path = os.path.join(self.chats, _GEMINI_MAIN)
+        keys = [k for k, _ in gemini_cli.records(path)]
+        self.assertEqual(len(keys), 4)            # one message written twice
+        self.assertEqual(len(set(keys)), 3)
+        lines = [l for l in slurp(path).splitlines() if l.startswith('{"$')]
+        self.assertEqual({next(iter(json.loads(l))) for l in lines}, {"$set", "$patch", "$rewindTo"})
+
+    def test_a_removed_or_rewound_call_still_counts(self):
+        """Guards against dropping a call because a later $patch removeIds or
+        $rewindTo took it out of the conversation: the API call was made and
+        billed, and rewinding changes the conversation, not the invoice."""
+        removed = [c["key"] for c in self.expected["calls"] if c.get("removed_by_patch")]
+        self.assertEqual(len(removed), 1)
+        self.assertIn(removed[0], self._calls())
+
+    def test_a_message_with_no_tokens_and_a_cut_off_line_yield_nothing(self):
+        """Guards against a synthetic gemini message from a history sync (no
+        tokens, no model) or a half-written last line becoming a call."""
+        keys = self._calls()
+        self.assertNotIn(f"gemini:{_GEMINI_MAIN_ID}:b1d3f5a7-9c1e-4a3c-8e5a-7b9d1f3a5c8e", keys)
+        self.assertNotIn(f"gemini:{_GEMINI_MAIN_ID}:e9f1a3b5-7d9f-4b1d-8f3b-9c1e3a5c7e0b", keys)
+
+    def test_a_subagent_session_is_read_under_its_parent(self):
+        """Guards against missing subagent calls: 6814e00 writes a subagent's
+        session as chats/<parent session id>/<its own id>.jsonl, a name with no
+        session- prefix, and its folder is still the parent's project."""
+        path = os.path.join(self.chats, _GEMINI_SUB)
+        self.assertIn(path, gemini_cli.files([self.root]))
+        (key, ev), = list(gemini_cli.records(path))
+        self.assertEqual(ev["session"], "0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60")
+        self.assertEqual(ev["project"], "/Users/example/code/demo2")
+
+    def test_a_collided_file_name_is_found_by_its_session(self):
+        """Guards --session against the collision name 6814e00 gives a second
+        file in the same minute, session-<time>-<n>-<id[:8]>.jsonl."""
+        path = os.path.join(self.chats, _GEMINI_COLLIDED)
+        for given in (_GEMINI_COLLIDED_ID, _GEMINI_COLLIDED_ID[:8]):
+            with self.subTest(session=given):
+                self.assertEqual(gemini_cli.files([self.root], session=given), [path])
+                self.assertEqual(json.loads(cli("--json", "--no-ledger", "--session", given))["calls"], 1)
+
+    def test_looks_like_takes_its_own_lines_and_no_other_format(self):
+        """Guards against a line of another harness, Qwen Code (a Gemini CLI
+        fork) above all, being taken for Gemini CLI's, which would count its
+        calls twice or under the wrong source."""
+        main = slurp(os.path.join(self.chats, _GEMINI_MAIN)).splitlines()
+        self.assertTrue(gemini_cli.looks_like(main[0]))             # metadata
+        self.assertTrue(gemini_cli.looks_like(main[3]))             # a gemini message
+        codex = slurp(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl")).splitlines()
+        others = {"qwen-code assistant": _GEMINI_QWEN_ASSISTANT, "qwen-code user": _GEMINI_QWEN_USER,
+                  "claude-code": record("msg_01"), "import": json.dumps(GOOD_IMPORT)}
+        others.update((f"codex line {i}", l) for i, l in enumerate(codex) if l.strip())
+        for name, line in others.items():
+            with self.subTest(other=name):
+                self.assertFalse(gemini_cli.looks_like(line))
+
+    def test_labelled_unverified(self):
+        """Guards against the rechecked reader's figures losing their
+        unverified label in the report."""
         overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
         self.assertTrue(any("Gemini CLI figures are unverified" in t
                             for _, t in tm.report_notes(groups, unknown)))

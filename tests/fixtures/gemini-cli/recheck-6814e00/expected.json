@@ -1,0 +1,40 @@
+{
+  "harness": "gemini-cli",
+  "source": "google-gemini/gemini-cli at 6814e00, 30 October 2026",
+  "fixture_root": "fixtures/gemini-cli/recheck-6814e00/home",
+  "notes": [
+    "Same message records as at 2fe7c2d: type, id, timestamp, model, tokens {input, output, cached, thoughts, tool, total}.",
+    "Tokens usually arrive before the message is first written, as at 2fe7c2d, so the first copy of a message can already carry them; a later copy adds toolCalls. One call either way.",
+    "$patch lines (new since 2fe7c2d) rewrite content and tool results, remove ids or reorder them. They carry no tokens.",
+    "A $set line with messages is the legacy full-history checkpoint 2fe7c2d wrote; its messages were also appended one by one, so it adds no call.",
+    "A removed or rewound message was still a billed API call and is counted.",
+    "A subagent's session is chats/<parent session id>/<subagent session id>.jsonl with kind subagent.",
+    "A file name that collides gets an index: session-<time>-<n>-<id[:8]>.jsonl.",
+    "The last line of the main session is cut off part way and carries nothing.",
+    "uncached input = input - cached + tool; output = output + thoughts."
+  ],
+  "calls": [
+    {"key": "gemini:7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35:5b8e2f14-7c3a-4d9e-a061-8f2b4c6d0e13",
+     "file": "session-2026-10-30T10-05-7c2e9d41.jsonl", "model": "gemini-3.1-pro-preview",
+     "timestamp": "2026-10-30T10:05:14.920Z", "input": 5200, "cache_read": 0, "output": 650, "thinking": 410,
+     "lines_with_this_id": 3},
+    {"key": "gemini:7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35:d70f4a26-9b1e-4c53-b8a2-1e6f3d9c5a07",
+     "file": "session-2026-10-30T10-05-7c2e9d41.jsonl", "model": "gemini-3.1-pro-preview",
+     "timestamp": "2026-10-30T10:05:19.733Z", "input": 5704, "cache_read": 4096, "output": 120, "thinking": 0,
+     "lines_with_this_id": 2},
+    {"key": "gemini:7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35:8e0a2c4e-6a8c-4e0a-a2c4-5d7f9b1d3f6a",
+     "file": "session-2026-10-30T10-05-7c2e9d41.jsonl", "model": "gemini-3.5-flash",
+     "timestamp": "2026-10-30T10:06:51.288Z", "input": 3872, "cache_read": 8192, "output": 450, "thinking": 150,
+     "lines_with_this_id": 1, "removed_by_patch": true},
+    {"key": "gemini:0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60:2c4e6a8c-0e2a-4c4e-8a0c-3d5f7b9d1f4a",
+     "file": "7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35/0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60.jsonl", "model": "gemini-3.5-flash",
+     "timestamp": "2026-10-30T10:05:18.077Z", "input": 3000, "cache_read": 0, "output": 100, "thinking": 20,
+     "lines_with_this_id": 1},
+    {"key": "gemini:9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d:7a9c1e3a-5c7e-4a9c-8e1a-2b4d6f8a0c3e",
+     "file": "session-2026-10-30T10-05-1-9a0b1c2d.jsonl", "model": "gemini-2.5-pro",
+     "timestamp": "2026-10-30T10:05:43.915Z", "input": 1024, "cache_read": 1024, "output": 64, "thinking": 0,
+     "lines_with_this_id": 1}
+  ],
+  "totals": {"calls": 5, "input": 18800, "cache_read": 13312, "output": 1384, "thinking": 580},
+  "project": "/Users/example/code/demo2"
+}

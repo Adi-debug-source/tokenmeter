@@ -1,7 +1,8 @@
 """Google Gemini CLI sessions. Unverified.
 
 Built from the published source of google-gemini/gemini-cli (read at commit
-2fe7c2d, 25 September 2026) and checked against the Gemini parser in
+2fe7c2d, 25 September 2026; rechecked at 6814e00, 30 October 2026, where the
+message records had not moved) and checked against the Gemini parser in
 ccusage. It has not yet been run against real session files, so every report
 that uses it says so. If a figure looks wrong, please open an issue with a
 sample.
@@ -15,6 +16,10 @@ What Gemini CLI writes, and what this reader does with it:
     Only "gemini" messages carry a model and a "tokens" block, and a message
     is appended again every time it changes: first with "tokens": null, then
     with the figures. The copy with the most tokens is the one kept.
+    Lines that start with $set, $patch or $rewindTo edit the conversation
+    and carry no tokens of their own; a $set "messages" checkpoint, which
+    older versions wrote, repeats messages already appended or adds
+    history-sync ones with no tokens, so all three are skipped.
   - Older installs kept a whole session as one .json document, and resuming
     one re-appends every message to a new .jsonl beside it. Both are read and
     keyed by session and message id, so a message in both counts once.
