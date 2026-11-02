@@ -1,19 +1,36 @@
 """Kimi Code sessions. Unverified.
 
 Built from the published source of MoonshotAI/kimi-code (read at commit
-a2afdbc, 30 October 2026), with MoonshotAI/kimi-cli, the older Python
-harness it replaces, read at commit 9ab1286, 22 September 2026. It has not
-yet been run against real session files, so every report that uses it says
-so. If a figure looks wrong, please open an issue with a sample.
+a2afdbc, 30 October 2026; rechecked at fc3b521, 2 November 2026, where the
+files cited below had not changed except two, whose lines are given at
+both), with MoonshotAI/kimi-cli, the older Python harness it replaces, read
+at commit 9ab1286, 22 September 2026. It has not yet been run against real
+session files, so every report that uses it says so. If a figure looks
+wrong, please open an issue with a sample. Paths below are under
+packages/agent-core-v2/src/ unless they name another package.
 
 What Kimi Code writes, and what this reader does with it:
 
   - Sessions live in $KIMI_CODE_HOME/sessions/<workspace>/<session>/, and
-    KIMI_CODE_HOME defaults to ~/.kimi-code (resolveKimiHome() in
-    packages/agent-core-v2/src/app/bootstrap/bootstrap.ts). Each agent has
-    its own agents/<agent>/wire.jsonl: "main", and "agent-0" and so on for
-    subagents, whose calls are marked as a subagent's. The session's
-    state.json records its working folder ("cwd").
+    KIMI_CODE_HOME defaults to ~/.kimi-code (resolveKimiHome(),
+    app/bootstrap/bootstrap.ts).
+  - Each agent has its own agents/<agent>/wire.jsonl: "main", and "agent-0"
+    and so on for subagents, whose calls are marked as a subagent's. Every
+    agent of a session, however it was started, is one folder under the
+    session's agents/ (session/agentLifecycle/agentLifecycleService.ts:254,
+    with ids from nextAvailableAgentId() at 183-196, which never holds a
+    slash; subagents are created without an id at session/subagent/
+    subagentService.ts:163 and features/tower/tools/spawn/spawnTool.ts:408),
+    and a fork writes the same place (workspace/sessionLifecycle/internal/
+    addressing.ts:15-17). Nothing in Kimi Code writes a wire.jsonl beside
+    the session's state.json, nor a usage.record deeper under agents/: the
+    export scan and the search index that look in both places
+    (app/sessionExport/wire-scan.ts:45-62, packages/kap-server/src/search/
+    indexCore.ts:1378-1395) only read, and the migration from kimi-cli,
+    which writes agents/<id>/ with ids it carries over, writes no usage
+    (below). So agents/*/wire.jsonl is every file that holds calls, and
+    only it is read. The
+    session's state.json records its working folder ("cwd").
   - wire.jsonl is append-only JSON lines, each {"type", ...payload, "time"}
     with time in milliseconds since the epoch (Event2.serialize() in
     src/app/event/event2.ts). After every successful API call the requester
@@ -47,6 +64,20 @@ What Kimi Code writes, and what this reader does with it:
     serves two calls. A model changed mid session is followed call by
     call. A usage.record with no such request is not counted, and the
     report says how many.
+  - A step made with no turn active would be the one exception: its usage
+    says "session" (session/usage/usageAgentModel.ts:34-36) but its request
+    "loop" (requestKindForRecord(), agent/loop/requester.ts:833-837 at
+    a2afdbc, 941-945 at fc3b521), as the loop gives no source then
+    (agent/loop/loopService.ts:241-248 at a2afdbc, 242-249 at fc3b521). It
+    does not happen: the loop's gate refuses a step when no turn is active
+    (loopService.ts:1031-1032 at a2afdbc, 1042-1043 at fc3b521), the source
+    is read straight after the gate passes (agent/loop/machine/requester.ts:
+    60-82), and a turn is only ended while a step is in flight by
+    cancelling it first, which aborts the step's request before it records
+    any usage. The only other caller is full compaction, whose source says
+    "full_compaction" (agent/fullCompaction/fullCompactionService.ts:
+    665-670). Were it to happen, the call would find no compaction request
+    and be left out, and the report would say so.
   - The protocol is not the vendor: Kimi's own models are reached over the
     OpenAI and Anthropic protocols. The price table is chosen from the
     model's family (PROVIDERS below); a model of no known family is given
