@@ -24,3 +24,4 @@ __pycache__/
 
 # Worktrees made by claude -w
 .claude/worktrees/
+.claude/handoffs/

@@ -1,6 +1,8 @@
 """Pricing: the rate a call is charged, from the tables and the rules
-around them: dated rows, today's rates, long context, fast mode, and reading
-a dollar figure off a provider's page.
+around them: dated rows, today's rates, long context, fast mode, reading a
+dollar figure off a provider's page, the rules each provider's table models,
+web search rates, and the name translation that prices a host's or a
+harness's spelling of a model at its maker's id.
 """
 
 import datetime as dt

@@ -135,24 +135,35 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 20 models read from the page, and the table measured against Claude Code's own cost figures on seven of them.
-2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; `--check-prices` re-confirms them against the live page at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot and Z.ai.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 27 models, 20 read from its current page and 7 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on seven of those 20.
+2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; every report rereads the live page once a day, and `--check-prices` re-confirms it at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot, Z.ai, MiniMax and Xiaomi MiMo.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
-| Anthropic | 20 | 15 Oct 2026 | **yes** |
-| OpenAI | 39 | 6 Oct 2026 | not yet |
-| Google (Gemini API) | 13 (3 retired) | 16 Oct 2026 | not yet |
+| Anthropic | 27 (11 retired) | 27 Oct 2026 | **yes** |
+| OpenAI | 73 (37 retired) | 27 Oct 2026 | not yet |
+| Google (Gemini API) | 29 (19 retired) | 2 Nov 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
-| DeepSeek | 2 | 26 Sep 2026 | not yet |
-| Mistral | 9 (1 retired) | 6 Oct 2026 | not yet |
-| Moonshot (Kimi) | 4 | 26 Sep 2026 | not yet |
-| Z.ai (GLM) | 16 | 26 Sep 2026 | not yet |
+| DeepSeek | 2 | 2 Nov 2026 | not yet |
+| Mistral | 10 (3 retired) | 2 Nov 2026 | not yet |
+| Moonshot (Kimi) | 6 | 27 Oct 2026 | not yet |
+| Z.ai (GLM) | 17 | 27 Oct 2026 | not yet |
+| MiniMax | 2 | 2 Nov 2026 | not yet |
+| Xiaomi MiMo | 3 | 2 Nov 2026 | not yet |
 
-The tables model what each provider publishes and a log can support: cached input rates, cache writes by lifetime, long-context surcharges above a threshold, fast or priority tiers, dated price changes (Gemini 3.6 to 3.8 Flash rise on 1 January 2027, and each call is priced at the rate on its own day), and DeepSeek's off-peak discount by time of day.
+Every price in a table is the one the model's maker publishes on its own site, in US dollars, read on a recorded date: never from memory, a blog or an aggregator such as OpenRouter or LiteLLM. The one other source is an Internet Archive copy of the maker's own pricing page, and only for a retired model. A price published only in another currency is not converted; that model is left out. A retired model keeps its last published price, so older usage is still priced, and the table counts it as retired.
 
-**A model the tables do not have is looked up online at startup,** once: first on the provider's own pricing page where Tokenmeter can read it, otherwise in [LiteLLM's public price list](https://github.com/BerriAI/litellm). The result is saved locally with its source and date, rechecked weekly, and labelled in every report as looked up, not checked by hand. Only price lists are downloaded; no usage data, totals or model names are sent anywhere except the one case of reading an OpenAI model's own page. A lookup that cannot reach its sources is tried again ten minutes later rather than remembered as not found. `TOKENMETER_OFFLINE=1` or `--offline` switches it off, along with the exchange-rate request, and an unknown model is then priced at a flagged stand-in rate.
+The same rules decide which price a call gets when someone other than the maker served or billed it:
+
+- **An open-weight model** is priced at its maker's rate, whoever served the call. OpenRouter's `moonshotai/kimi-k3` is priced as Moonshot's `kimi-k3`, and `z-ai/glm-4.7-flash` as Z.ai's `glm-4.7-flash`, which Z.ai lists as free.
+- **A model billed through a harness's own plan or credits** is priced at its maker's API rate, because the question this tool answers is what the usage would have cost at API rates.
+- **A frontier model bought per token through a host** such as OpenRouter keeps the host's price, through the online lookup, labelled as looked up. So does a model whose maker sells no per-token API (gpt-oss, Llama, Gemma, Nemotron).
+- **Host and harness spellings** are translated to the maker's id in one place, [`pricing/names.py`](pricing/names.py), for an exact match of the same model only. An id that cannot be mapped with certainty is priced as recorded, by its table or the lookup. A call prices the same whether it is read fresh or from the ledger.
+
+The tables model what each provider publishes and a log can support: cached input rates, cache writes by lifetime, long-context surcharges above a threshold, fast or priority tiers, dated price changes (Gemini 3.6 to 3.8 Flash rise on 1 January 2027, and each call is priced at the rate on its own day), web searches per 1,000, dated where billing started at a set time (DeepSeek's from 16:00 UTC on 31 October 2026), and DeepSeek's off-peak discount by time of day.
+
+**A model the tables do not have is looked up online at startup,** once: first on the provider's own pricing page where Tokenmeter can read it, otherwise in [LiteLLM's public price list](https://github.com/BerriAI/litellm). The result is saved locally with its source and date, rechecked weekly, and labelled in every report as looked up, not checked by hand. Each provider's pricing page is also read once a day, after a report is written, to check it still agrees with the table (see below). Only price lists and pricing pages are downloaded; no usage data, totals or model names are sent anywhere except the one case of reading an OpenAI model's own page. A lookup that cannot reach its sources is tried again ten minutes later rather than remembered as not found. `TOKENMETER_OFFLINE=1` or `--offline` switches it off, along with the exchange-rate request, and an unknown model is then priced at a flagged stand-in rate.
 
 ## How accurate is this?
 
@@ -160,7 +171,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 **Other providers are best-effort.** Their tables were read from each provider's own pricing pages, figure by figure, and `--check-prices` confirms they still match those pages. What has not been done is comparing them with a real bill from someone who uses those models daily. If you do, please check a month against your invoice and open an issue whether it matches or not.
 
-**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date it was last verified, shown in every report, with a warning once it is more than 90 days old. `tokenmeter --check-prices` fetches every provider's page and reports any difference, but never changes a table: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The one thing that is fetched automatically is a price for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
+**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date a person last read every figure off its page, shown in every report, with a warning once it is more than 90 days old. **The live pages are checked once a day.** After a report or the menu bar's run has written its output, Tokenmeter rereads the pricing page of each provider not yet checked that day and compares it with the table, using the same comparison as `tokenmeter --check-prices`. The pages are read side by side, and the whole check gives up after 8 seconds, so a run is held at most once a day, and for no longer than one lookup's timeout. The report's note then adds the day the live page last matched ("live page matched 2 Nov 2026"). If the page differs, the note becomes a warning that names the models whose rates differ, or that the page lists and the table lacks, and says to run `--check-prices`. If the page could not be read on two days in a row, the warning says since when; one failed fetch on a bad connection is not taken as evidence that a price moved. The outcome is saved in the price cache, with the looked-up prices. Neither the daily check nor `--check-prices` ever changes a table or its hand-checked date: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The status line never fetches, and offline nothing is read. The one price that is fetched and used automatically is for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; the tables' prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
@@ -261,7 +272,7 @@ The Claude app's own token figure for the same work is a different number, and i
 | `TOKENMETER_CURRENCY` | Default display currency for the terminal, the dashboard and the status line (USD unless set). The menu bar keeps its own choice, from its Currency menu |
 | `TOKENMETER_LEDGER` | Where the ledger lives |
 | `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
-| `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
+| `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups, no daily check of the price pages and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
 | `TOKENMETER_STATUS_TOKENS` | `1` to have the status line give today's total tokens beside today's cost, as `$4.56 · 1.20M today`. Off unless set to something other than `0`, so the line stays as it was. The menu bar has a switch of its own, Show tokens, in its menu |
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |

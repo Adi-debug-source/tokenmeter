@@ -13,6 +13,7 @@ common.py is a helper the page readers share, not a table: TABLES does not
 list it.
 """
 
-from . import anthropic, deepseek, google, mistral, moonshot, openai, xai, zai
+from . import anthropic, deepseek, google, mimo, minimax, mistral, moonshot, openai, xai, zai
 
-TABLES = {m.PROVIDER: m for m in (anthropic, openai, google, xai, deepseek, mistral, moonshot, zai)}
+TABLES = {m.PROVIDER: m for m in (anthropic, openai, google, xai, deepseek, mistral, moonshot, zai,
+                                     minimax, mimo)}

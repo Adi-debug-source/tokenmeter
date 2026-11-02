@@ -1,4 +1,5 @@
-"""The network: the online price lookup, --check-prices and exchange rates.
+"""The network: the online price lookup, --check-prices and exchange rates,
+and each provider's page reader, run on a saved copy of its pricing page.
 
 Every fetch is faked, and urlopen itself refuses and counts, so nothing here
 uses the network.

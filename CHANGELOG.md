@@ -1,5 +1,80 @@
 # Changelog
 
+## Unreleased
+
+### Prices
+
+- **The live pricing pages are checked once a day.** After a report or the
+  menu bar's run has written its output, each provider's page is reread at
+  most once a local day and compared with its table, through the same
+  comparison `--check-prices` prints. The pages are read side by side and
+  the whole check gives up after 8 seconds. Each table's note now adds the
+  day its live page last matched ("live page matched 2 Nov 2026"), and turns
+  into a warning that says to run `--check-prices` when the page differs or
+  lists a model the table lacks, or when it could not be read on two days in
+  a row (one failed fetch warns of nothing). The outcome is kept in the
+  price cache under a new key, and an older cache without it still loads.
+  `VERIFIED_ON`, the day a person read the page, is never changed by it.
+  `--offline`, `TOKENMETER_OFFLINE=1` and the status line make no request.
+- **Host and harness spellings now price at the maker's rate.** A new
+  `pricing/names.py` maps a host's or harness's spelling of a model to its
+  maker's table and id, for exact matches of the same model only: Kimi
+  Code's ids, and 24 open-weight models on OpenRouter (Moonshot, Z.ai,
+  DeepSeek, Mistral, MiniMax and Xiaomi MiMo models). It is applied to fresh
+  records and ledger rows alike, so a call prices the same either way, and
+  the ledger keeps the recorded spelling. No call a table priced before
+  moves. OpenRouter calls the online lookup priced at the host's rate now
+  price at the maker's rate and group under the maker in `--by provider`:
+  `moonshotai/kimi-k3` as Moonshot's `kimi-k3`, and `z-ai/glm-4.7-flash` as
+  Z.ai's `glm-4.7-flash`, which Z.ai lists as free, so those calls now cost
+  $0. Frontier models bought per token through OpenRouter keep the host's
+  price through the lookup.
+- **Web search can change price on a date.** A table may give dated web
+  search rates, from an instant in UTC, and each call's searches are priced
+  at the rate in force at its own time. DeepSeek's searches are $0.75 per
+  1,000 from 16:00 UTC on 31 October 2026 (00:00 Beijing time on 1
+  November), and free before it, as its page says.
+- **Two new tables, MiniMax and Xiaomi MiMo,** read off each maker's own
+  page on 2 November 2026 and pinned by tests; until now their calls were
+  priced by the lookup. MiniMax: MiniMax-M3.1-Flash, and MiniMax-M3 with its
+  Priority tier as the fast price and a long-context tier above 512,000
+  input tokens. Xiaomi MiMo: mimo-v2.6-pro, mimo-v2.6-flash and
+  mimo-v2.6-pro-ultraspeed, from the dollar section only. The older MiniMax
+  M2 and MiMo v2 and v2.5 models have no row, as no current page prices
+  them and no archive price was taken.
+- **Anthropic**, checked 27 October 2026: 7 retired models added at the last
+  price Anthropic's own page published for them, read from Internet Archive
+  copies of it (Claude 2.0, 2.1, 3 Haiku, 3 Opus, 3 Sonnet, 3.5 Sonnet and
+  3.7 Sonnet), and Haiku 3.5, Opus 4, Opus 4.1 and Sonnet 4 marked retired.
+  No current rate moved.
+- **OpenAI**, checked 27 October 2026: 7 current models added (chat-latest,
+  gpt-5-search-api, gpt-5.5-cyber, gpt-5.6-cyber, gpt-6.1-terra,
+  gpt-rosalind-discovery and gpt-rosalind-research), 25 retired models
+  added, and 12 marked retired. gpt-6-rosalind and gpt-6-astra-law were
+  added on 2 November 2026, read off the same page that day.
+  The 12-hour cache write is a dated row from 20 October 2026. The GPT-5.6
+  price cuts of 30 July and 21 August 2026 are dated rows, so a call before
+  them now costs the launch price. The four Codex models' fast calls cost
+  their fast rate: a million tokens in and out on gpt-5-codex, $11.25 before,
+  $22.50 now.
+- **Google**, checked 2 November 2026: the page moved to
+  aistudio.google.com and is read from its markdown form, so
+  `--check-prices` reads it again. 16 retired models added from archive
+  copies of Google's page, and Priority rates added as the fast price.
+- **DeepSeek**, checked 2 November 2026: web search as above. No token rate
+  moved.
+- **Mistral**, checked 2 November 2026: Mistral Large 4 added ($0.70 in,
+  $0.07 cached, $2.10 out, also as mistral-large-4-0) and made the fallback.
+  Mistral Large 3 (mistral-large-2512) and Mistral Medium 3.5
+  (mistral-medium-3-5) left the page when Mistral deprecated them on 31
+  October 2026, and are kept as retired at their last published price.
+  Other makers' models that Mistral hosts (Z.ai GLM 5.3 Flash, DeepSeek
+  V4.1 Flash) are not added.
+- **Moonshot**, checked 27 October 2026: kimi-k3.1-pro and
+  kimi-k3.1-pro-highspeed added.
+- **Z.ai**, checked 27 October 2026: glm-5.3-flashx-legal added, and web
+  search priced at $0.01 a search, where it was priced at nothing.
+
 ## 1.2.1, 16 October 2026
 
 The menu bar app's log moves out of `/tmp`, the online lookup fetches a
