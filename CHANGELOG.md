@@ -32,6 +32,12 @@
   anomalyco/opencode 8bca532 (1 November 2026).
 - Gemini CLI read again at google-gemini/gemini-cli 6814e00 (30 October
   2026): nothing the reader uses has moved.
+- Gemini CLI: sessions of a run with `GEMINI_CLI_HOME` set were missed, as
+  the reader looked only under the home folder. Gemini CLI puts `.gemini`
+  (and the macOS sandbox's `.cache/.gemini`) inside the folder that variable
+  names, used as given, so the reader now looks there instead. Read at
+  google-gemini/gemini-cli 6814e00. The other readers' folders were checked
+  against their harnesses' variables on 2 November 2026 and were right.
 - Aider, Cline, Crush, Goose, Hermes Agent and Qwen Code get no reader: none
   writes per-call counts that can be priced exactly. Each has a finding in
   `adapters/README.md` saying what it records and what a reader would need.

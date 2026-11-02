@@ -12,6 +12,23 @@ What Gemini CLI writes, and what this reader does with it:
   - Every session is recorded, with no setting to turn it off, under
     ~/.gemini/tmp/<project>/chats/session-*.jsonl (subagents one folder
     deeper). Under the macOS sandbox the root is ~/.cache/.gemini instead.
+  - GEMINI_CLI_HOME stands in for the home folder, not for .gemini: the
+    core's homedir() returns it when it is set and not empty
+    (packages/core/src/utils/paths.ts:22-28 at commit 6814e00, read
+    2 November 2026), and Storage puts .gemini, and the sandbox's
+    .cache/.gemini, inside whatever homedir() returns
+    (packages/core/src/config/storage.ts:54-60, 97-107 and 195-197). So
+    with it set, sessions are under $GEMINI_CLI_HOME/.gemini/tmp and
+    $GEMINI_CLI_HOME/.cache/.gemini/tmp, and ~/.gemini is neither written
+    nor read. The value is used as given: a ~ in it is not expanded, and a
+    relative one is relative to the folder Gemini CLI ran in, which is not
+    recorded, so here it is relative to the current folder. (The launcher,
+    packages/cli/index.ts:28-29, reads it as the .gemini folder itself, but
+    only to find one setting; sessions go through the core.) No other
+    variable moves the tmp folder. A GEMINI_CLI_HOME that Gemini CLI loads
+    from a .env file (loadEnvironment(), packages/cli/src/config/
+    settings.ts:701-779) is not followed: which file applies depends on the
+    folder it ran in and on that folder being trusted.
   - The first line is the session's metadata; each later line is a message.
     Only "gemini" messages carry a model and a "tokens" block, and a message
     is appended again every time it changes: first with "tokens": null, then
@@ -31,7 +48,7 @@ What Gemini CLI writes, and what this reader does with it:
   - A rewound turn is still counted. It was a real API call and it was billed;
     rewinding changes the conversation, not the invoice.
   - No cost, provider or working directory is recorded. The provider is
-    Google, and the folder comes from ~/.gemini/projects.json or the
+    Google, and the folder comes from the projects.json beside tmp or the
     .project_root file beside each session folder.
 """
 
@@ -52,7 +69,10 @@ FILE = "session"
 
 
 def default_roots() -> list:
-    return [os.path.expanduser("~/.gemini/tmp"), os.path.expanduser("~/.cache/.gemini/tmp")]
+    # An empty GEMINI_CLI_HOME counts as unset, as it does in Gemini CLI, and
+    # a set one is taken as given: Gemini CLI does not expand a ~ in it.
+    home = os.environ.get("GEMINI_CLI_HOME") or os.path.expanduser("~")
+    return [os.path.join(home, ".gemini", "tmp"), os.path.join(home, ".cache", ".gemini", "tmp")]
 
 
 def files(roots: list, project: str = "", session: str = "") -> list:

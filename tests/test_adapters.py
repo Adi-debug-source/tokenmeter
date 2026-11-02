@@ -1146,6 +1146,93 @@ class TestGeminiCliRecheck6814e00(Base):
                             for _, t in tm.report_notes(groups, unknown)))
 
 
+_GEMINI_SESSION = os.path.join("demo", "chats", "session-2026-09-26T09-12-3f9c1a2b.jsonl")
+
+
+def _gemini_home(home, runtime=".gemini"):
+    """A Gemini CLI home folder holding the fixture session, with its runtime
+    folder (.gemini, or .cache/.gemini under the macOS sandbox) inside it."""
+    target = os.path.join(home, runtime)
+    shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home", ".gemini"), target)
+    return os.path.join(target, "tmp", _GEMINI_SESSION)
+
+
+class TestGeminiCliHome(Base):
+    """Where the Gemini CLI reader looks: GEMINI_CLI_HOME stands in for the
+    home folder (packages/core/src/utils/paths.ts:22-28 at google-gemini/
+    gemini-cli 6814e00, read 2 November 2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "user")
+        os.makedirs(self.home)
+
+    def found(self, **env):
+        env.setdefault("HOME", self.home)
+        env.setdefault("USERPROFILE", self.home)  # what ~ means on Windows
+        with unittest.mock.patch.dict(os.environ, env):
+            return gemini_cli.files(gemini_cli.default_roots())
+
+    def test_gemini_cli_home_is_read(self):
+        """The reader only looked in ~/.gemini/tmp and never read
+        GEMINI_CLI_HOME, so every session of a Gemini CLI run with that
+        variable set (a shared machine, a CI job) was missed and its cost
+        reported as nothing. Gemini CLI puts .gemini inside the folder the
+        variable names (packages/core/src/utils/paths.ts:22-28 at 6814e00)."""
+        moved = os.path.join(self.tmp, "job-123")
+        path = _gemini_home(moved)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [path])
+
+    def test_gemini_cli_home_under_the_macos_sandbox_is_read(self):
+        """Under the macOS sandbox Gemini CLI writes to .cache/.gemini inside
+        homedir(), which is GEMINI_CLI_HOME when it is set
+        (packages/core/src/config/storage.ts:97-101 at 6814e00); the reader
+        only looked in ~/.cache/.gemini, so those sessions were missed."""
+        moved = os.path.join(self.tmp, "job-123")
+        path = _gemini_home(moved, os.path.join(".cache", ".gemini"))
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [path])
+
+    def test_home_gemini_is_not_read_when_gemini_cli_home_is_set(self):
+        """With GEMINI_CLI_HOME set Gemini CLI writes nothing under ~/.gemini,
+        so a reader that still read it counted sessions from another
+        configuration (another job, another user's copy) as this one's."""
+        _gemini_home(self.home)
+        moved = os.path.join(self.tmp, "job-123")
+        os.makedirs(moved)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [])
+
+    def test_an_empty_gemini_cli_home_counts_as_unset(self):
+        """Gemini CLI ignores an empty GEMINI_CLI_HOME and uses the home
+        folder; reading the empty value as a folder would look in the
+        current one and miss ~/.gemini."""
+        path = _gemini_home(self.home)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=""), [path])
+
+    def test_a_tilde_in_gemini_cli_home_is_not_expanded(self):
+        """Gemini CLI uses GEMINI_CLI_HOME as given and never expands a ~ in
+        it (packages/core/src/utils/paths.ts:22-28 at 6814e00), so with the
+        value "~" its sessions are under a folder named ~, not under the home
+        folder. A reader that expanded it read ~/.gemini instead and counted
+        sessions Gemini CLI had not written there as this run's."""
+        with unittest.mock.patch.dict(os.environ, {"GEMINI_CLI_HOME": "~", "HOME": self.home,
+                                                   "USERPROFILE": self.home}):
+            roots = gemini_cli.default_roots()
+        self.assertEqual(roots, [os.path.join("~", ".gemini", "tmp"),
+                                 os.path.join("~", ".cache", ".gemini", "tmp")])
+
+    def test_a_run_prices_sessions_under_gemini_cli_home(self):
+        """The whole command line, not only the reader: with no folder given
+        for Gemini CLI, a run reads GEMINI_CLI_HOME and prices the fixture's
+        three calls. Before, it found none of them."""
+        moved = os.path.join(self.tmp, "job-123")
+        _gemini_home(moved)
+        tm.ADAPTER_ROOTS.pop("gemini-cli", None)
+        env = {"GEMINI_CLI_HOME": moved, "HOME": self.home, "USERPROFILE": self.home}
+        with unittest.mock.patch.dict(os.environ, env):
+            got = json.loads(cli("--json", "--no-ledger", "--adapter", "gemini-cli"))
+        self.assertEqual(got["calls"], 3)
+
+
 class TestOpenCodeAdapter(Base):
     """Built from the published source and labelled unverified."""
 

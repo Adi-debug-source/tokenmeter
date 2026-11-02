@@ -78,7 +78,8 @@ class Base(unittest.TestCase):
             tm.OFFLINE_ENV: "1", "CODEX_HOME": os.path.join(self.tmp, "no-codex"),
             "XDG_DATA_HOME": os.path.join(self.tmp, "no-xdg"),
             "KIMI_CODE_HOME": os.path.join(self.tmp, "no-kimi-code"),
-            "DSH_HOME": os.path.join(self.tmp, "no-dsh")})
+            "DSH_HOME": os.path.join(self.tmp, "no-dsh"),
+            "GEMINI_CLI_HOME": os.path.join(self.tmp, "no-gemini")})
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop("OPENCODE_DB", None)

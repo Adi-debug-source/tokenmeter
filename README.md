@@ -91,7 +91,7 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 |---|---|---|
 | Claude Code | **verified** | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`), subagents and workflow agents included |
 | OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`); the sessions Codex compresses after a week need Python 3.14, the `zstd` command or the `zstandard` package |
-| Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox |
+| Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox (or the same two under `$GEMINI_CLI_HOME`, which stands in for the home folder) |
 | OpenCode | unverified | `~/.local/share/opencode/opencode*.db` (or under `$XDG_DATA_HOME`) |
 | Kimi Code | unverified | `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`). A call whose model, cached input or thinking tokens Kimi Code did not record is left out, and the report says how many. The older Python kimi-cli is not read: it records no model |
 | DeepSeek Harness | unverified | `~/.dsh/sessions` (or `$DSH_HOME`); compressed sessions (`.jsonl.zstd`, the default) need Python 3.14, the `zstd` command or the `zstandard` package. A call whose usage the harness did not record, a call that wrote to a cache on a route other than DeepSeek's (the write's lifetime is not recorded), and a compaction by another summariser are left out, and the report says how many |
