@@ -109,15 +109,93 @@ name translation maps host and harness spellings to the maker's ids. What each o
 - **Claude Code:** the id the API returned, `claude-sonnet-4-5`.
 - **Codex:** OpenAI's slug from `turn_context`, `gpt-6.1-sol`, and other slugs such as `codex-auto-review`.
 - **Gemini CLI:** the bare resolved Google id, `gemini-3.1-pro-preview` (aliases such as `auto` are resolved before recording).
-- **OpenCode:** the model id beside its provider id, `claude-sonnet-4-5` through `anthropic`, `gpt-5.2-codex` through `openai`.
+- **OpenCode:** the model id beside its provider id, `claude-sonnet-4-5` through `anthropic`, `gpt-5.2-codex` through `openai`; on the Kimi Code plan, the plan's own ids such as `k3` through `kimi-code-plan-global`, recorded under `moonshot`.
 - **Kimi Code:** the model as sent in `llm.request`, never the alias (`kimi-code/k3`): for example `k3`, or whatever a custom provider is configured with (`claude-sonnet-4-6`). Kimi's own names come from a server catalogue, so the source does not list them.
-- **DeepSeek Harness:** the model as requested, beside its route: `deepseek-flash` or `deepseek-v4-pro` through `deepseek-official` or `deepseek-account`, and pi-ai routes' own ids such as `claude-sonnet-4-5` through `anthropic`.
+- **DeepSeek Harness:** the model as requested, beside its route: `deepseek-flash` or `deepseek-v4-pro` through `deepseek-official` or `deepseek-account`, and pi-ai routes' own ids such as `claude-sonnet-4-5` through `anthropic`, `gpt-6.1-sol` through `openai-codex` (recorded under `openai`) and `k3` through `kimi-coding` (recorded under `moonshot`).
+- **Kilo Code:** as OpenCode, the model id beside its provider id (`claude-sonnet-4-5` through `anthropic`); a call a custom auto router sent on names the model and provider it went to (`gpt-5.2-codex` through `openai`); Kilo's own gateway records OpenRouter-style ids and router ids (`anthropic/claude-sonnet-4`, `kilo-auto/balanced`) through `kilo`, which has no table.
+
+## Plan-route model ids for the name translation
+
+GitHub Copilot serves several makers' models, and the route alone names none, so a Copilot call keeps the engine's "no price table" note (maintainer's decision 2, 2 November 2026). The Kimi Code plan serves only Moonshot's models, but under its own ids (`k3`, not `kimi-k3`). This list gives every model id DeepSeek Harness and OpenCode can write under these routes, with the maker's table and the id the maker's own API uses, so that the entries can go into `pricing/names.py` in a follow-up once PR #2 has merged. Keys there are (harness, provider as recorded, model): a Copilot call is recorded under `github-copilot`; a Kimi Code plan call, as the readers now map the route, under `moonshot`. An id whose maker or maker's id the catalogues do not settle is marked unsettled and is left out of names.py, not guessed.
+
+Kilo Code also records `github-copilot` and the Kimi Code plan routes (`kimi-code-plan-cn`, `kimi-code-plan-global`, and `kimi-for-coding` in older databases). It takes its catalogue from models.dev (`packages/core/src/models-dev.ts` 171 in Kilo-Org/kilocode at e4833e5), so the models.dev lines below apply to it too, keyed under its own harness name.
+
+Sources, read on 2 November 2026:
+- [pi-ai 1.3.0]: npm `@earendil-works/pi-ai` 1.3.0 (the version DeepSeek Harness pins in pnpm-lock.yaml at ce7073d), `dist/providers/data/github-copilot.json` and `kimi-coding.json`. Its catalogue names each model but not its maker's id.
+- [models.dev 4201251]: github.com/sst/models.dev at 4201251, `providers/<route>/models/*.toml`, whose `base_model` gives `<maker>/<maker's id>`; a maker's id counts as settled only when the maker's own API provider there (`providers/anthropic`, `openai`, `google`, `xai`, `moonshotai`) lists it.
+- [models.dev 4c2a945]: the same repository before ae06507 (18 September 2026), when `providers/kimi-for-coding` was split into `kimi-code-plan-cn` (the same api.kimi.com endpoint) and `kimi-code-plan-global`.
+- [OpenCode d9184f2 snapshot]: OpenCode's own copy of the models.dev catalogue, `packages/core/src/models-dev/snapshot.txt` in anomalyco/opencode at d9184f2, which lists the same ids.
+
+### GitHub Copilot (`github-copilot`; recorded under that provider, no table)
+
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-fable-5`: anthropic `claude-fable-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-fable-5.1`: anthropic `claude-fable-5-1`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-haiku-4.5`: anthropic `claude-haiku-4-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-haiku-5.5`: anthropic `claude-haiku-5-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-opus-4.7`: anthropic `claude-opus-4-7`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-opus-4.8`: anthropic `claude-opus-4-8`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-opus-5`: anthropic `claude-opus-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-opus-5.5`: anthropic `claude-opus-5-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-sonnet-4.6`: anthropic `claude-sonnet-4-6`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-sonnet-5`: anthropic `claude-sonnet-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `claude-sonnet-5.5`: anthropic `claude-sonnet-5-5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gemini-3.5-flash`: google `gemini-3.5-flash`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gemini-3.6-flash`: google `gemini-3.6-flash`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gemini-3.7-flash`: google `gemini-3.7-flash`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gemini-3.8-flash`: google `gemini-3.8-flash`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gemini-4-argon`: google `gemini-4-argon`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5-mini`: openai `gpt-5-mini`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.3-codex`: openai `gpt-5.3-codex`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.4`: openai `gpt-5.4`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.4-mini`: openai `gpt-5.4-mini`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.4-nano`: openai `gpt-5.4-nano`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.5`: openai `gpt-5.5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.6-luna`: openai `gpt-5.6-luna`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.6-sol`: openai `gpt-5.6-sol`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-5.6-terra`: openai `gpt-5.6-terra`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-6-astra`: openai `gpt-6-astra`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-6-luna`: openai `gpt-6-luna`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-6-sol`: openai `gpt-6-sol`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `gpt-6.1-sol`: openai `gpt-6.1-sol`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `github-copilot`, `gpt-6.1-terra`: openai `gpt-6.1-terra`. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `grok-4.5`: xai `grok-4.5`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `grok-4.6`: xai `grok-4.6`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `grok-4.7`: xai `grok-4.7`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `kimi-k2.7-code`: moonshot `kimi-k2.7-code`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness and OpenCode `github-copilot`, `kimi-k3`: moonshot `kimi-k3`. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- DeepSeek Harness `github-copilot`, `mai-code-1-flash-picker`: **unsettled**, pi-ai names it "MAI-Code-1-Flash" and models.dev does not list it, so neither settles the maker's id. [pi-ai 1.3.0].
+- DeepSeek Harness and OpenCode `github-copilot`, `mai-code-1.1-flash`: microsoft `mai-code-1.1-flash`, a maker with no table in pricing/. [pi-ai 1.3.0]; [models.dev 4201251], [OpenCode d9184f2 snapshot].
+
+### Kimi Code plan (recorded under `moonshot`)
+
+- DeepSeek Harness `kimi-coding`, `k3`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [pi-ai 1.3.0]; [models.dev 4201251] for the same id at the same endpoint (kimi-code-plan-cn).
+- DeepSeek Harness `kimi-coding`, `k3-256k`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3-256k.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [pi-ai 1.3.0]; [models.dev 4201251] for the same id at the same endpoint (kimi-code-plan-cn).
+- DeepSeek Harness `kimi-coding`, `kimi-for-coding`: **unsettled**, an alias whose model has changed: models.dev's base_model was moonshotai/kimi-k2.7-code until b7ac42d (15 September 2026) and moonshotai/kimi-k2.8-preview since, pi-ai 1.3.0 gives it kimi-k2.7-code's prices, and kimi-k2.8-preview is not in models.dev's Moonshot API provider. [pi-ai 1.3.0]; [models.dev 4201251] for the same id at the same endpoint (kimi-code-plan-cn).
+- DeepSeek Harness `kimi-coding`, `kimi-for-coding-highspeed`: moonshot `kimi-k2.7-code-highspeed`. [pi-ai 1.3.0]; [models.dev 4201251] for the same id at the same endpoint (kimi-code-plan-cn).
+- OpenCode `kimi-code-plan-cn`, `k3`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-cn`, `k3-256k`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3-256k.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-cn`, `k3.1-pro`: moonshot `kimi-k3.1-pro`. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-cn`, `k3.1-pro-highspeed`: **unsettled**, models.dev's base_model says moonshotai/kimi-k3.1-pro, while its display name ("Kimi K3.1 Pro Highspeed") and Moonshot's API list a separately priced kimi-k3.1-pro-highspeed; PR #2's names.py settles it as kimi-k3.1-pro-highspeed from Kimi Code's model page, not from a catalogue. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-cn`, `kimi-for-coding`: **unsettled**, an alias whose model has changed: models.dev's base_model was moonshotai/kimi-k2.7-code until b7ac42d (15 September 2026) and moonshotai/kimi-k2.8-preview since, pi-ai 1.3.0 gives it kimi-k2.7-code's prices, and kimi-k2.8-preview is not in models.dev's Moonshot API provider. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-cn`, `kimi-for-coding-highspeed`: moonshot `kimi-k2.7-code-highspeed`. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `k3`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `k3-256k`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3-256k.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `k3.1-pro`: moonshot `kimi-k3.1-pro`. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `k3.1-pro-highspeed`: **unsettled**, models.dev's base_model says moonshotai/kimi-k3.1-pro, while its display name ("Kimi K3.1 Pro Highspeed") and Moonshot's API list a separately priced kimi-k3.1-pro-highspeed; PR #2's names.py settles it as kimi-k3.1-pro-highspeed from Kimi Code's model page, not from a catalogue. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `kimi-for-coding`: **unsettled**, an alias whose model has changed: models.dev's base_model was moonshotai/kimi-k2.7-code until b7ac42d (15 September 2026) and moonshotai/kimi-k2.8-preview since, pi-ai 1.3.0 gives it kimi-k2.7-code's prices, and kimi-k2.8-preview is not in models.dev's Moonshot API provider. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode `kimi-code-plan-global`, `kimi-for-coding-highspeed`: moonshot `kimi-k2.7-code-highspeed`. [models.dev 4201251], [OpenCode d9184f2 snapshot].
+- OpenCode (before 18 September 2026) `kimi-for-coding`, `k3`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4c2a945].
+- OpenCode (before 18 September 2026) `kimi-for-coding`, `k3-256k`: **unsettled**, the plan serves this id with two models: K3 with thinking on, and K2.8 Preview (no API price) when the reasoning effort is none (models.dev 4201251, providers/kimi-code-plan-cn and kimi-code-plan-global, models/k3-256k.toml, from Kimi Code's model page); a translation needs the call's effort from the log, which was not established. [models.dev 4c2a945].
+- OpenCode (before 18 September 2026) `kimi-for-coding`, `kimi-for-coding`: **unsettled**, an alias whose model has changed: models.dev's base_model was moonshotai/kimi-k2.7-code until b7ac42d (15 September 2026) and moonshotai/kimi-k2.8-preview since, pi-ai 1.3.0 gives it kimi-k2.7-code's prices, and kimi-k2.8-preview is not in models.dev's Moonshot API provider. [models.dev 4c2a945].
+- OpenCode (before 18 September 2026) `kimi-for-coding`, `kimi-for-coding-highspeed`: moonshot `kimi-k2.7-code-highspeed`. [models.dev 4c2a945].
+
+57 ids in all (37 Copilot, 20 Kimi Code plan); 15 unsettled (`mai-code-1-flash-picker`; `kimi-for-coding` on four routes; `k3` and `k3-256k` on four routes each, served by K2.8 Preview when thinking is off; `k3.1-pro-highspeed` on two), 1 settled to a maker with no table (`mai-code-1.1-flash`, Microsoft), and 41 settled to a table.
 
 ## Harnesses without a reader
 
 A reader ships only when every call it counts is exact: per API call, or
 provably equal to the per-call figures. These harnesses were read on 1
-November 2026 (Roo Code, Continue and the last five on 2 November 2026)
+November 2026 (the Cline VS Code extension, Roo Code, Kilo Code 5, Zoo Code, Continue and the last five on 2 November 2026)
 and do not meet that, so
 each has a finding instead: where its logs live, what they record, the
 evidence, and what a precise reader would need. Anyone who can get at per-call counts some other way can still use the
@@ -221,7 +299,7 @@ The Kimi Code reader covers MoonshotAI/kimi-code only. The older MoonshotAI/kimi
 
 It does keep token figures of its own, in `<base dir>/userdata/statev2.sqlite` (`T3CODE_HOME`, `apps/server/src/config.ts` lines 140 to 150): a `tokenUsage` object (`usedTokens`, `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningOutputTokens`) inside `payload_json` of `orchestration_v2_projection_provider_turns` (`packages/contracts/src/orchestrationV2.ts` lines 216 to 227, `apps/server/src/orchestration-v2/ProjectionStore.ts` lines 2336 to 2360). These are per turn copies of what the driven harness reported, not per call, so they would double count and could not be priced exactly.
 
-Calls that escape every log: thread titles, commit messages, PR text, branch names and review guides are generated by `claude -p --no-session-persistence` (`apps/server/src/textGeneration/ClaudeTextGeneration.ts` lines 52 and 202 to 232) and `codex exec --ephemeral` (`CodexTextGeneration.ts` lines 280 to 300), Pi with `ephemeral: true` (`packages/provider-pi/src/server/textGeneration.ts` line 49). Neither harness writes a log for these, and T3 Code records no usage for them (no usage parsing in `apps/server/src/textGeneration/`), so no reader could count them.
+Calls that escape every log: thread titles, commit messages, PR text, branch names and review guides are generated by `claude -p --no-session-persistence` (`apps/server/src/textGeneration/ClaudeTextGeneration.ts` lines 52 and 202 to 232) and `codex exec --ephemeral` (`CodexTextGeneration.ts` lines 280 to 300), Pi with `ephemeral: true` (`packages/provider-pi/src/server/textGeneration.ts` line 49). Neither harness writes a log for these, and T3 Code records no usage for them (no usage parsing in `apps/server/src/textGeneration/`), so no reader could count them. The exception is Claude Code before 2.0.63, which rejects `--no-session-persistence`: T3 Code then runs the same call again without it (`ClaudeTextGeneration.ts` lines 52 to 54 and 271 at commit 9bcf753, read 2 November 2026), so Claude Code saves it and its reader counts it.
 
 ### Roo Code
 
@@ -317,12 +395,12 @@ A fork of Roo Code that keeps its task format, read for what differs.
 
 ## Candidates
 
-Looked at, with findings above: Aider, Cline CLI, Goose, Crush, Hermes
-Agent, Qwen Code, Roo Code, Continue, Cursor CLI, GitHub Copilot CLI, Amp,
-Grok Build and Antigravity. Not yet read: the Cline
-VS Code extension, Kilo Code and Zoo Code, which share Roo Code's task format
-(`ui_messages.json`, `api_req_started`) and so may share its lack of a model
-on each call. Of the
+Looked at, with findings above: Aider, Cline CLI, the Cline VS Code
+extension, Goose, Crush, Hermes Agent, Qwen Code, Roo Code, Kilo Code 5 and
+earlier, Zoo Code, Continue, Cursor CLI, GitHub Copilot CLI, Amp, Grok Build
+and Antigravity. Kilo Code 7, a fork of OpenCode, has a reader. Of Roo Code's
+task format family, only the Cline VS Code extension names a model on each
+record, and not reliably the one that answered. Of the
 last five, GitHub Copilot CLI keeps per-call counts on disk
 (`assistant_usage_events`), though rows can be missing; Antigravity (`.db`
 conversations) and Grok Build (`unified.jsonl`) appear to, on evidence that

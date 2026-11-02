@@ -62,6 +62,68 @@
   (google-gemini/gemini-cli 6814e00), and OpenCode's title and compaction
   calls (anomalyco/opencode cce323b), each checked against that source on 2
   November 2026.
+- DeepSeek Harness, OpenCode and Kilo Code price a plan route that serves
+  one maker's models by that maker's table: ChatGPT sign-in
+  (`openai-codex`), the Kimi Code plan, MiniMax's and Z.ai's international
+  plans and Xiaomi's MiMo routes outside China. These calls were priced at
+  nothing offline. Routes that serve several makers, such as GitHub Copilot,
+  and the makers' China platforms are unchanged; the Copilot and Kimi Code
+  plan model ids are listed in `adapters/README.md` for the name
+  translation. Read at deepseek-ai/deepseek-harness ce7073d, pi-ai 1.3.0,
+  anomalyco/opencode d9184f2 and sst/models.dev 4201251 (2 November 2026).
+- OpenCode no longer prices Zhipu's China platform (`zhipuai`, billed from a
+  yuan list) by Z.ai's international table; it passes through like the other
+  China routes.
+- DeepSeek Harness reports how many subagent runs went to another agent's
+  process. Claude Code subagents run with session saving off and Codex
+  subagents in a throwaway thread, so their calls reach no log and are
+  missing; the report now says so.
+- Claude Code, Kimi Code, Codex and OpenCode: a folder variable the harness
+  reads against the folder it is working in (an empty or relative
+  `CLAUDE_CONFIG_DIR` or `KIMI_CODE_HOME`, a relative `CODEX_HOME` or
+  OpenCode `XDG_DATA_HOME`, or one still starting with `~`) was read as
+  unset, against Tokenmeter's own folder, or with the `~` expanded, with no
+  word. The default folder is now read and the report names the variable and
+  its value. An absolute value is followed as before, and `OPENCODE_DB`,
+  which OpenCode resolves against its own data folder, is followed as
+  OpenCode reads it. Read in @anthropic-ai/claude-code 2.1.316 (31 October
+  2026), MoonshotAI/kimi-code fc3b521, openai/codex c725e47 and
+  anomalyco/opencode d9184f2 (2 November 2026).
+- Codex: `CODEX_HOME` was split at commas and colons, so a home whose path
+  held either was missed; Codex reads it as one path, and so does the reader
+  now.
+- Codex: a remote compaction is a billed request whose tokens Codex records
+  without the model that ran it and never adds to its running total, so it
+  was left out without a word. It is now counted at the turn's model, read
+  as for every Codex call, unless the settings changed since the turn began,
+  when the model cannot be known and the report says how many were left out.
+  Read at openai/codex c725e47 (2 November 2026).
+- Kimi Code read again at MoonshotAI/kimi-code fc3b521 (2 November 2026): no
+  usage is written to a session-level `wire.jsonl` or to nested agent
+  folders, and a loop call cannot run without a turn, so the reader is
+  unchanged there; its docstring now gives the source lines.
+- Kilo Code 7 is read (the VS Code extension, the JetBrains plugin and the
+  CLI, which share one database), from `~/.local/share/kilo/kilo*.db` and
+  `opencode-*.db` (or under `$XDG_DATA_HOME`, or `$KILO_DB`): one
+  step-finish row per API call, with the model from its message, or from the
+  row itself when a custom auto router sent the call on. A fork's or an
+  imported session's copied calls count once with their originals. Calls
+  from before 7.4.16 whose record does not say whether output includes
+  reasoning are left out and counted in a note. Unverified, built from
+  Kilo-Org/kilocode at e4833e5 (2 November 2026, 7.8.25).
+- The Cline VS Code extension gets no reader: its per-call records
+  (`api_req_started` in `ui_messages.json`) name the model and provider set
+  when the record was made, not necessarily the one that answered, as a
+  retry after a model switch shows; `tokensIn` means different things per
+  provider and Gemini's thinking tokens are left out of output. Its
+  SDK-based bundle writes the Cline CLI's session files instead. Read at
+  cline/cline d19f176 and its `legacy-extension` branch at 7761370 (2
+  November 2026).
+- Kilo Code 5 and earlier (Kilo-Org/kilocode-legacy ae046ac) and Zoo Code
+  (Zoo-Code-Org/Zoo-Code a4f774b, 2 November 2026) get no reader: like Roo
+  Code, whose task format both keep, they save no model or provider with any
+  API call. Each has a short finding in `adapters/README.md` saying what
+  differs from Roo Code.
 
 ## 1.2.1, 16 October 2026
 
