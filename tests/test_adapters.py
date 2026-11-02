@@ -16,7 +16,7 @@ from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, t
                      zstd_compress)
 
 from adapters import codex as codex_module
-from adapters import deepseek_harness, gemini_cli, kimi_code, opencode
+from adapters import claude_code, deepseek_harness, gemini_cli, kimi_code, opencode
 from adapters.common import parse_time
 
 
@@ -2145,6 +2145,248 @@ class TestTokenCounts(Base):
         self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (50, 0))
 
 
+def _note_texts(run):
+    return [n["text"] for n in run["notes"]]
+
+
+class TestKimiCodeHome(Base):
+    """KIMI_CODE_HOME as MoonshotAI/kimi-code resolves it: resolveKimiHome()
+    keeps any value, empty included, and expands no ~
+    (packages/agent-core-v2/src/app/bootstrap/bootstrap.ts:168-174 at
+    a2afdbc and fc3b521, read 2 November 2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = os.path.join(self.tmp, "user")
+        shutil.copytree(os.path.join(_KIMI_HERE, "home"), self.user)
+        self.default = os.path.join(self.user, ".kimi-code", "sessions")
+        home = unittest.mock.patch.dict(os.environ, {"HOME": self.user, "USERPROFILE": self.user})
+        home.start()
+        self.addCleanup(home.stop)
+        kimi_code.reset()
+        self.addCleanup(kimi_code.reset)
+        if hasattr(kimi_code, "_UNFOLLOWED"):
+            self.addCleanup(kimi_code._UNFOLLOWED.__setitem__, 0, None)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": value}):
+            roots = kimi_code.default_roots()
+            return roots, [n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n]
+
+    def test_an_absolute_value_is_followed_without_a_note(self):
+        """Guards against an absolute KIMI_CODE_HOME, the one value Kimi Code
+        and Tokenmeter read alike, being replaced by the default folder or
+        reported as unfollowed."""
+        moved = os.path.join(self.tmp, "kimi-elsewhere")
+        roots, notes = self.roots_and_notes(moved)
+        self.assertEqual(roots, [os.path.join(moved, "sessions")])
+        self.assertEqual(notes, [])
+
+    def test_unset_reads_the_default_without_a_note(self):
+        """Guards against the default folder moving, or a note appearing,
+        when KIMI_CODE_HOME is not set at all."""
+        os.environ.pop("KIMI_CODE_HOME", None)
+        self.assertEqual(kimi_code.default_roots(), [self.default])
+        self.assertEqual([n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n], [])
+
+    def test_an_empty_value_reads_the_default_and_says_so(self):
+        """An empty KIMI_CODE_HOME was read as unset with no word, but Kimi
+        Code keeps it ("??", bootstrap.ts:173) and writes relative to the
+        folder it was started in, so the report claimed every session while
+        some could be elsewhere."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("KIMI_CODE_HOME is set but empty", notes[0])
+        self.assertIn("it read ~/.kimi-code/sessions instead", notes[0])
+
+    def test_a_relative_value_reads_the_default_and_says_so(self):
+        """A relative KIMI_CODE_HOME was read against Tokenmeter's own current
+        folder, which is not the one Kimi Code was started in, so its
+        sessions were missed, or another folder's counted, without a word."""
+        roots, notes = self.roots_and_notes("kimi-data")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('KIMI_CODE_HOME is "kimi-data"', notes[0])
+
+    def test_a_tilde_is_not_expanded(self):
+        """The reader expanded a ~ in KIMI_CODE_HOME, which Kimi Code never
+        does (bootstrap.ts:173; nothing in the command line expands it), so
+        it read a home folder Kimi Code had not written to, and said
+        nothing."""
+        roots, notes = self.roots_and_notes("~/kimi-elsewhere")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('KIMI_CODE_HOME is "~/kimi-elsewhere"', notes[0])
+        self.assertIn("Kimi Code does not expand ~", notes[0])
+
+    def test_the_note_does_not_outlive_its_value(self):
+        """Guards against a note about one value being printed in a run whose
+        environment holds another: the roots are chosen before each scan
+        starts the notes afresh, so the value is remembered past reset()."""
+        self.roots_and_notes("kimi-data")
+        kimi_code.reset()
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": self.tmp}):
+            self.assertEqual([n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n], [])
+
+    def test_a_run_reads_the_default_and_says_so(self):
+        """The whole command line: with KIMI_CODE_HOME set to "~" and no
+        folder given for Kimi Code, a run read <home>/sessions, found
+        nothing and said nothing. It now prices the default folder's calls,
+        as many as an absolute value naming that folder gives, and the
+        report names the variable."""
+        tm.ADAPTER_ROOTS.pop(kimi_code.NAME, None)
+        args = ("--json", "--no-ledger", "--adapter", kimi_code.NAME)
+        with unittest.mock.patch.dict(os.environ,
+                                      {"KIMI_CODE_HOME": os.path.dirname(self.default)}):
+            want = json.loads(cli(*args))
+        self.assertGreater(want["calls"], 0)
+        self.assertFalse([n for n in _note_texts(want) if "KIMI_CODE_HOME" in n])
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": "~"}):
+            got = json.loads(cli(*args))
+        self.assertEqual(got["calls"], want["calls"])
+        self.assertEqual(got["total_usd"], want["total_usd"])
+        self.assertEqual(len([n for n in _note_texts(got) if 'KIMI_CODE_HOME is "~"' in n]), 1)
+
+
+class TestClaudeCodeConfigDir(Base):
+    """CLAUDE_CONFIG_DIR as Claude Code resolves it: the configuration home
+    is the value as given, empty included ("??"), with no ~ expansion, and
+    the projects folder is inside it (the published
+    @anthropic-ai/claude-code 2.1.316, 31 October 2026, read 2 November
+    2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = os.path.join(self.tmp, "user")
+        self.default = os.path.join(self.user, ".claude", "projects")
+        os.makedirs(os.path.join(self.default, "-proj"))
+        home = unittest.mock.patch.dict(os.environ, {"HOME": self.user, "USERPROFILE": self.user})
+        home.start()
+        self.addCleanup(home.stop)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": value}):
+            return claude_code.default_roots(), claude_code.notes()
+
+    def test_an_absolute_value_is_followed_unchanged(self):
+        """Guards against Claude Code's figures moving when CLAUDE_CONFIG_DIR
+        is an absolute path: its projects folder is read, as before."""
+        moved = os.path.join(self.tmp, "claude-elsewhere")
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": moved}):
+            self.assertEqual(claude_code.default_roots(), [os.path.join(moved, "projects")])
+
+    def test_unset_reads_the_default_unchanged(self):
+        """Guards against the default projects folder moving when
+        CLAUDE_CONFIG_DIR is not set."""
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(claude_code.default_roots(), [self.default])
+
+    def test_an_absolute_or_unset_value_gives_no_note(self):
+        """Guards against a note about CLAUDE_CONFIG_DIR in a report whose
+        folder was followed, which would cast doubt on verified figures."""
+        self.assertEqual(self.roots_and_notes(os.path.join(self.tmp, "c"))[1], [])
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(claude_code.notes(), [])
+
+    def test_an_empty_value_reads_the_default_and_says_so(self):
+        """An empty CLAUDE_CONFIG_DIR was read as unset with no word, but
+        Claude Code keeps it ("??") and writes its transcripts under
+        projects/ in the folder it is working in, so those were missed
+        while the report claimed every transcript."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("CLAUDE_CONFIG_DIR is set but empty", notes[0])
+        self.assertIn("it read ~/.claude/projects instead", notes[0])
+
+    def test_a_relative_value_reads_the_default_and_says_so(self):
+        """A relative CLAUDE_CONFIG_DIR was read against Tokenmeter's own
+        current folder, not the one Claude Code is working in, so its
+        transcripts were missed, or another folder's counted, without a
+        word."""
+        roots, notes = self.roots_and_notes("claude-cfg")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('CLAUDE_CONFIG_DIR is "claude-cfg"', notes[0])
+
+    def test_a_tilde_is_not_expanded(self):
+        """The reader expanded a ~ in CLAUDE_CONFIG_DIR, which Claude Code
+        never does, so it read a folder under the home folder that Claude
+        Code had not written to, and said nothing."""
+        roots, notes = self.roots_and_notes("~/claude-elsewhere")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Claude Code does not expand ~", notes[0])
+
+    def run_as_started(self, value):
+        """A run with this CLAUDE_CONFIG_DIR, its projects folder chosen as
+        the engine chooses it when it starts (PROJECTS_DIR, at import)."""
+        with open(os.path.join(self.default, "-proj", "a.jsonl"), "w") as f:
+            f.write(record("msg_1", out=1000, read=5000) + "\n")
+        moved = os.path.join(self.tmp, "claude-elsewhere")
+        shutil.copytree(self.default, os.path.join(moved, "projects"), dirs_exist_ok=True)
+        env = {"CLAUDE_CONFIG_DIR": moved if value is None else value}
+        tm._ROOTS[:] = []
+        with unittest.mock.patch.dict(os.environ, env):
+            os.environ.pop(tm.PROJECTS_ENV, None)
+            with unittest.mock.patch.object(tm, "PROJECTS_DIR", claude_code.default_roots()[0]):
+                return json.loads(cli("--json", "--no-ledger", "--adapter", claude_code.NAME))
+
+    def test_a_run_reads_the_default_and_says_so(self):
+        """The whole command line: with CLAUDE_CONFIG_DIR empty, a run read
+        the default folder and said nothing of the transcripts Claude Code
+        had written relative to the folder it is working in. The figures
+        are the absolute value's, and the report now names the variable."""
+        want = self.run_as_started(None)
+        self.assertEqual(want["calls"], 1)
+        self.assertFalse([n for n in _note_texts(want) if "CLAUDE_CONFIG_DIR" in n])
+        got = self.run_as_started("")
+        self.assertEqual(got["calls"], want["calls"])
+        self.assertEqual(got["total_usd"], want["total_usd"])
+        self.assertEqual(len([n for n in _note_texts(got) if "CLAUDE_CONFIG_DIR is set but empty" in n]), 1)
+
+
+    def test_no_note_when_other_folders_replace_the_default(self):
+        """The note said Claude Code's default folder was read in place of an
+        empty CLAUDE_CONFIG_DIR even when --projects-dir or
+        TOKENMETER_CLAUDE_PROJECTS had replaced that folder and it was never
+        read, so the report stated something false about where its figures
+        came from. A scan that read the default folder still says so, and the
+        next scan, reading only the named folders, does not repeat it."""
+        self.assertEqual(len([n for n in _note_texts(self.run_as_started(""))
+                              if "CLAUDE_CONFIG_DIR" in n]), 1)
+        named = os.path.join(self.tmp, "projects")
+        with open(os.path.join(named, "-proj", "b.jsonl"), "w") as f:
+            f.write(record("msg_2", out=1000, read=5000) + "\n")
+        args = ("--json", "--no-ledger", "--adapter", claude_code.NAME)
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": ""}):
+            tm._ROOTS[:] = []
+            by_env = json.loads(cli(*args))
+            by_flag = json.loads(cli(*args, "--projects-dir", named))
+        for run in (by_env, by_flag):
+            self.assertEqual(run["calls"], 1)
+            self.assertFalse([n for n in _note_texts(run) if "CLAUDE_CONFIG_DIR" in n])
+
+    def test_a_scan_that_read_the_default_folder_says_so(self):
+        """Guards against the note being lost when the default folder was
+        read beside a named one, or when nothing was read at all: in both,
+        transcripts Claude Code wrote under an empty CLAUDE_CONFIG_DIR can
+        be missing."""
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": ""}):
+            claude_code.reset()
+            self.assertEqual(len(claude_code.notes()), 1)
+            for folder in (self.default, os.path.join(self.tmp, "projects")):
+                path = os.path.join(folder, "-proj", "c.jsonl")
+                with open(path, "w") as f:
+                    f.write(record("msg_3") + "\n")
+                list(claude_code.records(path))
+            self.assertEqual(len(claude_code.notes()), 1)
+            claude_code.reset()
+            list(claude_code.records(path))
+            self.assertEqual(claude_code.notes(), [])
+
+
 _ROUTES_HEADER = {"type": "session", "version": 4, "id": "5a0c9e2b-7d41-4f8a-9b36-1e2d3c4b5a69",
            "createdAt": 1791037198000, "cwd": "/Users/example/code/demo", "isSeeded": False,
            "delegationDepth": 0}
@@ -2378,6 +2620,107 @@ class TestOpenCodePlanRoutes(Base):
         recorded it under zai, so Z.ai's international table priced it at
         rates nobody charged."""
         self.assertEqual(self.provider_of("zhipuai", "glm-5.3"), "zhipuai")
+
+
+class TestOpenCodeDataFolderVariable(Base):
+    """XDG_DATA_HOME as OpenCode's global-roots.ts reads it at d9184f2: an
+    empty value is the default, any other is used as it stands."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(opencode.default_roots)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": value,
+                                                   "HOME": os.path.join(self.tmp, "home")}):
+            return opencode.default_roots(), opencode.notes()
+
+    def test_a_relative_value_reads_the_default_folder_with_a_note(self):
+        """OpenCode resolves a relative XDG_DATA_HOME against the folder it was
+        started in, which Tokenmeter cannot know: the reader resolved it
+        against Tokenmeter's own folder instead and said nothing, so its
+        databases were missed, or another folder's read, without a word."""
+        roots, notes = self.roots_and_notes("work/data")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('XDG_DATA_HOME is "work/data"', notes[0])
+        self.assertIn("~/.local/share/opencode instead", notes[0])
+
+    def test_a_value_of_spaces_is_not_stripped(self):
+        """OpenCode uses a value of spaces as a folder name relative to the
+        folder it was started in: the reader stripped it to the default
+        without a note, so the user was not told logs may be missing."""
+        roots, notes = self.roots_and_notes("  ")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(len(notes), 1)
+
+    def test_an_empty_value_is_the_default_without_a_note(self):
+        """An empty XDG_DATA_HOME falls back to ~/.local/share in OpenCode too
+        (the || in global-roots.ts), so nothing is missing and a note saying
+        otherwise would be wrong."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(notes, [])
+
+    def test_an_absolute_value_is_followed_as_it_stands(self):
+        """An absolute XDG_DATA_HOME is OpenCode's data folder, trailing
+        space included: no note, and the folder read is OpenCode's own."""
+        value = os.path.join(self.tmp, "xdg ")
+        roots, notes = self.roots_and_notes(value)
+        self.assertEqual(roots, [os.path.join(value, "opencode")])
+        self.assertEqual(notes, [])
+
+
+class TestOpenCodeDatabaseVariable(Base):
+    """OPENCODE_DB as OpenCode's databasePath() reads it at d9184f2: the
+    value unstripped, resolved against the data folder."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "oc", "opencode")
+        _opencode_db(os.path.join(self.root, "opencode.db"), "anthropic", "claude-sonnet-4-5",
+                     mid="msg_default0001")
+
+    def found(self, value):
+        with unittest.mock.patch.dict(os.environ, {"OPENCODE_DB": value}):
+            return sorted(os.path.relpath(p, self.root) for p in opencode.files([self.root]))
+
+    def test_an_empty_value_reads_the_default_databases_only(self):
+        """An empty OPENCODE_DB names the data folder itself, which OpenCode
+        cannot open, so it records nothing there: the reader neither fails on
+        the folder nor stops reading the databases already in it."""
+        self.assertEqual(self.found(""), ["opencode.db"])
+
+    def test_a_relative_value_is_resolved_against_the_data_folder(self):
+        """OpenCode resolves a relative value against its data folder, not the
+        folder it was started in, so the reader can follow it exactly."""
+        _opencode_db(os.path.join(self.root, "work", "other.sqlite"), "openai", "gpt-6.1-sol")
+        self.assertEqual(self.found("work/other.sqlite"),
+                         ["opencode.db", os.path.join("work", "other.sqlite")])
+
+    def test_a_tilde_is_not_expanded(self):
+        """OpenCode does not expand ~ (path.resolve keeps it as a folder name),
+        so ~/x.db is a folder named ~ inside the data folder, never the home
+        folder, and a database at the home folder's x.db is not OpenCode's."""
+        _opencode_db(os.path.join(self.root, "~", "x.db"), "openai", "gpt-6.1-sol")
+        with unittest.mock.patch.dict(os.environ, {"HOME": os.path.join(self.tmp, "home")}):
+            _opencode_db(os.path.join(self.tmp, "home", "x.db"), "openai", "gpt-6.1-sol",
+                         mid="msg_home0001")
+            self.assertEqual(self.found("~/x.db"), ["opencode.db", os.path.join("~", "x.db")])
+
+    def test_memory_adds_nothing(self):
+        """:memory: is a database that never reaches disk: nothing more to read,
+        and no file of that name is looked for."""
+        with open(os.path.join(self.root, ":memory:"), "w") as f:
+            f.write("not a database")
+        self.assertEqual(self.found(":memory:"), ["opencode.db"])
+
+    def test_the_value_is_not_stripped(self):
+        """OpenCode takes the value as it stands, spaces included, so a value
+        with a leading space names a different file from the one without: the
+        reader stripped it and read the wrong file, or none."""
+        _opencode_db(os.path.join(self.root, " spaced.sqlite"), "openai", "gpt-6.1-sol")
+        self.assertEqual(self.found(" spaced.sqlite"), [" spaced.sqlite", "opencode.db"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

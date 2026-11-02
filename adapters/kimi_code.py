@@ -12,8 +12,16 @@ packages/agent-core-v2/src/ unless they name another package.
 What Kimi Code writes, and what this reader does with it:
 
   - Sessions live in $KIMI_CODE_HOME/sessions/<workspace>/<session>/, and
-    KIMI_CODE_HOME defaults to ~/.kimi-code (resolveKimiHome(),
-    app/bootstrap/bootstrap.ts).
+    KIMI_CODE_HOME defaults to ~/.kimi-code. The value is used as given
+    (resolveKimiHome(), app/bootstrap/bootstrap.ts:168-174, which the
+    command line passes on: apps/kimi-code/src/cli/telemetry.ts:51,
+    run-shell.ts:68): a ~ in it is not expanded, and an empty value is kept
+    too ("??", not "||"), so with either, or any relative value, every path
+    is relative to the folder Kimi Code was started in
+    (persistence/backends/node-fs/fileStorageService.ts:193-194 joins the
+    home and the path; nothing changes folder). Tokenmeter cannot know that
+    folder, so for such a value it reads ~/.kimi-code/sessions and the
+    report names the variable and its value: sessions may be missing.
   - Each agent has its own agents/<agent>/wire.jsonl: "main", and "agent-0"
     and so on for subagents, whose calls are marked as a subagent's. Every
     agent of a session, however it was started, is one folder under the
@@ -121,7 +129,7 @@ import os
 import re
 
 from .claude_code import project_matches
-from .common import usage, whole
+from .common import home_note, usage, whole
 
 NAME = "kimi-code"
 LABEL = "Kimi Code"
@@ -162,9 +170,25 @@ KIND_OF_SCOPE = {"turn": "loop", "session": "compaction"}
 _STATE = {"no_model": set(), "no_thinking": set(), "cache_unread": set()}
 
 
+HOME_ENV = "KIMI_CODE_HOME"
+DEFAULT_HOME = "~/.kimi-code"
+
+# The KIMI_CODE_HOME value the default root was last read in place of (see
+# the docstring), or None. Not cleared by reset(), because the roots are
+# chosen before each scan starts its notes afresh; notes() names it only while
+# the environment still holds that value.
+_UNFOLLOWED = [None]
+
+
 def default_roots() -> list:
-    home = os.environ.get("KIMI_CODE_HOME", "").strip() or "~/.kimi-code"
-    return [os.path.join(os.path.expanduser(home), "sessions")]
+    """$KIMI_CODE_HOME/sessions when the value is an absolute path, else
+    ~/.kimi-code/sessions (see the docstring)."""
+    home = os.environ.get(HOME_ENV)
+    _UNFOLLOWED[0] = None
+    if home is not None and not os.path.isabs(home):
+        _UNFOLLOWED[0] = home
+        home = None
+    return [os.path.join(home or os.path.expanduser(DEFAULT_HOME), "sessions")]
 
 
 def _session_dir(path: str) -> str:
@@ -218,6 +242,9 @@ def looks_like(line: str) -> bool:
 def notes() -> list:
     """What the report must say about this run's Kimi Code figures."""
     out = []
+    value = _UNFOLLOWED[0]
+    if value is not None and os.environ.get(HOME_ENV) == value:
+        out.append(home_note(HOME_ENV, value, LABEL, DEFAULT_HOME + "/sessions", FILES))
     n = len(_STATE["no_model"])
     if n:
         out.append(f"{n:,} Kimi Code call{'' if n == 1 else 's'} had no model recorded "
