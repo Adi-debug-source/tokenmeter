@@ -731,5 +731,120 @@ class TestMoonshotRules(Base):
         self.assertFalse(ok)
 
 
+# Z.ai (GLM): the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestZaiRules(Base):
+    def cost(self, model, when=None, **kw):
+        return tm.price_record(model, usage(**kw), when=when, provider="zai")
+
+    def test_cached_input_is_the_page_figure_per_model(self):
+        """Each model's cache hit is billed at its own printed rate, not the
+        caching guide's "usually 50%": GLM-5.3 at $0.26, not $0.70."""
+        for model, inp, cached in (("glm-5.3", 1.4, 0.26), ("glm-4.5-air", 0.2, 0.03),
+                                   ("glm-5.3-flashx-legal", 0.37, 0.075)):
+            with self.subTest(model=model):
+                c = self.cost(model, read=1_000_000)
+                self.assertAlmostEqual(c["cache_read"], cached, places=9)
+                self.assertLess(c["cache_read"], inp / 2)
+
+    def test_a_dash_for_cached_input_bills_a_hit_at_input(self):
+        """GLM-4-32B-0414-128K offers no cached rate, so a cache hit costs
+        what fresh input does, not nothing."""
+        c = self.cost("glm-4-32b-0414-128k", read=1_000_000)
+        self.assertAlmostEqual(c["cache_read"], 0.10, places=9)
+
+    def test_no_cache_write_charge(self):
+        """The page prints no write rate and its cache storage is
+        "Limited-time Free" with no end date, so a cache write of either
+        lifetime costs the input price and nothing more."""
+        c = self.cost("glm-5.3", w5=500_000, w1=500_000)
+        self.assertAlmostEqual(c["cache_write"], 1.40, places=9)
+
+    def test_the_flash_models_are_free(self):
+        """GLM-4.7-Flash and GLM-4.5-Flash are "Free" in every column, so a
+        call to either costs nothing and is still recognised, not priced at
+        the fallback model."""
+        for model in ("glm-4.7-flash", "glm-4.5-flash"):
+            with self.subTest(model=model):
+                _, ok = tm.lookup(model, provider="zai")
+                self.assertTrue(ok)
+                c = self.cost(model, inp=1_000_000, out=1_000_000, read=1_000_000, w5=1_000_000)
+                self.assertEqual(cost_of(c), 0.0)
+
+    def test_one_output_price_whatever_the_thinking(self):
+        """The page prints one output price per model, thinking or not, so
+        thinking tokens must cost exactly what other output does."""
+        plain = self.cost("glm-5.3", out=1_000_000)
+        thinking = self.cost("glm-5.3", out=1_000_000, think=600_000)
+        self.assertAlmostEqual(cost_of(plain), 4.40, places=9)
+        self.assertAlmostEqual(cost_of(thinking), cost_of(plain), places=9)
+
+    def test_no_long_context_fast_or_off_peak_price(self):
+        """The API page has no prompt-length tier, no fast tier and no
+        time-of-day price. The Coding Plan's 50% off-peak rule discounts plan
+        credits, not API tokens, so a call outside its peak hours costs the
+        same as one inside them, and a huge prompt or a fast call pays the
+        ordinary rate."""
+        table = tm.TABLES["zai"]
+        self.assertFalse(hasattr(table, "LONG_OVER"))
+        for model, rows in table.PRICES.items():
+            for r in rows:
+                with self.subTest(model=model):
+                    self.assertIsNone(r["fast"])
+                    self.assertNotIn("long", r)
+                    self.assertNotIn("off_peak", r)
+        peak = dt.datetime(2026, 10, 27, 7, tzinfo=dt.timezone.utc)      # 15:00 in Singapore
+        off_peak = dt.datetime(2026, 10, 27, 14, tzinfo=dt.timezone.utc)  # 22:00 in Singapore
+        a = self.cost("glm-5.3", when=peak, inp=1_000_000)
+        b = self.cost("glm-5.3", when=off_peak, inp=1_000_000)
+        self.assertAlmostEqual(cost_of(a), 1.40, places=9)
+        self.assertAlmostEqual(cost_of(b), cost_of(a), places=9)
+        big = self.cost("glm-5.3", inp=900_000, read=300_000)
+        self.assertAlmostEqual(cost_of(big), 0.9 * 1.4 + 0.3 * 0.26, places=9)
+        fast = tm.price_record("glm-5.3", usage(inp=1_000_000), speed="fast", provider="zai")
+        self.assertAlmostEqual(fast["input"], 1.40, places=9)
+
+    def test_one_rate_since_launch(self):
+        """No price has changed on the page, so every model has one row in
+        force from the start: an old call and today's are priced alike."""
+        table = tm.TABLES["zai"]
+        early = dt.datetime(2025, 1, 1, 12, tzinfo=dt.timezone.utc)
+        for model, rows in table.PRICES.items():
+            with self.subTest(model=model):
+                self.assertEqual([r["from"] for r in rows], [""])
+                row, ok = tm.lookup(model, when=early, provider="zai")
+                self.assertTrue(ok)
+                self.assertEqual(row, rows[0])
+
+    def test_nothing_retired_and_no_alias(self):
+        """No GLM text model has left the page or carries a retirement
+        notice, and the page's names are the ids in lowercase. A RETIRED
+        entry would stop --check-prices expecting a current model; an alias
+        would map a name the maker never published."""
+        table = tm.TABLES["zai"]
+        self.assertEqual(getattr(table, "RETIRED", {}), {})
+        self.assertEqual(getattr(table, "ALIASES", {}), {})
+        self.assertFalse(hasattr(table, "PAGE_NAMES"))
+
+    def test_verified_and_not_measured(self):
+        """The table says when it was last read off the page, and does not
+        claim a comparison with a real bill that nobody has made."""
+        table = tm.TABLES["zai"]
+        self.assertEqual(table.VERIFIED_ON, "2026-10-27")
+        self.assertIs(table.MEASURED, False)
+
+
+class TestZaiWebSearch(Base):
+    def test_one_zai_web_search_costs_one_cent(self):
+        """Guards Z.ai web searches being billed at nothing (the table's old
+        WEB_SEARCH_PER_1K of 0.0) or at another maker's rate. The page's
+        "Built-in Tools" table prices web search at $0.01 per use, so one
+        logged search with no tokens costs exactly $0.01."""
+        c = tm.price_record("glm-5.3", usage(searches=1), provider="zai")
+        self.assertAlmostEqual(c["web_search"], 0.01, places=9)
+        self.assertAlmostEqual(cost_of(c), 0.01, places=9)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

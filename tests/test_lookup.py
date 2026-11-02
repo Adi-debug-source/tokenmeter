@@ -1263,5 +1263,120 @@ class TestMoonshotPageReader(Base):
         self.assertEqual(self.read(moonshot_as_page(no_js[0])), ({}, []))
 
 
+# Z.ai (GLM): the page reader in pricing/zai.py, run on a saved copy of the
+# page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/zai_page.md, is lines cut verbatim from the
+# markdown copy of https://docs.z.ai/guides/overview/pricing as fetched on 27
+# October 2026: the "Latest Models" and "Text Models" tables, and the "Other
+# Pricing" accordion's blockquoted "Text Models" and "Vision Models" tables.
+# Nothing in it was typed by hand.
+
+ZAI_PAGE_FILE = os.path.join(FIXTURES, "pages", "zai_page.md")
+
+
+# Typed from the page on 27 October 2026, not copied from the table:
+# input, output and cached input, dollars per million tokens. "Free" is 0,
+# and GLM-4-32B-0414-128K's "-" for cached input reads as its input price.
+ZAI_ON_THE_PAGE = {
+    "glm-5.3": (1.4, 4.4, 0.26), "glm-5.3-flash": (0.15, 0.50, 0.03),
+    "glm-5.3-flashx": (0.37, 1.25, 0.075), "glm-5.3-flashx-legal": (0.37, 1.25, 0.075),
+    "glm-5.2": (1.4, 4.4, 0.26), "glm-5.1": (1.4, 4.4, 0.26), "glm-5": (1.0, 3.2, 0.2),
+    "glm-4.7": (0.6, 2.2, 0.11), "glm-4.6": (0.6, 2.2, 0.11),
+    "glm-4.7-flashx": (0.07, 0.4, 0.01), "glm-4.5": (0.6, 2.2, 0.11),
+    "glm-4.5-x": (2.2, 8.9, 0.45), "glm-4.5-air": (0.2, 1.1, 0.03),
+    "glm-4.5-airx": (1.1, 4.5, 0.22), "glm-4-32b-0414-128k": (0.1, 0.1, 0.1),
+    "glm-4.7-flash": (0.0, 0.0, 0.0), "glm-4.5-flash": (0.0, 0.0, 0.0),
+}
+
+
+# The accordion's rows, which the markdown copy writes as a blockquote.
+ZAI_IN_THE_ACCORDION = ("glm-4.7-flashx", "glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx",
+                    "glm-4-32b-0414-128k", "glm-4.7-flash", "glm-4.5-flash")
+
+
+class TestZaiPageReader(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["zai"]
+        self.page = slurp(ZAI_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def fetch(self, url):
+        self.urls.append(url)
+        return self.page
+
+    def read(self):
+        return self.table.page_rates(self.fetch, tm.md_tables)
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """Every text model the page prices is read, at the figures the page
+        prints, from the markdown copy, and none is named as missing from
+        the table."""
+        rates, unlisted = self.read()
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
+        self.assertEqual(unlisted, [])
+        self.assertEqual(sorted(rates), sorted(ZAI_ON_THE_PAGE))
+        for model, (inp, out, cached) in ZAI_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                got = rates[model]
+                self.assertAlmostEqual(got["in"], inp, places=9)
+                self.assertAlmostEqual(got["out"], out, places=9)
+                self.assertAlmostEqual(got["cached"], cached, places=9)
+
+    def test_the_blockquoted_accordion_is_read(self):
+        """The "Other Pricing" accordion is a blockquote in the markdown copy
+        ("> | GLM-4.5 | ..."), which the table parser never saw, so
+        --check-prices reported eight current models as gone from the page
+        (27 October 2026)."""
+        quoted = [line for line in self.page.splitlines() if line.startswith("> | GLM-4.5-AirX")]
+        self.assertEqual(len(quoted), 1)
+        self.assertEqual(tm.md_tables(quoted[0]), [])
+        rates, _ = self.read()
+        for model in ZAI_IN_THE_ACCORDION:
+            with self.subTest(model=model):
+                self.assertIn(model, rates)
+        self.assertEqual(rates["glm-4.5-airx"], {"in": 1.1, "out": 4.5, "cached": 0.22})
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """--check-prices against the saved page: every model matches in
+        every column the page lists, none is absent and none unlisted. A slip
+        in a row, or a model the reader drops, fails here."""
+        out = tm.compare_with_page(self.table, self.fetch)
+        self.assertEqual(out["error"], "")
+        self.assertTrue(out["found"])
+        self.assertEqual(out["diffs"], [])
+        self.assertEqual(out["absent"], [])
+        self.assertEqual(out["unlisted"], [])
+        self.assertEqual((out["matched"], out["expected"]), (17, 17))
+
+    def test_vision_models_are_not_read(self):
+        """The accordion's "Vision Models" table has the same columns as the
+        text tables. Read, it would name GLM-4.6V and the rest as models the
+        table lacks every day; its heading keeps it out."""
+        rates, unlisted = self.read()
+        for model in ("glm-4.6v", "glm-ocr", "glm-4.6v-flashx", "glm-4.5v", "glm-4.6v-flash"):
+            with self.subTest(model=model):
+                self.assertNotIn(model, rates)
+                self.assertNotIn(model, unlisted)
+
+    def test_a_model_new_on_the_page_is_named(self):
+        """A model on the page that the table lacks is named, so it is added
+        rather than priced silently by the lookup. GLM-5.3-FlashX-Legal was
+        such a model before 27 October 2026."""
+        with unittest.mock.patch.dict(self.table.PRICES):
+            del self.table.PRICES["glm-5.3-flashx-legal"]
+            _, unlisted = self.read()
+        self.assertEqual(unlisted, ["glm-5.3-flashx-legal"])
+
+    def test_free_and_dash_cells(self):
+        """A cell reading "Free" is a price of nothing, not a missing figure, and the "-"
+        GLM-4-32B-0414-128K prints for cached input means no lower rate, so
+        its cached figure is its input price rather than None or zero."""
+        rates, _ = self.read()
+        self.assertEqual(rates["glm-4.7-flash"], {"in": 0.0, "out": 0.0, "cached": 0.0})
+        self.assertEqual(rates["glm-4-32b-0414-128k"], {"in": 0.1, "out": 0.1, "cached": 0.1})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
