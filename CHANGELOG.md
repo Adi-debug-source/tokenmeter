@@ -42,6 +42,14 @@
   writes per-call counts that can be priced exactly. Each has a finding in
   `adapters/README.md` saying what it records and what a reader would need.
   T3 Code needs none: its turns are in the logs of the harnesses it drives.
+- Roo Code gets no reader: its per-call records (`api_req_started` in
+  `ui_messages.json`) name neither the model nor the provider, leave
+  Gemini's thinking tokens out of output, and keep no counts for
+  context-condensing calls; and its Claude Code provider ran the local
+  `claude` from 3.21.4 to 3.36.10, calls a reader could not tell apart from
+  Anthropic API calls. Read at RooCodeInc/Roo-Code b867ec9 (15 May 2026,
+  the day the extension was shut down). The finding is in
+  `adapters/README.md`.
 
 ## 1.2.1, 16 October 2026
 
