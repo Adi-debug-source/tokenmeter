@@ -12,6 +12,8 @@ import unittest
 from helpers import Base, cli, cost_of, noon, tm, usage
 
 M = 1_000_000
+# A prompt well under the 272K long-context line, so a rate is read as printed.
+K = 100_000
 UTC = dt.timezone.utc
 
 
@@ -324,6 +326,181 @@ class TestAnthropicRules(Base):
                 row, ok = tm.lookup(dated)
                 self.assertTrue(ok)
                 self.assertEqual(row, table.PRICES[model][-1])
+
+
+# OpenAI: the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+def openai_in_force(model, day):
+    """OpenAI's row for a model on a day."""
+    return tm.lookup(model, when=noon(day), provider="openai")[0]
+
+
+class TestOpenAIRules(Base):
+    def table(self):
+        return tm.TABLES["openai"]
+
+    def test_the_gpt_5_6_cuts_are_in_force_from_their_dates(self):
+        """Guards the GPT-5.6 cuts being applied to earlier calls, or not to
+        calls from their day: Terra $2.50 / $15 and Luna $1 / $6 until 29
+        July 2026, $2 / $12 and $0.20 / $1.20 from 30 July; Sol $5 / $30
+        until 20 August, $4 / $20 from 21 August."""
+        for model, before_day, on_day, before, on in (
+                ("gpt-5.6-terra", "2026-07-29", "2026-07-30", (2.50, 15), (2, 12)),
+                ("gpt-5.6-luna", "2026-07-29", "2026-07-30", (1, 6), (0.20, 1.20)),
+                ("gpt-5.6-sol", "2026-08-20", "2026-08-21", (5, 30), (4, 20))):
+            with self.subTest(model=model):
+                u = usage(inp=K, out=K)
+                b = tm.price_record(model, u, when=noon(before_day), provider="openai")
+                o = tm.price_record(model, u, when=noon(on_day), provider="openai")
+                self.assertAlmostEqual(b["input"], before[0] * K / M, places=12)
+                self.assertAlmostEqual(b["output"], before[1] * K / M, places=12)
+                self.assertAlmostEqual(o["input"], on[0] * K / M, places=12)
+                self.assertAlmostEqual(o["output"], on[1] * K / M, places=12)
+
+    def test_the_12_hour_write_is_charged_from_20_october_2026(self):
+        """Guards the 12-hour cache write, held in the write_1h_mult slot,
+        reaching calls before OpenAI introduced it: on gpt-6-astra a long
+        write is $12.50 a million (the 30-minute rate) on 19 October 2026
+        and $25 from 20 October, while the 30-minute write stays $12.50. The
+        same for gpt-5.6-cyber, $15.625 then $31.25, whose one undated row
+        once charged the 12-hour rate on every earlier call."""
+        long_write = usage(w1=K)
+        short_write = usage(w5=K)
+        for model, w30, w12 in (("gpt-6-astra", 12.50, 25.0), ("gpt-5.6-cyber", 15.625, 31.25)):
+            for day, want in (("2026-09-01", w30), ("2026-10-19", w30), ("2026-10-20", w12)):
+                with self.subTest(model=model, day=day):
+                    c = tm.price_record(model, long_write, when=noon(day), provider="openai")
+                    self.assertAlmostEqual(c["cache_write"], want * K / M, places=12)
+                    c = tm.price_record(model, short_write, when=noon(day), provider="openai")
+                    self.assertAlmostEqual(c["cache_write"], w30 * K / M, places=12)
+
+    def test_gpt_6_astra_law_prices_at_the_pages_promotional_rates(self):
+        """Guards gpt-6-astra-law, priced on the maintainer's decision of 2
+        November 2026 at the page's promotional rates ("available at least
+        through December 31, 2026"), being charged anything else: $10 a
+        million in, $50 out, $1 cached. The page prints no other column for
+        it, so a cache write of either lifetime is ordinary input ($10), a
+        prompt over 272K stays at those rates (no long tier), a call
+        recorded as fast is charged Standard (no fast pair), and the call
+        is priced from the table, not the lookup."""
+        self.assertEqual([r["from"] for r in self.table().PRICES["gpt-6-astra-law"]], [""])
+        for day in ("2026-10-27", "2026-11-02", "2026-12-31"):
+            for speed in ("standard", "fast"):
+                with self.subTest(day=day, speed=speed):
+                    c = tm.price_record("gpt-6-astra-law",
+                                        usage(inp=K, read=K, w5=K, w1=K, out=K),
+                                        speed=speed, when=noon(day), provider="openai")
+                    self.assertFalse(c["_unknown_model"])
+                    self.assertAlmostEqual(c["input"], 10 * K / M, places=12)
+                    self.assertAlmostEqual(c["cache_read"], 1 * K / M, places=12)
+                    self.assertAlmostEqual(c["cache_write"], 2 * 10 * K / M, places=12)
+                    self.assertAlmostEqual(c["output"], 50 * K / M, places=12)
+        over = tm.price_record("gpt-6-astra-law", usage(inp=300_000, read=K, out=M),
+                               when=noon("2026-11-02"), provider="openai")
+        self.assertAlmostEqual(over["input"], 300_000 * 10 / M, places=12)
+        self.assertAlmostEqual(over["cache_read"], K * 1 / M, places=12)
+        self.assertAlmostEqual(over["output"], 50, places=9)
+
+    def test_no_row_has_an_off_peak_price(self):
+        """Guards an invented time-of-day price: the page publishes none, so
+        no row carries off_peak and a call at 03:00 UTC on a weekday costs
+        what it costs at noon."""
+        for model, rows in self.table().PRICES.items():
+            for row in rows:
+                with self.subTest(model=model, row=row["from"]):
+                    self.assertNotIn("off_peak", row)
+        u = usage(inp=M, out=M)
+        night = dt.datetime(2026, 10, 28, 3, tzinfo=dt.timezone.utc)
+        noonish = dt.datetime(2026, 10, 28, 12, tzinfo=dt.timezone.utc)
+        self.assertAlmostEqual(cost_of(tm.price_record("gpt-6-astra", u, when=night, provider="openai")),
+                               cost_of(tm.price_record("gpt-6-astra", u, when=noonish, provider="openai")),
+                               places=9)
+
+    def test_long_prompts_cross_at_over_272000_with_cache_counted(self):
+        """Guards the long-context rule: exactly 272,000 prompt tokens is
+        short context ("<=272K"), one more is long, cache reads count towards
+        the prompt, and the whole request moves to 2x input and cache and
+        1.5x output. A model without the rule (gpt-5.4-mini) never moves."""
+        at = tm.price_record("gpt-5.4", usage(inp=200_000, read=72_000, out=M), provider="openai")
+        over = tm.price_record("gpt-5.4", usage(inp=200_001, read=72_000, out=M), provider="openai")
+        self.assertAlmostEqual(at["output"], 15, places=9)
+        self.assertAlmostEqual(over["output"], 22.50, places=9)
+        self.assertAlmostEqual(over["input"], 200_001 * 5.00 / M, places=12)
+        self.assertAlmostEqual(over["cache_read"], 72_000 * 0.50 / M, places=12)
+        mini = tm.price_record("gpt-5.4-mini", usage(inp=400_000, out=M), provider="openai")
+        self.assertAlmostEqual(mini["output"], 4.50, places=9)
+
+    def test_a_fast_call_over_272000_on_gpt_5_5_takes_the_long_rule(self):
+        """Guards the documented choice for a case the page leaves blank: a
+        fast gpt-5.5 call of more than 272K input tokens is charged 2x fast
+        input and 1.5x fast output, because the row's long rule, needed for
+        standard calls, applies to fast ones too."""
+        c = tm.price_record("gpt-5.5", usage(inp=300_000, out=M, speed="fast"), "fast",
+                            provider="openai")
+        self.assertAlmostEqual(c["input"], 300_000 * 25.0 / M, places=12)
+        self.assertAlmostEqual(c["output"], 112.50, places=9)
+
+    def test_fast_rates_are_the_typed_pairs_and_only_where_published(self):
+        """Guards fast rates being taken as a multiple, or borrowed: gpt-4o
+        fast is the printed $4.25 / $17 (1.7x), the retired gpt-5.1-codex
+        takes its Priority $2.50 / $20 from the 30 July 2026 capture, and a
+        fast call to gpt-5.1-codex-mini, which never had one, prices at its
+        standard $0.25 / $2."""
+        u = usage(inp=M, out=M, speed="fast")
+        for model, want in (("gpt-4o", (4.25, 17)), ("gpt-5.1-codex", (2.50, 20)),
+                            ("gpt-5.1-codex-mini", (0.25, 2))):
+            with self.subTest(model=model):
+                c = tm.price_record(model, u, "fast", provider="openai")
+                self.assertAlmostEqual(c["input"], want[0], places=9)
+                self.assertAlmostEqual(c["output"], want[1], places=9)
+
+    def test_retired_models_keep_their_last_published_price(self):
+        """Guards a retired model dropping to the fallback: each of the 37
+        RETIRED ids has a row and an ISO date, a call long after retirement
+        is still recognised and priced at its row, and archive-priced figures
+        (gpt-4-32k $60 / $120, davinci-002 $2 / $2) are reproduced."""
+        table = self.table()
+        self.assertEqual(len(table.RETIRED), 37)
+        later = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
+        for model, day in table.RETIRED.items():
+            with self.subTest(model=model):
+                self.assertIn(model, table.PRICES)
+                dt.date.fromisoformat(day)
+                row, ok = tm.lookup(model, when=later, provider="openai")
+                self.assertTrue(ok)
+                self.assertEqual(row, table.PRICES[model][-1])
+        for model, want in (("gpt-4-32k", (60, 120)), ("davinci-002", (2, 2))):
+            with self.subTest(model=model):
+                c = tm.price_record(model, usage(inp=M, out=M), provider="openai")
+                self.assertAlmostEqual((c["input"], c["output"]), want)
+
+    def test_aliases_and_snapshots_price_as_their_model(self):
+        """Guards OpenAI's other names reaching the fallback ($10 / $50):
+        gpt-4, gpt-4-turbo, gpt-4-turbo-preview, the five -completions
+        names, the gpt-4-32k snapshots and the two deprecated gpt-daybreak
+        aliases resolve only through ALIASES, and a dated snapshot of a
+        retired row through SNAPSHOT."""
+        table = self.table()
+        for alias, model in table.ALIASES.items():
+            with self.subTest(alias=alias):
+                self.assertIn(model, table.PRICES)
+                self.assertNotIn(alias, table.PRICES)
+                c = tm.price_record(alias, usage(inp=K, out=K), provider="openai")
+                self.assertFalse(c.get("_unknown_model"))
+                self.assertAlmostEqual(c["output"], table.PRICES[model][-1]["out"] * K / M,
+                                       places=12)
+        self.assertEqual(openai_in_force("gpt-4", "2026-10-01")["in"], 30.0)
+        # The deprecations page: "gpt-4-0613 | gpt-4, gpt-4-0613-completions,
+        # gpt-4-completions", and gpt-4-turbo-preview-completions points to
+        # gpt-4-0125-preview ($10 / $30).
+        self.assertEqual(openai_in_force("gpt-4-completions", "2026-10-01")["in"], 30.0)
+        self.assertEqual(openai_in_force("gpt-4-turbo-preview-completions", "2026-03-01")["out"], 30.0)
+        self.assertEqual(openai_in_force("gpt-3.5-turbo-completions", "2026-10-01")["in"], 0.50)
+        self.assertEqual(openai_in_force("gpt-daybreak-blue-latest", "2026-10-28")["in"], 4.0)
+        row, ok = tm.lookup("o1-preview-2024-09-12", provider="openai")
+        self.assertTrue(ok)
+        self.assertEqual(row["in"], 15.0)
 
 
 # Google (Gemini API): the rules the table models. Its page reader, and the saved

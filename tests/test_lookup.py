@@ -5,10 +5,12 @@ uses the network.
 """
 
 import datetime as dt
+import io
 import json
 import os
 import time
 import unittest
+import urllib.error
 
 from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, record, slurp, terminal,
                      tm, usage)
@@ -803,6 +805,223 @@ class TestAnthropicPageReader(Base):
         rates, _ = self.read(ANTHROPIC_PAGE, want=("claude-opus-9",))
         self.assertAlmostEqual(rates["claude-opus-9"]["in"], 6, places=9)
         self.assertAlmostEqual(rates["claude-opus-9"]["out"], 30, places=9)
+
+
+# OpenAI: the page reader in pricing/openai.py, run on a saved copy of the
+# page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/openai_page.md, is lines cut verbatim from
+# https://developers.openai.com/api/docs/pricing.md as fetched on 2 November
+# 2026 at 00:03 UTC (sha256 56e3da9bb29246cad60003e01f3fdc6b536149a09f5effe5e79af020a4922cfc):
+# the two Standard tables, the Flex tables, the two Fast tables, the
+# Ultrafast table with the long-context footnote under it, the Cyber and the
+# Life sciences Standard tables, the Legal model configurations table, the
+# two specialised (Category) tables and one fine-tuning table. Nothing in it
+# was typed by hand. The same cut of the page of 27 October 2026 differs only
+# in the Life sciences and Legal tables. A test that needs a different page
+# builds it from that copy.
+
+OPENAI_PAGE_FILE = os.path.join(FIXTURES, "pages", "openai_page.md")
+
+
+# Typed from the page on 27 October 2026 (gpt-6-rosalind and gpt-6-astra-law
+# on 2 November 2026), not copied from the table: input, output, cached
+# input (Standard).
+OPENAI_ON_THE_PAGE = {
+    "gpt-6-astra": (10, 50, 1.00),
+    "gpt-6.1-terra": (1, 5, 0.05),
+    "gpt-5.6-sol": (4, 20, 0.40),
+    "gpt-5.5": (5, 30, 0.50),
+    "gpt-5.5-pro": (30, 180, 30),
+    "gpt-5.4-mini": (0.75, 4.50, 0.075),
+    "gpt-4o-2024-05-13": (5, 15, 5),
+    "gpt-3.5-turbo-0125": (0.50, 1.50, 0.50),
+    "gpt-5.6-cyber": (12.50, 75, 1.25),
+    "gpt-rosalind-discovery": (5, 25, 0.50),
+    "gpt-6-rosalind": (15, 75, 1.50),
+    "gpt-6-astra-law": (10, 50, 1.00),
+    "chat-latest": (5, 30, 0.50),
+    "gpt-5.3-codex": (1.75, 14, 0.175),
+    "gpt-5-search-api": (1.25, 10, 0.125),
+}
+
+
+# The models the saved page does not list, all in RETIRED.
+OPENAI_OFF_THE_PAGE = [
+    "gpt-4-1106-preview", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex",
+    "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-5-chat-latest", "gpt-5.1-chat-latest",
+    "o3-deep-research", "o4-mini-deep-research", "computer-use-preview",
+    "gpt-4o-search-preview", "gpt-4o-mini-search-preview", "gpt-5.2-chat-latest",
+    "gpt-5.3-chat-latest", "gpt-3.5-turbo-1106", "gpt-3.5-turbo-instruct", "davinci-002",
+    "babbage-002", "gpt-4-0314", "gpt-4-0125-preview", "chatgpt-4o-latest",
+    "codex-mini-latest", "o1-mini", "o1-preview", "gpt-4.5-preview", "gpt-4-32k",
+]
+
+
+class TestOpenAIPageReader(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["openai"]
+        self.page = slurp(OPENAI_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def read(self, text, **kw):
+        def fetch(url):
+            self.urls.append(url)
+            return text
+        return self.table.page_rates(fetch, tm.md_tables, **kw)
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """Guards the baseline's HTTP 404: the old reader skipped the page's
+        four-column tables, so 27 models fell through to their own model
+        pages and one of those answered 404, failing the whole check. Now
+        one fetch of the markdown page gives every model, and a "-" cached
+        cell (pro and legacy rows) reads as the ordinary input rate. No id
+        is named: gpt-6-astra-law, the one named until the maintainer
+        decided on 2 November 2026 to price it, now has a row."""
+        rates, unknown = self.read(self.page)
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
+        self.assertEqual(unknown, [])
+        for model, official in OPENAI_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                for field, want in zip(("in", "out", "cached"), official):
+                    self.assertAlmostEqual(rates[model][field], want, places=9, msg=field)
+
+    def test_ten_column_tables_are_read_by_header(self):
+        """Guards the old nine-column order being applied to the page's ten
+        columns, which read gpt-6-astra's output as its cache write and its
+        long output as $2: every figure of the row, both write lifetimes and
+        the long tier, comes from the column that names it."""
+        rates, _ = self.read(self.page)
+        astra = rates["gpt-6-astra"]
+        want = {"in": 10, "out": 50, "cached": 1, "write": 12.50, "write_1h": 25,
+                "long_in": 20, "long_out": 75, "long_cached": 2, "long_write_5m": 25,
+                "long_write_1h": 50, "fast_in": 20, "fast_out": 100, "long_over": 272_000}
+        self.assertEqual(set(astra), set(want))
+        for field, value in want.items():
+            self.assertAlmostEqual(astra[field], value, places=9, msg=field)
+
+    def test_columns_are_read_by_header_not_position(self):
+        """Guards a reordered page reading as wrong figures: the saved page's
+        ten-column Standard table with its Output column moved to the end
+        reads exactly as the page does."""
+        lines = self.page.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("| Model | Short context input"))
+
+        def move(line):
+            cells = [c.strip() for c in line.strip()[1:-1].split("|")]
+            cells.append(cells.pop(2))
+            return "| " + " | ".join(cells) + " |"
+        end = next(i for i in range(start, len(lines)) if not lines[i].startswith("|"))
+        moved = lines[:start] + [move(l) for l in lines[start:end]] + lines[end:]
+        before, _ = self.read(self.page)
+        after, _ = self.read("\n".join(moved) + "\n")
+        for model in ("gpt-6-astra", "gpt-5.5", "gpt-5.4-pro"):
+            with self.subTest(model=model):
+                self.assertEqual(after[model], before[model])
+
+    def test_flex_batch_and_ultrafast_are_not_read_as_standard_or_fast(self):
+        """Guards the tiers a row cannot hold overwriting Standard or Fast:
+        the Flex tables print gpt-5.4-mini at $0.375 and gpt-6-astra at $5,
+        and Ultrafast prints gpt-6-astra at $60 in; the reader keeps the
+        Standard $0.75 and $10 and the Fast $20."""
+        rates, _ = self.read(self.page)
+        self.assertAlmostEqual(rates["gpt-5.4-mini"]["in"], 0.75, places=9)
+        self.assertAlmostEqual(rates["gpt-6-astra"]["in"], 10, places=9)
+        self.assertAlmostEqual(rates["gpt-6-astra"]["fast_in"], 20, places=9)
+
+    def test_specialised_tables_give_standard_then_fast(self):
+        """Guards the specialised (Category) tables, whose columns moved to
+        Input, Output, Cached input: the first is Standard, the second Fast,
+        so gpt-5.3-codex is $1.75 / $14 with fast $3.50 / $28, and chat-latest,
+        on the first only, has no fast rate."""
+        rates, _ = self.read(self.page)
+        codex = rates["gpt-5.3-codex"]
+        self.assertEqual((codex["in"], codex["out"], codex["fast_in"], codex["fast_out"]),
+                         (1.75, 14, 3.50, 28))
+        self.assertNotIn("fast_in", rates["chat-latest"])
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """Guards a table row drifting from the page, and a retired model the
+        page no longer lists being reported as missing: --check-prices's own
+        comparison finds all 46 models the page prints that the table holds
+        matching in every column, gpt-6-astra-law (added on 2 November
+        2026) among them, the 27 archive-priced ones retired, and none
+        unlisted."""
+        r = tm.compare_with_page(self.table, lambda url: self.page)
+        self.assertEqual(r["error"], "")
+        self.assertEqual((r["matched"], r["expected"]), (46, 46))
+        self.assertEqual((r["diffs"], r["absent"]), ([], []))
+        self.assertEqual(r["unlisted"], [])
+        self.assertEqual(sorted(r["retired"]), sorted(OPENAI_OFF_THE_PAGE))
+
+    def test_the_long_context_threshold_is_read_from_the_footnote(self):
+        """Guards long_over being assumed: it comes from the page's footnote
+        (">272K input tokens"), follows a changed footnote, and falls back to
+        LONG_OVER only when the footnote is gone."""
+        rates, _ = self.read(self.page)
+        self.assertEqual(rates["gpt-5.4"]["long_over"], 272_000)
+        self.assertNotIn("long_over", rates["gpt-5.4-mini"])
+        rates, _ = self.read(self.page.replace(">272K input tokens", ">300K input tokens"))
+        self.assertEqual(rates["gpt-5.4"]["long_over"], 300_000)
+        gone = "\n".join(l for l in self.page.splitlines() if not l.startswith("Short context:"))
+        rates, _ = self.read(gone)
+        self.assertEqual(rates["gpt-5.4"]["long_over"], self.table.LONG_OVER)
+
+    def test_a_model_new_on_the_page_is_named(self):
+        """Guards a new model going unnoticed: a row the table lacks, added
+        to the saved page's four-column Standard table, is named as unlisted,
+        while fine-tuning ids such as o4-mini-2025-04-16 never are."""
+        row = "| gpt-5.4-mini | $0.75 | $4.50 | $0.075 |"
+        self.assertIn(row, self.page)
+        page = self.page.replace(row, row + "\n| gpt-9-nova | $0.75 | $4.50 | $0.075 |")
+        rates, unknown = self.read(page)
+        self.assertEqual(unknown, ["gpt-9-nova"])
+        self.assertAlmostEqual(rates["gpt-9-nova"]["in"], 0.75, places=9)
+        self.assertIn("o4-mini-2025-04-16", self.page)
+
+    def test_a_table_it_does_not_price_from_still_names_its_models(self):
+        """Guards a model printed only in a table the reader does not
+        recognise being dropped without a word, as the Legal model
+        configurations table was: its header starts "Model configuration",
+        and gpt-6-astra-law was neither read nor named. Now that table is
+        read as Standard ($10 / $50 / $1, which gpt-6-astra-law's row has
+        held since 2 November 2026, so it is no longer named), and an id in
+        a table of a layout
+        the reader has never seen is still named, while a dated snapshot of
+        a row there (o4-mini-2025-04-16, as fine-tuning lists it) is not."""
+        rates, unknown = self.read(self.page)
+        law = rates["gpt-6-astra-law"]
+        self.assertEqual((law["in"], law["out"], law["cached"]), (10, 50, 1))
+        self.assertEqual(unknown, [])
+        page = self.page + ("\n### Some new tier\n\n| Model | Price per call |\n| --- | --- |\n"
+                            "| gpt-9-nova | $1.00 |\n| o4-mini-2025-04-16 | $1.00 |\n")
+        rates, unknown = self.read(page)
+        self.assertEqual(unknown, ["gpt-9-nova"])
+        self.assertNotIn("gpt-9-nova", rates)
+
+    def test_a_model_page_404_skips_only_that_model(self):
+        """Guards one model page's 404 failing every other model: with want
+        given, a wanted id the main page lacks is read from its own model
+        page, an HTTP error there skips that id alone, and --check-prices
+        (want=None) fetches no model page at all."""
+        model_page = ("| Metric | Price | Unit |\n| --- | --- | --- |\n"
+                      "| Input | $1.00 | per 1M tokens |\n| Output | $8.00 | per 1M tokens |\n")
+
+        def fetch(url):
+            self.urls.append(url)
+            if url == self.table.SOURCE_MD:
+                return self.page
+            if url.endswith("/gpt-9-gone.md"):
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
+            return model_page
+        rates, _ = self.table.page_rates(fetch, tm.md_tables, want=("gpt-9-gone", "gpt-9-here"))
+        self.assertNotIn("gpt-9-gone", rates)
+        self.assertEqual((rates["gpt-9-here"]["in"], rates["gpt-9-here"]["out"]), (1.0, 8.0))
+        self.assertNotIn("write_1h", rates["gpt-9-here"])
+        self.urls.clear()
+        self.table.page_rates(fetch, tm.md_tables)
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
 
 
 # Google (Gemini API): the page reader in pricing/google.py, run on a saved
