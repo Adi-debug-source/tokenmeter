@@ -11,7 +11,9 @@ sample.
 What Codex writes, and what this reader does with it:
 
   - Sessions live in $CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl, and in
-    $CODEX_HOME/archived_sessions/. CODEX_HOME defaults to ~/.codex.
+    $CODEX_HOME/archived_sessions/. CODEX_HOME is one path, read as written,
+    and defaults to ~/.codex when unset or empty; a relative one is not
+    followed (see default_roots()).
   - Each line is {"timestamp", "type", "payload"}. Usage arrives as an
     event_msg whose payload type is "token_count", carrying the last
     response's usage and the thread's running total.
@@ -146,14 +148,27 @@ _UNATTRIBUTED = set()
 _COMPACTIONS = set()
 
 
+def _unfollowed_home() -> str:
+    """CODEX_HOME when it is set to a path Codex resolves against the folder
+    it was started in, else ""."""
+    home = os.environ.get("CODEX_HOME", "")
+    return home if home and not os.path.isabs(home) else ""
+
+
 def default_roots() -> list:
-    homes = os.environ.get("CODEX_HOME", "").strip() or "~/.codex"
-    roots = []
-    for home in homes.replace(",", os.pathsep).split(os.pathsep):
-        if home.strip():
-            home = os.path.expanduser(home.strip())
-            roots += [os.path.join(home, "sessions"), os.path.join(home, "archived_sessions")]
-    return roots
+    """$CODEX_HOME/sessions and $CODEX_HOME/archived_sessions.
+
+    Codex takes CODEX_HOME as one path, commas, colons and all, and an empty
+    value as unset (find_codex_home in codex-rs/utils/home-dir/src/lib.rs,
+    lines 13 to 63 at c725e47). Any other value that is not absolute,
+    including one starting with ~, which Codex does not expand, it resolves
+    against the folder it was started in. Tokenmeter cannot know that folder,
+    so it reads ~/.codex instead and notes() names the value.
+    """
+    home = os.environ.get("CODEX_HOME", "")
+    if not home or _unfollowed_home():
+        home = os.path.expanduser("~/.codex")
+    return [os.path.join(home, "sessions"), os.path.join(home, "archived_sessions")]
 
 
 def _first_meta(path: str) -> dict:
@@ -200,6 +215,10 @@ def notes() -> list:
                    f"{'its' if n == 1 else 'their'} tokens without the model that ran "
                    f"{'it' if n == 1 else 'them'}, and the settings changed around "
                    f"{'it' if n == 1 else 'them'}")
+    if _unfollowed_home():
+        out.append(f"CODEX_HOME is {_unfollowed_home()!r}, a path Codex resolves against the "
+                   "folder it was started in, which Tokenmeter cannot know, so Codex "
+                   "sessions were read from ~/.codex and any kept elsewhere are missing")
     if _STATE["compressed_unread"]:
         n = _STATE["compressed_unread"]
         out.append(f"{n:,} compressed Codex session{'' if n == 1 else 's'} (.jsonl.zst) could "

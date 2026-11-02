@@ -2362,6 +2362,60 @@ class TestCodexRemoteCompaction(Base):
         self.assertIn("1 Codex remote compaction is not counted", text)
 
 
+class TestCodexHome(Base):
+    """CODEX_HOME as Codex reads it (find_codex_home, codex-rs/utils/home-dir
+    at c725e47): one path, an empty value as unset, and anything not absolute
+    resolved against the folder Codex was started in."""
+
+    def roots(self, value):
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOME": value, "HOME": self.tmp}):
+            return codex_module.default_roots(), codex_module.notes()
+
+    def test_one_path_even_with_a_comma_and_a_colon(self):
+        """Bug: the reader split CODEX_HOME at every comma and colon, which
+        Codex never does, so a home whose path held either was read as
+        several folders that do not exist and its sessions were missed."""
+        home = os.path.join(self.tmp, "work,codex:home")
+        d = os.path.join(home, "sessions", "2026", "10", "30")
+        os.makedirs(d)
+        shutil.copy(_CX_FIXTURE, os.path.join(d, f"rollout-2026-10-30T14-00-00-{_CX_THREAD}.jsonl"))
+        roots, notes = self.roots(home)
+        self.assertEqual(roots, [os.path.join(home, "sessions"),
+                                 os.path.join(home, "archived_sessions")])
+        self.assertEqual(notes, [])
+        tm.ADAPTER_ROOTS.pop("codex")
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOME": home, "HOME": self.tmp}):
+            out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 3)
+
+    def test_an_empty_value_is_the_default(self):
+        """Bug guarded: Codex treats an empty CODEX_HOME as unset, so the
+        reader reads ~/.codex and has nothing to report."""
+        roots, notes = self.roots("")
+        default = os.path.join(self.tmp, ".codex")
+        self.assertEqual(roots, [os.path.join(default, "sessions"),
+                                 os.path.join(default, "archived_sessions")])
+        self.assertEqual(notes, [])
+
+    def test_a_relative_value_is_named_not_followed(self):
+        """Bug: a relative CODEX_HOME, or one starting with ~, which Codex
+        does not expand, was read against the folder Tokenmeter ran in (or
+        expanded to the home folder), not the one Codex was started in. The
+        reader cannot know that folder, so it reads ~/.codex and the report
+        names the value."""
+        default = os.path.join(self.tmp, ".codex")
+        for value in ("codex-home", "~/codex-home", " "):
+            with self.subTest(value=value):
+                roots, notes = self.roots(value)
+                self.assertEqual(roots, [os.path.join(default, "sessions"),
+                                         os.path.join(default, "archived_sessions")])
+                self.assertEqual(len(notes), 1)
+                self.assertIn(f"CODEX_HOME is {value!r}", notes[0])
+                self.assertIn("read from ~/.codex", notes[0])
+
+
+
+
 def _note_texts(run):
     return [n["text"] for n in run["notes"]]
 
