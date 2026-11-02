@@ -11,8 +11,8 @@ import unittest
 
 from helpers import Base, cli, cost_of, noon, tm, usage
 
-from pricing import minimax
-from test_lookup import MiniMaxBase
+from pricing import mimo, minimax
+from test_lookup import MIMO_ON_THE_PAGE, MiniMaxBase, WithMimo
 
 M = 1_000_000
 # A prompt well under the 272K long-context line, so a rate is read as printed.
@@ -931,6 +931,73 @@ class TestMiniMaxRules(MiniMaxBase):
             with self.subTest(model=model):
                 self.assertEqual([r["from"] for r in rows], [""])
                 self.assertNotIn("off_peak", rows[0])
+
+
+# Xiaomi MiMo: the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestMimoRules(WithMimo):
+    def cost(self, model, **kw):
+        return tm.price_record(model, usage(**kw), provider="mimo")
+
+    def test_input_output_and_cache_hit_are_as_printed(self):
+        """A cache hit bills at 'Input (Cache Hit)', every other prompt token
+        at 'Input (Cache Miss)' and output at 'Output', for each model."""
+        for model, (inp, out, cached) in MIMO_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                c = self.cost(model, inp=1_000_000, out=1_000_000, read=1_000_000)
+                self.assertFalse(c["_unknown_model"])
+                self.assertAlmostEqual(c["input"], inp, places=9)
+                self.assertAlmostEqual(c["output"], out, places=9)
+                self.assertAlmostEqual(c["cache_read"], cached, places=9)
+
+    def test_cache_write_is_ordinary_input(self):
+        """'Cache Write: Limited-time Free' has no end date and MiMo's API
+        reports no write count, so a write a log does carry is priced as an
+        ordinary cache-miss input token, never at a premium and never free."""
+        c = self.cost("mimo-v2.6-pro", w5=1_000_000, w1=1_000_000)
+        self.assertAlmostEqual(c["cache_write"], 2 * 0.435, places=9)
+
+    def test_web_search_is_five_dollars_per_thousand(self):
+        """The overseas 'Internet Connectivity Service' is $5 per 1,000 calls,
+        billed apart from tokens."""
+        c = self.cost("mimo-v2.6-flash", searches=1000)
+        self.assertAlmostEqual(c["web_search"], 5.0, places=9)
+        self.assertAlmostEqual(cost_of(c), 5.0, places=9)
+
+    def test_ultraspeed_is_its_own_model_not_fast_mode(self):
+        """mimo-v2.6-pro-ultraspeed is a separate id at ten times
+        mimo-v2.6-pro's prices. No row has a fast price, so a call recorded
+        as fast on mimo-v2.6-pro is priced at mimo-v2.6-pro's own rates."""
+        self.assertTrue(all(r["fast"] is None for rows in mimo.PRICES.values() for r in rows))
+        fast = tm.price_record("mimo-v2.6-pro", usage(inp=1_000_000), speed="fast", provider="mimo")
+        self.assertAlmostEqual(fast["input"], 0.435, places=9)
+        self.assertAlmostEqual(self.cost("mimo-v2.6-pro-ultraspeed", inp=1_000_000)["input"], 4.35,
+                               places=9)
+
+    def test_no_long_context_surcharge(self):
+        """The page prints one price per model whatever the prompt length, so
+        a prompt near the 1M token window costs the same per token."""
+        self.assertFalse(any("long" in r for rows in mimo.PRICES.values() for r in rows))
+        self.assertFalse(hasattr(mimo, "LONG_OVER"))
+        c = self.cost("mimo-v2.6-flash", inp=900_000, read=90_000)
+        self.assertAlmostEqual(c["input"], 0.9 * 0.14, places=9)
+        self.assertAlmostEqual(c["cache_read"], 0.09 * 0.0028, places=9)
+
+    def test_one_output_price_whatever_the_thinking(self):
+        """The page prints one output price, so reasoning tokens inside the
+        output count cost nothing extra."""
+        plain = self.cost("mimo-v2.6-pro", out=1_000_000)
+        thinking = self.cost("mimo-v2.6-pro", out=1_000_000, think=600_000)
+        self.assertAlmostEqual(cost_of(plain), cost_of(thinking), places=9)
+        self.assertAlmostEqual(cost_of(plain), 0.87, places=9)
+
+    def test_an_unknown_id_is_priced_at_the_fallback_and_flagged(self):
+        """An id the table does not know is priced at mimo-v2.6-pro, the
+        dearest standard model, and flagged as unknown."""
+        c = self.cost("mimo-v9-unknown", inp=1_000_000)
+        self.assertTrue(c["_unknown_model"])
+        self.assertAlmostEqual(c["input"], 0.435, places=9)
 
 
 class TestZaiWebSearch(Base):

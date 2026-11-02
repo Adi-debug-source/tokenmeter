@@ -18,7 +18,7 @@ import urllib.error
 from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, record, slurp, terminal,
                      tm, usage)
 
-from pricing import minimax
+from pricing import mimo, minimax
 
 M = 1_000_000
 
@@ -1830,6 +1830,135 @@ class TestMiniMaxPageReader(MiniMaxBase):
         rates, unlisted = minimax.page_rates(self.fetch, tm.md_tables, want=("MiniMax-M4",))
         self.assertNotIn("MiniMax-M3", rates)
         self.assertEqual(unlisted, [])
+
+
+# Xiaomi MiMo: the page reader in pricing/mimo.py, run on a saved copy of the
+# page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/mimo_page.md, is lines cut verbatim from the
+# markdown source of the price page,
+# https://mimo.mi.com/static/docs/price/pay-as-you-go.md, as fetched on 2
+# November 2026: the page's opening and billing note, the domestic 'Language
+# Models' table in yuan, and the overseas section's 'Language Models' and 'ASR
+# Series' tables in dollars. Nothing in it was typed by hand.
+#
+# These tests were written before the table was registered in
+# pricing/__init__.py, so they put it into tm.TABLES for the length of each
+# test; now that it is registered, that changes nothing.
+
+MIMO_PAGE_FILE = os.path.join(FIXTURES, "pages", "mimo_page.md")
+
+
+# Typed from the page's overseas 'Real-time API' rows on 2 November 2026, not
+# copied from the table: input (cache miss), output and input (cache hit),
+# dollars per million tokens.
+MIMO_ON_THE_PAGE = {
+    "mimo-v2.6-pro": (0.435, 0.87, 0.0036),
+    "mimo-v2.6-flash": (0.14, 0.28, 0.0028),
+    "mimo-v2.6-pro-ultraspeed": (4.35, 8.7, 0.036),
+}
+
+
+class WithMimo(Base):
+    def setUp(self):
+        super().setUp()
+        tables = unittest.mock.patch.dict(tm.TABLES, {"mimo": mimo})
+        tables.start()
+        self.addCleanup(tables.stop)
+
+
+class TestMimoPageReader(WithMimo):
+    def setUp(self):
+        super().setUp()
+        self.page = slurp(MIMO_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def read(self, page=None):
+        def fetch(url):
+            self.urls.append(url)
+            return self.page if page is None else page
+        return mimo.page_rates(fetch, tm.md_tables)
+
+    def overseas(self):
+        """The fixture's overseas section, from its heading on."""
+        at = self.page.index("### Overseas Pricing of the Model")
+        return self.page[:at], self.page[at:]
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """Every overseas real-time model is read at the figures the page
+        prints, from the markdown source, including the two rows after the
+        first in the group, which carry no 'Inference Type' cell because the
+        first row's spans them; none is named as missing from the table."""
+        rates, unlisted = self.read()
+        self.assertEqual(self.urls, [mimo.SOURCE_MD])
+        self.assertEqual(unlisted, [])
+        self.assertEqual(sorted(rates), sorted(MIMO_ON_THE_PAGE))
+        for model, (inp, out, cached) in MIMO_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                self.assertEqual(rates[model], {"in": inp, "out": out, "cached": cached})
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """--check-prices's own comparison finds every model in the table on
+        the saved page, matching in every column, with nothing missing either
+        way: a slip in a row, or in the page reader, fails here."""
+        c = tm.compare_with_page(mimo, lambda url: self.page)
+        self.assertEqual(c["error"], "")
+        self.assertEqual((c["matched"], c["expected"]), (3, 3))
+        self.assertEqual((c["diffs"], c["absent"], c["unlisted"]), ([], [], []))
+
+    def test_yuan_figures_are_never_read(self):
+        """The domestic section prices the same ids in yuan. Without the
+        overseas section the reader must find nothing, rather than read a
+        yuan figure as dollars."""
+        domestic, _ = self.overseas()
+        self.assertIn("¥3.00", domestic)
+        self.assertEqual(self.read(domestic), ({}, []))
+
+    def test_batch_rows_are_left_out(self):
+        """The 'Batch API' rows price mimo-v2.6-pro and mimo-v2.6-flash at
+        half the real-time figures. A log cannot tell a batch call, so the
+        reader must never return a batch figure, even when a batch row is the
+        only row left for a model."""
+        domestic, overseas = self.overseas()
+        self.assertIn("$0.2175", overseas)
+        self.assertEqual(self.read()[0]["mimo-v2.6-pro"]["in"], 0.435)
+        no_real_time = overseas.replace("Real-time API", "Some other API")
+        self.assertEqual(self.read(domestic + no_real_time), ({}, []))
+
+    def test_a_changed_unit_reads_nothing(self):
+        """The cells print '$0.435' with no unit; the unit is in the billing
+        note. If that note no longer says dollars per million tokens for
+        overseas, the figures' unit is unknown and nothing is read."""
+        note = "Overseas: dollar / M tokens"
+        self.assertIn(note, self.page)
+        page = self.page.replace(note, "Overseas: dollar / K tokens")
+        self.assertEqual(self.read(page), ({}, []))
+
+    def test_a_model_new_on_the_page_is_named(self):
+        """A model the page lists and the table lacks is named, and the one it
+        replaced is reported as not found on the page."""
+        domestic, overseas = self.overseas()
+        page = domestic + overseas.replace("`mimo-v2.6-flash`", "`mimo-v2.7-flash`", 1)
+        rates, unlisted = self.read(page)
+        self.assertEqual(unlisted, ["mimo-v2.7-flash"])
+        self.assertEqual(rates["mimo-v2.7-flash"], {"in": 0.14, "out": 0.28, "cached": 0.0028})
+        c = tm.compare_with_page(mimo, lambda url: page)
+        self.assertEqual((c["absent"], c["unlisted"]), (["mimo-v2.6-flash"], ["mimo-v2.7-flash"]))
+
+    def test_a_cell_that_is_not_a_dollar_figure_is_skipped(self):
+        """A price cell that is not a plain dollar figure drops its row rather
+        than being guessed at, so the model reads as not found."""
+        domestic, overseas = self.overseas()
+        self.assertEqual(overseas.count("$0.87<"), 1)
+        rates, _ = self.read(domestic + overseas.replace("$0.87<", "0.87<"))
+        self.assertNotIn("mimo-v2.6-pro", rates)
+        self.assertIn("mimo-v2.6-flash", rates)
+
+    def test_an_unknown_column_skips_the_table(self):
+        """Columns are matched by title. A table with a column title the
+        reader does not know is skipped whole, never read by position."""
+        page = self.page.replace("**Input (Cache Miss)** ", "**Input (Cache Miss, per K)** ")
+        self.assertEqual(self.read(page), ({}, []))
 
 
 if __name__ == "__main__":
