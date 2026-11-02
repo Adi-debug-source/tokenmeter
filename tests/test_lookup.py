@@ -8,8 +8,10 @@ import datetime as dt
 import io
 import json
 import os
+import re
 import time
 import unittest
+import unittest.mock
 import urllib.error
 
 from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, record, slurp, terminal,
@@ -1138,6 +1140,127 @@ class TestGooglePageReaderOnTheSavedPage(Base):
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gemini-4.5-flash-lite"])
         self.assertEqual(rates["gemini-4.5-flash-lite"]["in"], 0.30)
+
+
+# Moonshot (Kimi): the page reader in pricing/moonshot.py, run on a saved
+# copy of the page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/moonshot_page.html, is four script tags cut
+# verbatim from https://platform.kimi.ai/docs/pricing/chat as fetched on 27
+# October 2026: the compiled page that holds both price tables, and the copy
+# for browsers without JavaScript, whose tables are empty. Nothing in it was
+# typed by hand. A test that needs a different page builds it from that copy.
+
+MOONSHOT_PAGE_FILE = os.path.join(FIXTURES, "pages", "moonshot_page.html")
+
+
+MOONSHOT_PUSH = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
+
+
+# Typed from the page on 27 October 2026, not copied from the table.
+MOONSHOT_ON_THE_PAGE = {
+    "kimi-k3.1-pro": {"in": 2.00, "out": 10.00, "cached": 0.20, "write_5m": 2.00, "write_1h": 4.00},
+    "kimi-k3.1-pro-highspeed": {"in": 4.00, "out": 20.00, "cached": 0.20, "write_5m": 4.00,
+                                "write_1h": 8.00},
+    "kimi-k3": {"in": 3.00, "out": 15.00, "cached": 0.30, "write_5m": 3.00, "write_1h": 6.00},
+    "kimi-k2.7-code": {"in": 0.95, "out": 4.00, "cached": 0.19},
+    "kimi-k2.7-code-highspeed": {"in": 1.90, "out": 8.00, "cached": 0.38},
+    "kimi-k2.6": {"in": 0.95, "out": 4.00, "cached": 0.16},
+}
+
+
+def moonshot_payload(html):
+    """The page's Next.js payload: its push chunks, decoded and joined."""
+    return "".join(json.loads(m.group(1)) for m in MOONSHOT_PUSH.finditer(html))
+
+
+def moonshot_as_page(*pieces):
+    """A payload written back as push chunks, one script tag per piece."""
+    return "".join(f"<script>self.__next_f.push([1,{json.dumps(p)}])</script>" for p in pieces)
+
+
+class TestMoonshotPageReader(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["moonshot"]
+        self.html = slurp(MOONSHOT_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def read(self, html):
+        def fetch(url):
+            self.urls.append(url)
+            return html
+        return self.table.page_rates(fetch, tm.md_tables)
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """The old reader looked in the markdown page for JavaScript arrays
+        that are no longer there, so --check-prices found no Kimi rates at
+        all. The figures now live only in the HTML's Next.js payload; every
+        model and every column must come out of it, figure for figure."""
+        rates, unlisted = self.read(self.html)
+        self.assertEqual(rates, MOONSHOT_ON_THE_PAGE)
+        self.assertEqual(unlisted, [])
+        self.assertEqual(self.urls, [self.table.SOURCE])
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """A table row that drifted from the page, in any column the page
+        lists, would price every Kimi call wrongly and be reported as
+        checked."""
+        c = tm.compare_with_page(self.table, lambda url: self.html)
+        self.assertEqual((c["error"], c["found"]), ("", True))
+        self.assertEqual((c["matched"], c["expected"]), (6, 6))
+        self.assertEqual((c["diffs"], c["absent"], c["unlisted"], c["retired"]), ([], [], [], []))
+
+    def test_a_table_split_across_two_pushes_is_still_read(self):
+        """The page arrives in many push chunks, and a deploy can cut a
+        table anywhere. A reader that looked inside one chunk would lose
+        the models after the cut."""
+        p = moonshot_payload(self.html)
+        cut = p.index("kimi-k3.1-pro-highspeed")
+        rates, _ = self.read(moonshot_as_page(p[:cut], p[cut:]))
+        self.assertEqual(rates, MOONSHOT_ON_THE_PAGE)
+
+    def test_a_model_new_on_the_page_is_named(self):
+        """A model the page lists and the table lacks must be named, so it
+        is added rather than priced at the fallback without anyone
+        noticing. kimi-k3.1-pro was new on the page on 27 October 2026."""
+        less = {k: v for k, v in self.table.PRICES.items() if k != "kimi-k3.1-pro"}
+        with unittest.mock.patch.object(self.table, "PRICES", less):
+            rates, unlisted = self.read(self.html)
+        self.assertIn("kimi-k3.1-pro", rates)
+        self.assertEqual(unlisted, ["kimi-k3.1-pro"])
+
+    def test_an_unknown_column_is_skipped_not_guessed(self):
+        """Columns are matched by title, and the two tables list different
+        ones. A column the reader does not know must make it skip that
+        table, never shift the figures into the wrong fields."""
+        p = moonshot_payload(self.html)
+        k2 = p.index("kimi-k2.7-code")
+        start = p.rindex("columns:[", 0, k2)
+        renamed = p[:start] + p[start:k2].replace("children:`Cached Input`", "children:`Batch Input`") + p[k2:]
+        rates, _ = self.read(moonshot_as_page(renamed))
+        self.assertEqual(rates, {k: v for k, v in MOONSHOT_ON_THE_PAGE.items() if k.startswith("kimi-k3")})
+
+    def test_a_cell_not_per_million_tokens_is_skipped(self):
+        """A price in another unit read as dollars per million would be a
+        wrong figure by a factor of a thousand or more. Such a row is
+        skipped, and --check-prices then says the model was not found."""
+        p = moonshot_payload(self.html).replace("`$0.16 / MTok`", "`$0.16 / 1K tokens`")
+        rates, _ = self.read(moonshot_as_page(p))
+        self.assertNotIn("kimi-k2.6", rates)
+        self.assertEqual(len(rates), 5)
+
+    def test_the_empty_tables_give_no_rates(self):
+        """The markdown copy and the copy for browsers without JavaScript
+        render both tables empty. Read alone, either must give no rates, so
+        --check-prices says the page was read but no rates were found,
+        never that every model matched."""
+        markdown = "## K3 Series Models\n\n<table><thead><tr /></thead><tbody /></table>\n"
+        self.assertEqual(self.read(markdown), ({}, []))
+        chunks = [json.loads(m.group(1)) for m in MOONSHOT_PUSH.finditer(self.html)]
+        no_js = [c for c in chunks if "const DocTable=()=>null" in c]
+        self.assertEqual(len(no_js), 1)
+        self.assertEqual(self.read(moonshot_as_page(no_js[0])), ({}, []))
 
 
 if __name__ == "__main__":

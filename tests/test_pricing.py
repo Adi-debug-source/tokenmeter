@@ -636,5 +636,100 @@ class TestGoogleRules(Base):
             self.assertEqual(row, tm.TABLES["google"].PRICES[mid][-1], alias)
 
 
+# Moonshot (Kimi): the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestMoonshotRules(Base):
+    def cost(self, model, when=None, **kw):
+        return tm.price_record(model, usage(**kw), when=when, provider="moonshot")
+
+    def test_k3_series_bills_cache_writes_by_lifetime(self):
+        """The K3 series prints a 5-minute write at the input rate and a
+        1-hour write at twice it; the table's default of 1.0 for both would
+        undercharge every 1-hour write by half."""
+        for model, inp in (("kimi-k3.1-pro", 2.00), ("kimi-k3.1-pro-highspeed", 4.00), ("kimi-k3", 3.00)):
+            with self.subTest(model=model):
+                c = self.cost(model, w5=100_000, w1=100_000)
+                self.assertAlmostEqual(c["cache_write"], 0.1 * inp + 0.1 * 2 * inp, places=9)
+
+    def test_highspeed_cache_hit_is_as_printed(self):
+        """kimi-k3.1-pro-highspeed's cached input is $0.20, the same as
+        kimi-k3.1-pro's, though everything else is double. Writing it as the
+        usual tenth of input would charge $0.40 a million."""
+        c = self.cost("kimi-k3.1-pro-highspeed", read=1_000_000)
+        self.assertAlmostEqual(c["cache_read"], 0.20, places=9)
+        self.assertAlmostEqual(self.cost("kimi-k3.1-pro", read=1_000_000)["cache_read"], 0.20, places=9)
+
+    def test_k2_cache_write_is_ordinary_input(self):
+        """The K2 models print no write price and support no cache write, so
+        a write a log records is ordinary input, not the K3 series' 2x."""
+        for model, inp in (("kimi-k2.7-code", 0.95), ("kimi-k2.7-code-highspeed", 1.90), ("kimi-k2.6", 0.95)):
+            with self.subTest(model=model):
+                c = self.cost(model, w5=100_000, w1=100_000)
+                self.assertAlmostEqual(c["cache_write"], 0.2 * inp, places=9)
+
+    def test_no_long_context_surcharge(self):
+        """Kimi prices the whole window flat. A long-context rule here would
+        charge a large prompt more than the page does."""
+        table = tm.TABLES["moonshot"]
+        self.assertFalse(hasattr(table, "LONG_OVER"))
+        self.assertFalse([m for m, rows in table.PRICES.items() for r in rows if r.get("long")])
+        c = self.cost("kimi-k3.1-pro", inp=1_000_000, out=1_000_000)
+        self.assertAlmostEqual(cost_of(c), 2.00 + 10.00, places=9)
+
+    def test_one_output_price_whatever_the_thinking(self):
+        """The page prints one output price per model, thinking or not, so
+        thinking tokens must cost exactly what other output does."""
+        plain = self.cost("kimi-k2.6", out=1_000_000)
+        thinking = self.cost("kimi-k2.6", out=1_000_000, think=600_000)
+        self.assertAlmostEqual(cost_of(plain), 4.00, places=9)
+        self.assertAlmostEqual(cost_of(thinking), cost_of(plain), places=9)
+
+    def test_highspeed_is_its_own_model_not_fast_mode(self):
+        """A highspeed call records its own id, not a fast speed on the base
+        id. Priced as `fast` of kimi-k3.1-pro it would be charged the base
+        rate; so the id has its own row, and no row has a fast price that a
+        call recorded as fast could pick up."""
+        row, ok = tm.lookup("kimi-k3.1-pro-highspeed", provider="moonshot")
+        self.assertTrue(ok)
+        self.assertEqual((row["in"], row["out"]), (4.00, 20.00))
+        self.assertTrue(all(r["fast"] is None for rows in tm.TABLES["moonshot"].PRICES.values()
+                            for r in rows))
+        fast = tm.price_record("kimi-k3.1-pro", usage(inp=1_000_000), speed="fast", provider="moonshot")
+        self.assertAlmostEqual(fast["input"], 2.00, places=9)
+
+    def test_k2_is_still_priced_after_the_notice_date(self):
+        """The notice closes the K2 series to new users on 31 October 2026
+        and plans a retirement by the end of December with no day given.
+        Existing users keep calling them, so they are neither RETIRED nor
+        repriced, and a call after that date is priced and recognised."""
+        table = tm.TABLES["moonshot"]
+        self.assertEqual(getattr(table, "RETIRED", {}), {})
+        later = dt.datetime(2026, 11, 15, 12, tzinfo=dt.timezone.utc)
+        for model in ("kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"):
+            with self.subTest(model=model):
+                row, ok = tm.lookup(model, when=later, provider="moonshot")
+                self.assertTrue(ok)
+                self.assertEqual(row, table.PRICES[model][-1])
+
+    def test_one_rate_since_launch_and_no_page_rule_not_printed(self):
+        """The page prints no effective date, no time-of-day price and no
+        other spelling of any id. A dated row, an off-peak rule or an alias
+        here would be invented; and the caching guide's loose spelling
+        kimi-k2.7 must stay unrecognised rather than be guessed."""
+        table = tm.TABLES["moonshot"]
+        for model, rows in table.PRICES.items():
+            with self.subTest(model=model):
+                self.assertEqual([r["from"] for r in rows], [""])
+                self.assertNotIn("off_peak", rows[0])
+        self.assertEqual(getattr(table, "ALIASES", {}), {})
+        early = dt.datetime(2026, 1, 5, 12, tzinfo=dt.timezone.utc)
+        row, ok = tm.lookup("kimi-k3.1-pro", when=early, provider="moonshot")
+        self.assertTrue(ok)
+        self.assertEqual(row["in"], 2.00)
+        _, ok = tm.lookup("kimi-k2.7", provider="moonshot")
+        self.assertFalse(ok)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
