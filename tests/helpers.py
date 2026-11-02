@@ -76,10 +76,15 @@ class Base(unittest.TestCase):
         env = unittest.mock.patch.dict(os.environ, {
             tm.PROJECTS_ENV: os.path.join(self.tmp, "projects"), tm.LEDGER_ENV: self.ledger,
             tm.OFFLINE_ENV: "1", "CODEX_HOME": os.path.join(self.tmp, "no-codex"),
-            "XDG_DATA_HOME": os.path.join(self.tmp, "no-xdg")})
+            "XDG_DATA_HOME": os.path.join(self.tmp, "no-xdg"),
+            "KIMI_CODE_HOME": os.path.join(self.tmp, "no-kimi-code"),
+            "DSH_HOME": os.path.join(self.tmp, "no-dsh"),
+            "GEMINI_CLI_HOME": os.path.join(self.tmp, "no-gemini"),
+            "CLAUDE_CONFIG_DIR": os.path.join(self.tmp, "no-claude")})
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop("OPENCODE_DB", None)
+        os.environ.pop("KILO_DB", None)
         # Each test starts as a new run would, with nothing left from the last.
         tm.reset_run()
         tm._ROOTS[:] = [os.path.join(self.tmp, "projects")]

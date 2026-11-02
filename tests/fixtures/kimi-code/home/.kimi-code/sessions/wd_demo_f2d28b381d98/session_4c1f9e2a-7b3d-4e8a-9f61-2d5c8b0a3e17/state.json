@@ -1,0 +1,24 @@
+{
+  "id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+  "version": 2,
+  "title": "Config parsing",
+  "titleKind": "generated",
+  "lastPrompt": "Find where the config file is parsed.",
+  "createdAt": 1793354400000,
+  "updatedAt": 1793354480000,
+  "archived": false,
+  "cwd": "/Users/example/code/demo",
+  "agents": {
+    "main": {
+      "homedir": "/Users/example/.kimi-code/sessions/wd_demo_f2d28b381d98/session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17/agents/main",
+      "type": "main"
+    },
+    "agent-0": {
+      "homedir": "/Users/example/.kimi-code/sessions/wd_demo_f2d28b381d98/session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17/agents/agent-0",
+      "type": "sub",
+      "parentAgentId": "main"
+    }
+  },
+  "custom": {},
+  "isCustomTitle": false
+}

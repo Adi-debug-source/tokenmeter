@@ -1,0 +1,20 @@
+{
+  "id": "session_9e0d7c6b-5a4f-4b3e-8d2c-1f0e9a8b7c65",
+  "version": 2,
+  "title": "Fork: Config parsing",
+  "titleKind": "generated",
+  "lastPrompt": "Find where the config file is parsed.",
+  "createdAt": 1793354600000,
+  "updatedAt": 1793354619000,
+  "archived": false,
+  "cwd": "/Users/example/code/demo",
+  "forkedFrom": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+  "agents": {
+    "main": {
+      "homedir": "/Users/example/.kimi-code/sessions/wd_demo_f2d28b381d98/session_9e0d7c6b-5a4f-4b3e-8d2c-1f0e9a8b7c65/agents/main",
+      "type": "main"
+    }
+  },
+  "custom": {},
+  "isCustomTitle": false
+}

@@ -17,7 +17,7 @@ import json
 import os
 import re
 
-from .common import parse_time
+from .common import home_note, parse_time
 
 NAME = "claude-code"
 LABEL = "Claude Code"
@@ -27,12 +27,69 @@ FILES = "transcripts"
 FILE = "transcript"
 
 
+CONFIG_ENV = "CLAUDE_CONFIG_DIR"
+DEFAULT_CONFIG = "~/.claude"
+
+
+def _unfollowed():
+    """CLAUDE_CONFIG_DIR's value when it is set but not an absolute path,
+    else None.
+
+    Claude Code takes the value as given, empty included: its configuration
+    home is `(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(),
+    ".claude")).normalize("NFC")` ("??", not "||") and its projects folder
+    `join(configHome, "projects")`, with no ~ expansion and no resolving
+    against a fixed folder (names de-minified, from the published
+    @anthropic-ai/claude-code 2.1.316 of 31 October 2026, its linux-x64
+    build, read 2 November 2026). So an empty, relative or ~ value is
+    relative to the folder Claude Code is working in: the one it was
+    started in, or a worktree it has since moved into (it changes folder
+    with process.chdir()), which Tokenmeter cannot know. Claude Code itself
+    flags such a value ("the configuration home (CLAUDE_CONFIG_DIR) is not
+    an absolute path")."""
+    value = os.environ.get(CONFIG_ENV)
+    return value if value is not None and not os.path.isabs(value) else None
+
+
 def default_roots() -> list:
-    """Claude Code's projects folder: $CLAUDE_CONFIG_DIR/projects, else
-    ~/.claude/projects. The override is documented by Claude Code and moves
-    everything it writes, transcripts included."""
-    base = os.environ.get("CLAUDE_CONFIG_DIR", "").strip() or "~/.claude"
-    return [os.path.join(os.path.expanduser(base), "projects")]
+    """Claude Code's projects folder: $CLAUDE_CONFIG_DIR/projects when the
+    value is an absolute path, else ~/.claude/projects. The override is
+    documented by Claude Code and moves everything it writes, transcripts
+    included. A value Claude Code reads relative to the folder it is
+    working in (_unfollowed()) cannot be followed, so the default folder is
+    read and notes() says so. A CLAUDE_CONFIG_DIR set in Claude Code's own
+    settings files rather than the environment is not followed."""
+    base = os.environ.get(CONFIG_ENV)
+    if base is None or _unfollowed() is not None:
+        base = os.path.expanduser(DEFAULT_CONFIG)
+    return [os.path.join(base, "projects")]
+
+
+# Whether this scan read a transcript inside the default projects folder,
+# and whether it read one outside it, for notes(). Cleared by reset(), which
+# the engine calls as each scan starts.
+_READ = {"default": False, "other": False}
+
+
+def _default_projects() -> str:
+    return os.path.normpath(os.path.join(os.path.expanduser(DEFAULT_CONFIG), "projects"))
+
+
+def notes() -> list:
+    """What the report must say about where Claude Code's transcripts were
+    looked for. An unfollowed CLAUDE_CONFIG_DIR is named unless this scan's
+    transcripts all came from other folders (--projects-dir or
+    TOKENMETER_CLAUDE_PROJECTS), where the default folder was not read and
+    saying it was would be wrong. A scan that read none is still told, as the
+    transcripts it missed may be the very ones the variable moved."""
+    value = _unfollowed()
+    if value is None or (_READ["other"] and not _READ["default"]):
+        return []
+    return [home_note(CONFIG_ENV, value, LABEL, DEFAULT_CONFIG + "/projects", FILES)]
+
+
+def reset() -> None:
+    _READ.update(default=False, other=False)
 
 
 def files(roots: list, project: str = "", session: str = "") -> list:
@@ -169,6 +226,9 @@ def records(path: str):
     largest usage block, because the early copies of a streamed reply carry an
     output count that is still climbing.
     """
+    default = _default_projects()
+    inside = os.path.normpath(path).startswith(default + os.sep)
+    _READ["default" if inside else "other"] = True
     project, session, is_subagent = _where(path)
     try:
         fh = open(path, "r", encoding="utf-8", errors="ignore")

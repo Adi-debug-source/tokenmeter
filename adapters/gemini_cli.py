@@ -1,7 +1,8 @@
 """Google Gemini CLI sessions. Unverified.
 
 Built from the published source of google-gemini/gemini-cli (read at commit
-2fe7c2d, 25 September 2026) and checked against the Gemini parser in
+2fe7c2d, 25 September 2026; rechecked at 6814e00, 30 October 2026, where the
+message records had not moved) and checked against the Gemini parser in
 ccusage. It has not yet been run against real session files, so every report
 that uses it says so. If a figure looks wrong, please open an issue with a
 sample.
@@ -11,10 +12,31 @@ What Gemini CLI writes, and what this reader does with it:
   - Every session is recorded, with no setting to turn it off, under
     ~/.gemini/tmp/<project>/chats/session-*.jsonl (subagents one folder
     deeper). Under the macOS sandbox the root is ~/.cache/.gemini instead.
+  - GEMINI_CLI_HOME stands in for the home folder, not for .gemini: the
+    core's homedir() returns it when it is set and not empty
+    (packages/core/src/utils/paths.ts:22-28 at commit 6814e00, read
+    2 November 2026), and Storage puts .gemini, and the sandbox's
+    .cache/.gemini, inside whatever homedir() returns
+    (packages/core/src/config/storage.ts:54-60, 97-107 and 195-197). So
+    with it set, sessions are under $GEMINI_CLI_HOME/.gemini/tmp and
+    $GEMINI_CLI_HOME/.cache/.gemini/tmp, and ~/.gemini is neither written
+    nor read. The value is used as given: a ~ in it is not expanded, and a
+    relative one is relative to the folder Gemini CLI ran in, which is not
+    recorded, so here it is relative to the current folder. (The launcher,
+    packages/cli/index.ts:28-29, reads it as the .gemini folder itself, but
+    only to find one setting; sessions go through the core.) No other
+    variable moves the tmp folder. A GEMINI_CLI_HOME that Gemini CLI loads
+    from a .env file (loadEnvironment(), packages/cli/src/config/
+    settings.ts:701-779) is not followed: which file applies depends on the
+    folder it ran in and on that folder being trusted.
   - The first line is the session's metadata; each later line is a message.
     Only "gemini" messages carry a model and a "tokens" block, and a message
     is appended again every time it changes: first with "tokens": null, then
     with the figures. The copy with the most tokens is the one kept.
+    Lines that start with $set, $patch or $rewindTo edit the conversation
+    and carry no tokens of their own; a $set "messages" checkpoint, which
+    older versions wrote, repeats messages already appended or adds
+    history-sync ones with no tokens, so all three are skipped.
   - Older installs kept a whole session as one .json document, and resuming
     one re-appends every message to a new .jsonl beside it. Both are read and
     keyed by session and message id, so a message in both counts once.
@@ -26,7 +48,7 @@ What Gemini CLI writes, and what this reader does with it:
   - A rewound turn is still counted. It was a real API call and it was billed;
     rewinding changes the conversation, not the invoice.
   - No cost, provider or working directory is recorded. The provider is
-    Google, and the folder comes from ~/.gemini/projects.json or the
+    Google, and the folder comes from the projects.json beside tmp or the
     .project_root file beside each session folder.
 """
 
@@ -47,7 +69,10 @@ FILE = "session"
 
 
 def default_roots() -> list:
-    return [os.path.expanduser("~/.gemini/tmp"), os.path.expanduser("~/.cache/.gemini/tmp")]
+    # An empty GEMINI_CLI_HOME counts as unset, as it does in Gemini CLI, and
+    # a set one is taken as given: Gemini CLI does not expand a ~ in it.
+    home = os.environ.get("GEMINI_CLI_HOME") or os.path.expanduser("~")
+    return [os.path.join(home, ".gemini", "tmp"), os.path.join(home, ".cache", ".gemini", "tmp")]
 
 
 def files(roots: list, project: str = "", session: str = "") -> list:

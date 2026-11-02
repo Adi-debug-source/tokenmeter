@@ -1,0 +1,17 @@
+{"type":"metadata","protocol_version":"1.5","created_at":1793354400000}
+{"type":"config.update","agentId":"main","modelAlias":"kimi-code/k3","profileName":"agent","thinkingEffort":"high","environmentDisclosure":{"cwd":"/Users/example/code/demo"},"time":1793354400012}
+{"type":"turn.prompt","agentId":"main","input":[{"type":"text","text":"Find where the config file is parsed."}],"origin":"user","turnId":1,"time":1793354401000}
+{"type":"llm.request","agentId":"main","kind":"loop","provider":"openai","model":"k3","modelAlias":"kimi-code/k3","thinkingEffort":"high","thinkingKeep":"all","maxTokens":32000,"toolSelect":false,"systemPromptHash":"sp_5d41402abc4b","toolsHash":"th_7d793037a076","messageCount":2,"turnStep":"1.1","time":1793354402000}
+{"type":"turn.step.retrying","agentId":"main","turnId":1,"step":1,"failedAttempt":1,"nextAttempt":2,"maxAttempts":10,"delayMs":300,"errorName":"APIConnectionError","errorMessage":"Connection reset","time":1793354403000}
+{"type":"llm.request","agentId":"main","kind":"loop","provider":"openai","model":"k3","modelAlias":"kimi-code/k3","thinkingEffort":"high","thinkingKeep":"all","maxTokens":32000,"toolSelect":false,"systemPromptHash":"sp_5d41402abc4b","toolsHash":"th_7d793037a076","messageCount":2,"turnStep":"1.1","time":1793354404000}
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":4210,"output":380,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1793354409412}
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":4210,"output":380,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1793354409412}
+{"type":"llm.request","agentId":"main","kind":"loop","provider":"openai","model":"k3","modelAlias":"kimi-code/k3","thinkingEffort":"high","thinkingKeep":"all","maxTokens":32000,"toolSelect":false,"systemPromptHash":"sp_5d41402abc4b","toolsHash":"th_7d793037a076","messageCount":4,"turnStep":"1.2","time":1793354410000}
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":512,"output":214,"inputCacheRead":4096,"inputCacheCreation":0},"usageScope":"turn","time":1793354414077}
+{"type":"llm.request","agentId":"main","kind":"loop","provider":"openai","model":"k3","modelAlias":"kimi-code/k3","thinkingEffort":"high","thinkingKeep":"all","maxTokens":32000,"toolSelect":false,"systemPromptHash":"sp_5d41402abc4b","toolsHash":"th_7d793037a076","messageCount":6,"turnStep":"1.3","time":1793354415000}
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":0,"output":0,"inputCacheRead":0,"inputCacheCreation":0},"usageScope":"turn","time":1793354417000}
+{"type":"turn.ended","agentId":"main","turnId":1,"reason":"completed","time":1793354418000}
+{"type":"forked","agentId":"main","time":1793354600000}
+{"type":"turn.prompt","agentId":"main","input":[{"type":"text","text":"Now add a test for it."}],"origin":"user","turnId":2,"time":1793354610000}
+{"type":"llm.request","agentId":"main","kind":"loop","provider":"openai","model":"k3","modelAlias":"kimi-code/k3","thinkingEffort":"high","thinkingKeep":"all","maxTokens":32000,"toolSelect":false,"systemPromptHash":"sp_5d41402abc4b","toolsHash":"th_7d793037a076","messageCount":8,"turnStep":"2.1","time":1793354611000}
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":640,"output":512,"inputCacheRead":4608,"inputCacheCreation":0},"usageScope":"turn","time":1793354619018}

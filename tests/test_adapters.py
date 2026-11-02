@@ -3,15 +3,140 @@ the fixtures in tests/fixtures/, and the import format.
 """
 
 import datetime as dt
+import glob
 import io
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import unittest
+import unittest.mock
 
 from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, tm, usage,
                      zstd_compress)
+
+from adapters import codex as codex_module
+from adapters import claude_code, deepseek_harness, gemini_cli, kilo_code, kimi_code, opencode
+from adapters.common import parse_time
+
+
+# The Codex reader rechecked against openai/codex at a098129 (1 November
+# 2026). Since e72da2b, a response that ends incomplete has its usage added to
+# the running total while the token_count that follows still carries the
+# previous response as last_token_usage.
+_CODEX_FIXTURE = "gen5_incomplete_response.jsonl"
+
+
+def _codex_usage(inp, cached=0, written=0, out=0, reasoning=0):
+    return {"input_tokens": inp, "cached_input_tokens": cached,
+            "cache_write_input_tokens": written, "output_tokens": out,
+            "reasoning_output_tokens": reasoning, "total_tokens": inp + out}
+
+
+def _codex_count(total, last, at="2026-10-28T10:00:05.000Z"):
+    return {"timestamp": at, "type": "event_msg",
+            "payload": {"type": "token_count",
+                        "info": {"total_token_usage": total, "last_token_usage": last,
+                                 "model_context_window": 258400}, "rate_limits": None}}
+
+
+def _codex_record(u, response="resp_1", at="2026-10-28T10:00:04.900Z"):
+    return {"timestamp": at, "type": "token_usage_record",
+            "payload": {"thread_id": "t1", "turn_id": "turn_1", "session_id": "t1",
+                        "root_turn_id": "turn_1", "response_id": response, "usage": u,
+                        "turn_token_usage": u, "thread_token_usage": u}}
+
+
+def _codex_session(*lines, meta=None):
+    head = [{"timestamp": "2026-10-28T10:00:00.000Z", "type": "session_meta",
+             "payload": dict({"id": "t1", "session_id": "t1",
+                              "cwd": "/Users/example/code/demo"}, **(meta or {}))},
+            {"timestamp": "2026-10-28T10:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}}]
+    return head + list(lines)
+
+
+def _codex_calls(path):
+    tm.codex.reset()
+    return list(tm.codex.records(path))
+
+
+# Gemini CLI reader, rechecked against google-gemini/gemini-cli at 6814e00
+# (30 October 2026). The reader was built from 2fe7c2d (25 September 2026); in
+# between Gemini CLI began writing $patch lines and stopped writing the $set
+# full-history checkpoint. The message records, and when tokens reach them,
+# did not move. These tests pin the newer files to the per-call figures in
+# tests/fixtures/gemini-cli/recheck-6814e00/expected.json.
+_GEMINI_HERE = os.path.join(FIXTURES, "gemini-cli", "recheck-6814e00")
+_GEMINI_MAIN = "session-2026-10-30T10-05-7c2e9d41.jsonl"
+_GEMINI_MAIN_ID = "7c2e9d41-5b3a-4e8f-a1d2-0f6c9b8e7a35"
+_GEMINI_SUB = os.path.join(_GEMINI_MAIN_ID, "0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60.jsonl")
+_GEMINI_COLLIDED = "session-2026-10-30T10-05-1-9a0b1c2d.jsonl"
+_GEMINI_COLLIDED_ID = "9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d"
+
+# A Qwen Code session line, with the field names and nesting of ChatRecord in
+# QwenLM/qwen-code packages/core/src/services/chatRecordingService.ts (dd020dd).
+_GEMINI_QWEN_ASSISTANT = json.dumps({
+    "uuid": "0f1e2d3c-4b5a-4968-8776-655443322110", "parentUuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "sessionId": "5d6e7f80-91a2-4b3c-8d4e-5f6071829304", "timestamp": "2026-10-30T10:05:14.920Z",
+    "type": "assistant", "provenance": "assistant_output", "cwd": "/Users/example/code/demo2",
+    "version": "0.9.0", "message": {"role": "model", "parts": [{"text": "Done."}]},
+    "usageMetadata": {"promptTokenCount": 5200, "candidatesTokenCount": 240,
+                      "cachedContentTokenCount": 0, "thoughtsTokenCount": 410, "totalTokenCount": 5850},
+    "model": "qwen3-coder-plus"})
+_GEMINI_QWEN_USER = json.dumps({
+    "uuid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "parentUuid": None,
+    "sessionId": "5d6e7f80-91a2-4b3c-8d4e-5f6071829304", "timestamp": "2026-10-30T10:05:08.301Z",
+    "type": "user", "provenance": "real_user", "cwd": "/Users/example/code/demo2", "version": "0.9.0",
+    "message": {"role": "user", "parts": [{"text": "Find where the config file is parsed."}]}})
+
+
+# OpenCode reader, rechecked against anomalyco/opencode at 8bca532
+# (1 November 2026). The reader was built from b65de4d (26 September 2026); in
+# between OpenCode stopped writing the v1 tables, copies each v1 session into
+# the v2 tables on upgrade (leaving the v1 rows), keeps v2 sessions in
+# session_v2, and gained a claude-agent provider that runs the user's own
+# claude binary. These tests pin a database laid out as 8bca532 leaves one to
+# the per-call figures in tests/fixtures/opencode/recheck-8bca532/expected.json.
+_OPENCODE_HERE = os.path.join(FIXTURES, "opencode", "recheck-8bca532")
+
+
+# Kimi Code reader, built from MoonshotAI/kimi-code at a2afdbc (30 October
+# 2026). These tests pin the fixture sessions under tests/fixtures/kimi-code to
+# the per-call figures in its expected.json: one usage.record per API call,
+# its model taken from the llm.request of its own kind before it, a
+# duplicated line and a forked session counted once, and the calls Kimi Code
+# cannot record exactly left out and reported.
+_KIMI_HERE = os.path.join(FIXTURES, "kimi-code")
+_KIMI_WS = "wd_demo_f2d28b381d98"
+_KIMI_A = "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17"
+_KIMI_B = "session_9e0d7c6b-5a4f-4b3e-8d2c-1f0e9a8b7c65"
+
+# A kimi-cli wire.jsonl line, with the field names and nesting of
+# WireMessageRecord and StatusUpdate in MoonshotAI/kimi-cli
+# src/kimi_cli/wire/file.py and wire/types.py (9ab1286). Kimi Code does not
+# read it, and this reader must not either: it records no model.
+_KIMI_CLI_STATUS = json.dumps({
+    "timestamp": 1793354409.412,
+    "message": {"type": "StatusUpdate", "payload": {
+        "context_usage": 0.02, "context_tokens": 4590, "max_context_tokens": 262144,
+        "token_usage": {"input_other": 4210, "output": 380, "input_cache_read": 0,
+                        "input_cache_creation": 0},
+        "message_id": "chatcmpl-7f3a9c", "plan_mode": False, "mcp_status": None}}})
+_KIMI_CLI_META = json.dumps({"type": "metadata", "protocol_version": "1.9"})
+
+
+# The DeepSeek Harness reader: its session files read as the harness's source
+# writes them (deepseek-ai/deepseek-harness ce7073d, 30 October 2026), from the
+# fixtures in tests/fixtures/deepseek-harness/.
+_DSH_HERE = os.path.join(FIXTURES, "deepseek-harness")
+_DSH_DEMO = "--Users-example-code-demo--"
+_DSH_S1 = "0f3b7c2e-5a91-4d6e-8c40-2b9e1d7a6f53"
+_DSH_S2 = "7d1c3e5a-2f4b-4c6d-9e8f-0a1b2c3d4e5f"
+_DSH_S3 = "4e8a2c6d-9b1f-4a3e-8d7c-5f0e2a4b6c8d"
+_DSH_S4 = "2b9d4f6a-8c1e-4d3b-9a5f-7e0c2d4b6a81"
+_DSH_API = "--Users-example-code-api--"
 
 
 class TestWorkflowAgents(Base):
@@ -655,6 +780,185 @@ class TestCodexAdapter(Base):
         self.assertEqual(before["total"], after["total"])
 
 
+class TestCodexIncompleteResponses(Base):
+    """Codex at a098129: an incomplete response adds its usage to the running
+    total while the next token_count still names the previous response."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "codex-home")
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.home, "sessions"),
+                                     os.path.join(self.home, "archived_sessions")]
+        tm._ONLY[:] = ["codex"]
+        self.expected = json.loads(slurp(os.path.join(FIXTURES, "codex", "gen5_expected.json")))
+
+    def place(self, where="sessions"):
+        d = os.path.join(self.home, where, "2026", "10", "28")
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, "rollout-2026-10-28T09-12-04-0199a2e4-3b7c-7d10-8f21-6a4c9e0b5d32.jsonl")
+        shutil.copy(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE), dest)
+        return dest
+
+    def test_an_incomplete_response_is_counted_as_itself(self):
+        """After an incomplete response, token_count's last_token_usage is the
+        response before it: the reader counted that earlier response twice and
+        never the incomplete one."""
+        got = [ev for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        want = self.expected["expected_turns"]
+        self.assertEqual(len(got), len(want))
+        for ev, w in zip(got, want):
+            u = ev["_usage"]
+            self.assertEqual(u["input_tokens"], w["uncached_input_tokens"], w["line"])
+            self.assertEqual(u["cache_read_input_tokens"], w["cached_input_tokens"], w["line"])
+            self.assertEqual(u["cache_creation"]["ephemeral_5m_input_tokens"],
+                             w["cache_write_input_tokens"], w["line"])
+            self.assertEqual(u["output_tokens"], w["output_tokens"], w["line"])
+            self.assertEqual(u["output_tokens_details"]["thinking_tokens"],
+                             w["reasoning_output_tokens"], w["line"])
+            self.assertEqual(ev["model"], w["model"], w["line"])
+            self.assertEqual(ev["provider"], "openai")
+            self.assertEqual(u["speed"], "standard")
+
+    def test_an_incomplete_response_after_an_estimate_is_not_lost(self):
+        """A recomputed context estimate zeroes last_token_usage; an incomplete
+        response after it moved the total with a zero last_token_usage, and
+        the reader dropped it as a call with no usage."""
+        got = [ev for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        self.assertEqual(got[-1]["_usage"]["cache_read_input_tokens"], 8960)
+        self.assertEqual(got[-1]["_usage"]["output_tokens"], 1200)
+
+    def test_the_calls_add_up_to_the_running_total(self):
+        """Per-call figures that do not add up to Codex's own running total
+        mean a call was dropped or counted twice."""
+        got = [ev["_usage"] for _, ev in _codex_calls(os.path.join(FIXTURES, "codex", _CODEX_FIXTURE))]
+        total = self.expected["expected_session_totals"]
+        written = sum(u["cache_creation"]["ephemeral_5m_input_tokens"] for u in got)
+        read = sum(u["cache_read_input_tokens"] for u in got)
+        self.assertEqual(sum(u["input_tokens"] for u in got) + read + written,
+                         total["input_tokens_raw"])
+        self.assertEqual(read, total["cached_input_tokens"])
+        self.assertEqual(written, total["cache_write_input_tokens"])
+        self.assertEqual(sum(u["output_tokens"] for u in got), total["output_tokens"])
+        self.assertEqual(sum(u["output_tokens_details"]["thinking_tokens"] for u in got),
+                         total["reasoning_output_tokens"])
+
+    def test_two_identical_responses_are_both_counted(self):
+        """A last_token_usage equal to the one before is also what two
+        identical responses look like; the incomplete-response rule must not
+        turn the second into anything but itself."""
+        u = {"input_tokens": 1000, "cached_input_tokens": 0, "cache_write_input_tokens": 0,
+             "output_tokens": 50, "reasoning_output_tokens": 0, "total_tokens": 1050}
+        double = {k: v * 2 for k, v in u.items()}
+        lines = [
+            {"timestamp": "2026-10-28T10:00:00.000Z", "type": "session_meta",
+             "payload": {"id": "t1", "session_id": "t1", "cwd": "/Users/example/code/demo"}},
+            {"timestamp": "2026-10-28T10:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}},
+            {"timestamp": "2026-10-28T10:00:05.000Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": {"total_token_usage": u, "last_token_usage": u}}},
+            {"timestamp": "2026-10-28T10:00:09.000Z", "type": "event_msg",
+             "payload": {"type": "token_count", "info": {"total_token_usage": double, "last_token_usage": u}}},
+        ]
+        path = os.path.join(self.tmp, "rollout-2026-10-28T10-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        got = [ev["_usage"] for _, ev in _codex_calls(path)]
+        self.assertEqual([g["input_tokens"] for g in got], [1000, 1000])
+
+    def write_session(self, lines):
+        path = os.path.join(self.tmp, "rollout-2026-10-28T10-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(o) for o in lines) + "\n")
+        return path
+
+    def inputs(self, path):
+        return [ev["_usage"]["input_tokens"] + ev["_usage"]["cache_read_input_tokens"]
+                for _, ev in _codex_calls(path)]
+
+    def test_two_incomplete_responses_in_a_row_are_two_calls(self):
+        """Each incomplete response writes its own token_count; were they
+        merged, one call of their summed input could cross a long-context
+        threshold neither crossed."""
+        a, b, c = _codex_usage(1000, out=50), _codex_usage(2000, out=0), _codex_usage(3000, out=0)
+        ab = {k: a[k] + b[k] for k in a}
+        abc = {k: ab[k] + c[k] for k in a}
+        path = self.write_session(_codex_session(_codex_record(a), _codex_count(a, a),
+                                         _codex_record(b, "resp_2"), _codex_count(ab, a),
+                                         _codex_record(c, "resp_3"), _codex_count(abc, a)))
+        self.assertEqual(self.inputs(path), [1000, 2000, 3000])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_forked_threads_first_call_incomplete_is_not_its_parents(self):
+        """A forked or sub-agent thread starts from its parent's figures
+        without its parent's lines; if its first response is incomplete,
+        last_token_usage is the parent's last response, which the reader
+        counted again in place of the incomplete one."""
+        parent_total = _codex_usage(50000, cached=40000, out=900)
+        parent_last = _codex_usage(9000, out=300)
+        mine = _codex_usage(7000, cached=6000, out=0)
+        total = {k: parent_total[k] + mine[k] for k in mine}
+        path = self.write_session(_codex_session(_codex_record(mine), _codex_count(total, parent_last),
+                                         meta={"forked_from_id": "t0"}))
+        got = [ev["_usage"] for _, ev in _codex_calls(path)]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["cache_read_input_tokens"], 6000)
+        self.assertEqual(got[0]["input_tokens"], 1000)
+
+    def test_a_forked_threads_first_call_complete_is_itself(self):
+        """The rule for a forked thread's first incomplete response must not
+        replace a complete first response, whose last_token_usage is its own."""
+        parent_total, mine = _codex_usage(50000, out=900), _codex_usage(7000, out=40)
+        total = {k: parent_total[k] + mine[k] for k in mine}
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_record(mine),
+                                                               _codex_count(total, mine)))),
+                         [7000])
+        # Codex versions before token_usage_record: last_token_usage is the call.
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_count(total, mine)))), [7000])
+
+    def test_a_threads_first_response_incomplete_is_counted(self):
+        """A new thread whose first response is incomplete writes a zero
+        last_token_usage; the reader dropped the call as one with no usage."""
+        mine = _codex_usage(4000, out=100)
+        zero = _codex_usage(0)
+        self.assertEqual(self.inputs(self.write_session(_codex_session(_codex_record(mine),
+                                                               _codex_count(mine, zero)))),
+                         [4000])
+
+    def test_a_move_nothing_can_attribute_is_reported_not_guessed(self):
+        """Where nothing says which response moved the total, the reader must
+        neither count the previous response again nor invent one call from a
+        sum; the report says how many such counts it left out."""
+        parent_total, parent_last = _codex_usage(50000, out=900), _codex_usage(9000, out=300)
+        one, two = _codex_usage(7000), _codex_usage(8000)
+        total = {k: parent_total[k] + one[k] + two[k] for k in one}
+        path = self.write_session(_codex_session(_codex_record(one), _codex_record(two, "resp_2"),
+                                         _codex_count(total, parent_last)))
+        self.assertEqual(_codex_calls(path), [])
+        self.assertEqual(len(tm.codex.notes()), 1)
+        self.assertIn("1 Codex token count moved the running total", tm.codex.notes()[0])
+        # A total that went down with last_token_usage unchanged: not a call.
+        a, b = _codex_usage(1000, out=50), _codex_usage(500)
+        path = self.write_session(_codex_session(_codex_count(a, a), _codex_count(b, a)))
+        self.assertEqual(self.inputs(path), [1000])
+        self.assertEqual(len(tm.codex.notes()), 1)
+        tm.codex.reset()
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_through_the_engine_and_labelled_unverified(self):
+        """The fixed figures reach the report, a copy in archived_sessions
+        counts once, and the report still says Codex is unverified."""
+        self.place()
+        self.place(where="archived_sessions")
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], 4)
+        warns = [t for level, t in tm.report_notes(groups, unknown) if level == "warn"]
+        self.assertTrue(any("Codex figures are unverified" in t for t in warns))
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 4)
+        # Codex's own total_tokens at the session's last token_count.
+        self.assertEqual(out["tokens_on_disk"], 36658)
+
+
 class TestGeminiCliAdapter(Base):
     """Built from the published source and labelled unverified."""
 
@@ -718,6 +1022,218 @@ class TestGeminiCliAdapter(Base):
                             for _, t in tm.report_notes(groups, unknown)))
 
 
+class TestGeminiCliRecheck6814e00(Base):
+    """Gemini CLI session files as 6814e00 writes them."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "gemini-home")
+        shutil.copytree(os.path.join(_GEMINI_HERE, "home"), self.home)
+        self.root = os.path.join(self.home, ".gemini", "tmp")
+        self.chats = os.path.join(self.root, "demo2", "chats")
+        tm.ADAPTER_ROOTS[gemini_cli.NAME] = [self.root]
+        tm._ONLY[:] = [gemini_cli.NAME]
+        self.expected = json.loads(slurp(os.path.join(_GEMINI_HERE, "expected.json")))
+
+    def _calls(self):
+        """Every record the reader yields, last copy of each key kept."""
+        got = {}
+        for path in gemini_cli.files([self.root]):
+            for key, ev in gemini_cli.records(path):
+                got[key] = (path, ev)
+        return got
+
+    def test_each_call_reads_as_the_source_says(self):
+        """Guards the per-call translation of a 6814e00 message: uncached input
+        is input minus cached plus tool, output adds thoughts, and the model,
+        time and folder are the ones the file records. A drift in any field
+        name since 2fe7c2d would show here as a wrong or missing call."""
+        got = self._calls()
+        self.assertEqual(sorted(got), sorted(c["key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                path, ev = got[c["key"]]
+                self.assertEqual(os.path.relpath(path, self.chats), c["file"])
+                u = ev["_usage"]
+                self.assertEqual((ev["model"], ev["provider"], ev["project"]),
+                                 (c["model"], "google", self.expected["project"]))
+                self.assertEqual(ev["when"], parse_time(c["timestamp"]))
+                self.assertEqual((u["input_tokens"], u["cache_read_input_tokens"], u["output_tokens"],
+                                  u["output_tokens_details"]["thinking_tokens"]),
+                                 (c["input"], c["cache_read"], c["output"], c["thinking"]))
+                self.assertEqual(sum(u["cache_creation"].values()), 0)
+
+    def test_engine_totals_equal_the_per_call_figures(self):
+        """Guards against a message counted twice through the engine: one
+        call is written three times (first with tokens, then with tool calls,
+        then inside a legacy $set checkpoint), another twice."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(overall["tokens"]["thinking"], t["thinking"])
+        self.assertEqual(set(groups["project"]), {self.expected["project"]})
+        self.assertEqual(set(groups["provider"]), {"google"})
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], t["calls"])
+
+    def test_patch_set_and_rewind_lines_yield_nothing(self):
+        """Guards against a $patch, $set or $rewindTo line, new or changed
+        since 2fe7c2d, being read as a message: none carries tokens, and a
+        $set checkpoint's messages were already appended one by one."""
+        path = os.path.join(self.chats, _GEMINI_MAIN)
+        keys = [k for k, _ in gemini_cli.records(path)]
+        self.assertEqual(len(keys), 4)            # one message written twice
+        self.assertEqual(len(set(keys)), 3)
+        lines = [l for l in slurp(path).splitlines() if l.startswith('{"$')]
+        self.assertEqual({next(iter(json.loads(l))) for l in lines}, {"$set", "$patch", "$rewindTo"})
+
+    def test_a_removed_or_rewound_call_still_counts(self):
+        """Guards against dropping a call because a later $patch removeIds or
+        $rewindTo took it out of the conversation: the API call was made and
+        billed, and rewinding changes the conversation, not the invoice."""
+        removed = [c["key"] for c in self.expected["calls"] if c.get("removed_by_patch")]
+        self.assertEqual(len(removed), 1)
+        self.assertIn(removed[0], self._calls())
+
+    def test_a_message_with_no_tokens_and_a_cut_off_line_yield_nothing(self):
+        """Guards against a synthetic gemini message from a history sync (no
+        tokens, no model) or a half-written last line becoming a call."""
+        keys = self._calls()
+        self.assertNotIn(f"gemini:{_GEMINI_MAIN_ID}:b1d3f5a7-9c1e-4a3c-8e5a-7b9d1f3a5c8e", keys)
+        self.assertNotIn(f"gemini:{_GEMINI_MAIN_ID}:e9f1a3b5-7d9f-4b1d-8f3b-9c1e3a5c7e0b", keys)
+
+    def test_a_subagent_session_is_read_under_its_parent(self):
+        """Guards against missing subagent calls: 6814e00 writes a subagent's
+        session as chats/<parent session id>/<its own id>.jsonl, a name with no
+        session- prefix, and its folder is still the parent's project."""
+        path = os.path.join(self.chats, _GEMINI_SUB)
+        self.assertIn(path, gemini_cli.files([self.root]))
+        (key, ev), = list(gemini_cli.records(path))
+        self.assertEqual(ev["session"], "0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60")
+        self.assertEqual(ev["project"], "/Users/example/code/demo2")
+
+    def test_a_collided_file_name_is_found_by_its_session(self):
+        """Guards --session against the collision name 6814e00 gives a second
+        file in the same minute, session-<time>-<n>-<id[:8]>.jsonl."""
+        path = os.path.join(self.chats, _GEMINI_COLLIDED)
+        for given in (_GEMINI_COLLIDED_ID, _GEMINI_COLLIDED_ID[:8]):
+            with self.subTest(session=given):
+                self.assertEqual(gemini_cli.files([self.root], session=given), [path])
+                self.assertEqual(json.loads(cli("--json", "--no-ledger", "--session", given))["calls"], 1)
+
+    def test_looks_like_takes_its_own_lines_and_no_other_format(self):
+        """Guards against a line of another harness, Qwen Code (a Gemini CLI
+        fork) above all, being taken for Gemini CLI's, which would count its
+        calls twice or under the wrong source."""
+        main = slurp(os.path.join(self.chats, _GEMINI_MAIN)).splitlines()
+        self.assertTrue(gemini_cli.looks_like(main[0]))             # metadata
+        self.assertTrue(gemini_cli.looks_like(main[3]))             # a gemini message
+        codex = slurp(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl")).splitlines()
+        others = {"qwen-code assistant": _GEMINI_QWEN_ASSISTANT, "qwen-code user": _GEMINI_QWEN_USER,
+                  "claude-code": record("msg_01"), "import": json.dumps(GOOD_IMPORT)}
+        others.update((f"codex line {i}", l) for i, l in enumerate(codex) if l.strip())
+        for name, line in others.items():
+            with self.subTest(other=name):
+                self.assertFalse(gemini_cli.looks_like(line))
+
+    def test_labelled_unverified(self):
+        """Guards against the rechecked reader's figures losing their
+        unverified label in the report."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("Gemini CLI figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+
+_GEMINI_SESSION = os.path.join("demo", "chats", "session-2026-09-26T09-12-3f9c1a2b.jsonl")
+
+
+def _gemini_home(home, runtime=".gemini"):
+    """A Gemini CLI home folder holding the fixture session, with its runtime
+    folder (.gemini, or .cache/.gemini under the macOS sandbox) inside it."""
+    target = os.path.join(home, runtime)
+    shutil.copytree(os.path.join(FIXTURES, "gemini-cli", "home", ".gemini"), target)
+    return os.path.join(target, "tmp", _GEMINI_SESSION)
+
+
+class TestGeminiCliHome(Base):
+    """Where the Gemini CLI reader looks: GEMINI_CLI_HOME stands in for the
+    home folder (packages/core/src/utils/paths.ts:22-28 at google-gemini/
+    gemini-cli 6814e00, read 2 November 2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "user")
+        os.makedirs(self.home)
+
+    def found(self, **env):
+        env.setdefault("HOME", self.home)
+        env.setdefault("USERPROFILE", self.home)  # what ~ means on Windows
+        with unittest.mock.patch.dict(os.environ, env):
+            return gemini_cli.files(gemini_cli.default_roots())
+
+    def test_gemini_cli_home_is_read(self):
+        """The reader only looked in ~/.gemini/tmp and never read
+        GEMINI_CLI_HOME, so every session of a Gemini CLI run with that
+        variable set (a shared machine, a CI job) was missed and its cost
+        reported as nothing. Gemini CLI puts .gemini inside the folder the
+        variable names (packages/core/src/utils/paths.ts:22-28 at 6814e00)."""
+        moved = os.path.join(self.tmp, "job-123")
+        path = _gemini_home(moved)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [path])
+
+    def test_gemini_cli_home_under_the_macos_sandbox_is_read(self):
+        """Under the macOS sandbox Gemini CLI writes to .cache/.gemini inside
+        homedir(), which is GEMINI_CLI_HOME when it is set
+        (packages/core/src/config/storage.ts:97-101 at 6814e00); the reader
+        only looked in ~/.cache/.gemini, so those sessions were missed."""
+        moved = os.path.join(self.tmp, "job-123")
+        path = _gemini_home(moved, os.path.join(".cache", ".gemini"))
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [path])
+
+    def test_home_gemini_is_not_read_when_gemini_cli_home_is_set(self):
+        """With GEMINI_CLI_HOME set Gemini CLI writes nothing under ~/.gemini,
+        so a reader that still read it counted sessions from another
+        configuration (another job, another user's copy) as this one's."""
+        _gemini_home(self.home)
+        moved = os.path.join(self.tmp, "job-123")
+        os.makedirs(moved)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=moved), [])
+
+    def test_an_empty_gemini_cli_home_counts_as_unset(self):
+        """Gemini CLI ignores an empty GEMINI_CLI_HOME and uses the home
+        folder; reading the empty value as a folder would look in the
+        current one and miss ~/.gemini."""
+        path = _gemini_home(self.home)
+        self.assertEqual(self.found(GEMINI_CLI_HOME=""), [path])
+
+    def test_a_tilde_in_gemini_cli_home_is_not_expanded(self):
+        """Gemini CLI uses GEMINI_CLI_HOME as given and never expands a ~ in
+        it (packages/core/src/utils/paths.ts:22-28 at 6814e00), so with the
+        value "~" its sessions are under a folder named ~, not under the home
+        folder. A reader that expanded it read ~/.gemini instead and counted
+        sessions Gemini CLI had not written there as this run's."""
+        with unittest.mock.patch.dict(os.environ, {"GEMINI_CLI_HOME": "~", "HOME": self.home,
+                                                   "USERPROFILE": self.home}):
+            roots = gemini_cli.default_roots()
+        self.assertEqual(roots, [os.path.join("~", ".gemini", "tmp"),
+                                 os.path.join("~", ".cache", ".gemini", "tmp")])
+
+    def test_a_run_prices_sessions_under_gemini_cli_home(self):
+        """The whole command line, not only the reader: with no folder given
+        for Gemini CLI, a run reads GEMINI_CLI_HOME and prices the fixture's
+        three calls. Before, it found none of them."""
+        moved = os.path.join(self.tmp, "job-123")
+        _gemini_home(moved)
+        tm.ADAPTER_ROOTS.pop("gemini-cli", None)
+        env = {"GEMINI_CLI_HOME": moved, "HOME": self.home, "USERPROFILE": self.home}
+        with unittest.mock.patch.dict(os.environ, env):
+            got = json.loads(cli("--json", "--no-ledger", "--adapter", "gemini-cli"))
+        self.assertEqual(got["calls"], 3)
+
+
 class TestOpenCodeAdapter(Base):
     """Built from the published source and labelled unverified."""
 
@@ -777,6 +1293,810 @@ class TestOpenCodeAdapter(Base):
             tm._PROJECT.clear()
 
 
+class TestOpenCodeAt8bca532(Base):
+    """The OpenCode reader against the database layout of 8bca532."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "opencode-data", "opencode")
+        os.makedirs(self.root)
+        self.db = os.path.join(self.root, "opencode.db")
+        con = sqlite3.connect(self.db)
+        con.executescript(slurp(os.path.join(_OPENCODE_HERE, "build_db.sql")))
+        con.commit()
+        con.close()
+        tm.ADAPTER_ROOTS[opencode.NAME] = [self.root]
+        tm._ONLY[:] = [opencode.NAME]
+        self.expected = json.loads(slurp(os.path.join(_OPENCODE_HERE, "expected.json")))
+
+    def records(self):
+        return dict(opencode.records(self.db))
+
+    def test_every_call_matches_its_per_call_figures(self):
+        """Any drift between the reader and OpenCode's 8bca532 layout shows
+        here as a call missing, extra, or with the wrong counts or folder."""
+        got = self.records()
+        self.assertEqual(sorted(got), sorted(c["key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                ev = got[c["key"]]
+                u = ev["_usage"]
+                self.assertEqual(ev["model"], c["model"])
+                self.assertEqual(ev["provider"], c["provider"])
+                self.assertEqual(ev["session"], c["session"])
+                self.assertEqual(ev["cwd"], c["cwd"])
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["timestamp_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual(u["input_tokens"], c["uncached_input"])
+                self.assertEqual(u["cache_read_input_tokens"], c["cache_read"])
+                self.assertEqual(u["cache_creation"]["ephemeral_5m_input_tokens"], c["cache_write"])
+                self.assertEqual(u["output_tokens"], c["output"] + c["reasoning"])
+
+    def test_a_v1_turn_copied_on_upgrade_counts_once(self):
+        """The upgrade copies each v1 assistant message into session_message
+        under its own id with its last step's tokens; read beside the v1
+        step-finish rows, every upgraded turn was counted once more."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v1asst0101", sorted(got))
+        v1 = [k for k, ev in got.items() if ev["session"] == "ses_v1keep0001"]
+        self.assertEqual(sorted(v1), ["opencode:prt_v1step0101", "opencode:prt_v1step0102"])
+
+    def test_claude_agent_calls_are_left_to_claude_code(self):
+        """The claude-agent provider runs the user's claude binary, which
+        saves each call in Claude Code's own log; counting OpenCode's row too
+        priced every such call twice."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v2cla0001", sorted(got))
+        self.assertFalse([ev for ev in got.values() if ev["session"] == "ses_v2claude001"])
+
+    def test_a_fork_does_not_count_its_parents_calls_again(self):
+        """A v2 fork starts with copies of its parent's rows under new ids;
+        counting them charged the parent's calls a second time."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_forkevt01_1", sorted(got))
+        self.assertIn("opencode:msg_v2fork0001", sorted(got))
+        self.assertIn("opencode:msg_v2nat0001", sorted(got))
+
+    def test_a_v2_session_carries_its_folder(self):
+        """v2 sessions live in session_v2 now, so a reader that looked only
+        in session gave every new call an empty folder and --project lost it."""
+        tm._PROJECT[:] = ["widget"]
+        try:
+            overall, *_ = tm.collect(tm.transcripts(project="widget"), ledger=False)
+            self.assertEqual(overall["calls"], 3)
+        finally:
+            tm._PROJECT.clear()
+
+    def test_a_row_still_streaming_or_a_compaction_is_not_a_call(self):
+        """A step still streaming has no tokens yet, and a compaction's tokens
+        are a total over several calls; neither may be priced as one call."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v2nat0003", sorted(got))
+        self.assertNotIn("opencode:msg_v2natcomp01", sorted(got))
+
+    def test_the_engine_totals_match(self):
+        """The engine's totals for the 8bca532 layout equal the sum of the
+        per-call figures, so no call is lost or doubled on the way."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write"])
+        self.assertEqual(overall["tokens"]["output"], t["output"] + t["reasoning"])
+        self.assertEqual(set(groups["provider"]), {"anthropic", "openai"})
+        self.assertFalse(unknown)
+
+    def test_json_counts_the_calls(self):
+        """--json is what scripts read; it must show the same five calls."""
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], self.expected["totals"]["calls"])
+
+    def next_db(self):
+        path = os.path.join(self.root, "opencode-next.db")
+        con = sqlite3.connect(path)
+        con.executescript(slurp(os.path.join(_OPENCODE_HERE, "next_db.sql")))
+        con.commit()
+        con.close()
+        return path
+
+    def test_a_copy_in_opencode_next_counts_once(self):
+        """OpenCode copies opencode-next.db's rows into opencode.db under the
+        same ids and leaves the file; both match opencode*.db, so a key that
+        changed with the file would count every such call twice."""
+        self.next_db()
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+
+    def test_a_fork_in_opencode_next_does_not_count_its_parents_calls(self):
+        """opencode-next.db keeps its v2 sessions, fork_session_id included,
+        in a table named session; a reader that looked for forks only in
+        session_v2 counted the fork's copy of its parent's call from that
+        file, once more than the parent's own row."""
+        got = dict(opencode.records(self.next_db()))
+        self.assertEqual(sorted(got), ["opencode:msg_v2fork0001", "opencode:msg_v2nat0001",
+                                       "opencode:msg_v2nat0002"])
+        self.assertEqual(got["opencode:msg_v2fork0001"]["cwd"], "/Users/example/code/widget")
+
+    def test_labelled_unverified(self):
+        """The reader has not been run against a real database, so the report must say so."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("OpenCode figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+
+class TestKimiCodeAdapter(Base):
+    """Kimi Code session files as a2afdbc writes them."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "kimi-home")
+        shutil.copytree(os.path.join(_KIMI_HERE, "home"), self.home)
+        self.root = os.path.join(self.home, ".kimi-code", "sessions")
+        tm.ADAPTER_ROOTS[kimi_code.NAME] = [self.root]
+        tm._ONLY[:] = [kimi_code.NAME]
+        kimi_code.reset()
+        self.expected = json.loads(slurp(os.path.join(_KIMI_HERE, "expected.json")))
+
+    def _wire(self, session, agent="main"):
+        return os.path.join(self.root, _KIMI_WS, session, "agents", agent, "wire.jsonl")
+
+    def _calls(self):
+        """Every record the reader yields, by key, with how often it was seen."""
+        got, seen = {}, {}
+        for path in kimi_code.files([self.root]):
+            for key, ev in kimi_code.records(path):
+                got.setdefault(key, ev)
+                seen[key] = seen.get(key, 0) + 1
+        return got, seen
+
+    def test_each_call_reads_as_the_source_says(self):
+        """Guards the per-call translation of a usage.record: inputOther is
+        uncached input as it stands, inputCacheCreation a 5-minute write, the
+        model is the one on the llm.request (not the alias usage.record
+        names), and the time, folder, session and subagent flag are the ones
+        the files record. A wrong field name would show as a wrong or missing
+        call."""
+        got, _ = self._calls()
+        self.assertEqual(sorted(got), sorted(c["dedup_key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["dedup_key"]):
+                ev = got[c["dedup_key"]]
+                u = ev["_usage"]
+                self.assertEqual((ev["model"], ev["provider"], ev["project"], ev["cwd"],
+                                  ev["session"], ev["sidechain"], ev["source"]),
+                                 (c["model"], c["provider"], c["cwd"], c["cwd"],
+                                  c["session_id"], c["sidechain"], kimi_code.NAME))
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["time_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual((u["input_tokens"], u["cache_read_input_tokens"],
+                                  u["cache_creation"]["ephemeral_5m_input_tokens"],
+                                  u["cache_creation"]["ephemeral_1h_input_tokens"],
+                                  u["output_tokens"], u["output_tokens_details"]["thinking_tokens"]),
+                                 (c["uncached_input"], c["cache_read"], c["cache_write_5m"], 0,
+                                  c["output"], 0))
+
+    def test_engine_totals_equal_the_per_call_figures(self):
+        """Guards against a call counted twice through the engine: the first
+        call's usage.record is written twice, and the forked session repeats
+        the first turn of the session it forked, times and all."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write_5m"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(set(groups["project"]), {"/Users/example/code/demo"})
+        self.assertEqual(set(groups["session"]), {_KIMI_A, _KIMI_B})
+        self.assertEqual(set(groups["provider"]), {"moonshot", "anthropic"})
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], t["calls"])
+
+    def test_each_call_is_priced_on_its_own(self):
+        """Guards against figures summed before pricing: the engine's total
+        must be the sum of each expected call priced alone, with its own
+        model, table and day."""
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        want = 0.0
+        for c in self.expected["calls"]:
+            u = usage(inp=c["uncached_input"], read=c["cache_read"], w5=c["cache_write_5m"],
+                      out=c["output"])
+            want += cost_of(tm.price_record(
+                c["model"], u, provider=c["provider"],
+                when=dt.datetime.fromtimestamp(c["time_ms"] / 1000, tz=dt.timezone.utc)))
+        self.assertAlmostEqual(overall["total"], want, places=12)
+
+    def test_a_duplicated_line_and_a_fork_count_once(self):
+        """Guards against de-duplication by line, and against a repeated
+        line being reported as a call with no model (its request is already
+        used): a line is repeated, and a fork copies every record of the
+        session it forks, so the same call is seen four times."""
+        _, seen = self._calls()
+        first = self.expected["calls"][0]["dedup_key"]
+        self.assertEqual(seen[first], 4)
+        fork_keys = {k for k, _ in kimi_code.records(self._wire(_KIMI_B))}
+        self.assertEqual(len(fork_keys), 3)
+        self.assertEqual(len(fork_keys & {k for k, _ in kimi_code.records(self._wire(_KIMI_A))}), 2)
+
+    def test_a_model_change_mid_session_is_followed_call_by_call(self):
+        """Guards against one model for a whole session: the alias changes
+        after the first turn, and a custom alias names an Anthropic model, so
+        each call takes the model of the llm.request for its own alias."""
+        models = [ev["model"] for _, ev in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertEqual(models, ["k3", "k3", "k3", "kimi-for-coding", "claude-sonnet-4-6", "k3",
+                                  "k3", "k3"])
+
+    def test_calls_that_cannot_be_counted_exactly_are_left_out_and_reported(self):
+        """Guards against a guessed model, an understated output or cached
+        input priced as uncached: a usage.record with no llm.request for its
+        alias has no model, a call over Google's protocol is recorded without
+        its thinking tokens, and a DeepSeek model over the OpenAI protocol
+        has its cache hits in a field Kimi Code does not read. All are left
+        out, and the report says how many."""
+        got, _ = self._calls()
+        left = self.expected["not_counted"]
+        for key in left["no_model"] + left["no_thinking"] + left["cache_unread"]:
+            self.assertNotIn(key, got)
+        self.assertEqual(kimi_code._STATE["no_model"], set(left["no_model"]))
+        self.assertEqual(kimi_code._STATE["no_thinking"], set(left["no_thinking"]))
+        self.assertEqual(kimi_code._STATE["cache_unread"], set(left["cache_unread"]))
+        notes = kimi_code.notes()
+        self.assertEqual(len(notes), 3)
+        self.assertIn("1 Kimi Code call had no model recorded", notes[0])
+        self.assertIn("1 Kimi Code call over the OpenAI protocol", notes[1])
+        self.assertIn("Gemini", notes[2])
+        kimi_code.reset()
+        self.assertEqual(kimi_code.notes(), [])
+
+    def test_no_usage_a_subagent_total_and_a_cut_off_line_yield_nothing(self):
+        """Guards against counting what is not one API call: a usage.record
+        whose counts are all zero (the provider sent none), the subagent's
+        total on subagent.completed in its parent's file (a sum of the calls
+        in the subagent's own file), and a last line cut off as written."""
+        lines = slurp(self._wire(_KIMI_A)).splitlines()
+        self.assertTrue(any('"inputOther":0,"output":0' in l for l in lines))
+        self.assertTrue(any('"type":"subagent.completed"' in l and '"usage"' in l for l in lines))
+        with self.assertRaises(ValueError):
+            json.loads(lines[-1])
+        keys = [k for k, _ in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertEqual(len(keys), 8)                     # seven calls, one written twice
+        self.assertFalse(any(":0:0:0:0" in k for k in keys))
+        self.assertFalse(any(k.startswith("kimi-code:agent-0:") for k in keys))
+
+    def _write(self, lines):
+        path = os.path.join(self.root, _KIMI_WS, "session_c", "agents", "main", "wire.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(l) for l in lines) + "\n")
+        return path
+
+    @staticmethod
+    def _req(model, kind, at, alias="kimi-code/k3", protocol="openai"):
+        return {"type": "llm.request", "agentId": "main", "kind": kind, "provider": protocol,
+                "model": model, "modelAlias": alias, "toolSelect": False,
+                "systemPromptHash": "sp_1", "toolsHash": "th_1", "messageCount": 2, "time": at}
+
+    @staticmethod
+    def _use(other, scope, at, alias="kimi-code/k3"):
+        return {"type": "usage.record", "agentId": "main", "model": alias,
+                "usage": {"inputOther": other, "output": 10, "inputCacheRead": 0,
+                          "inputCacheCreation": 0}, "usageScope": scope, "time": at}
+
+    def test_a_compaction_beside_a_step_takes_its_own_request(self):
+        """Guards against the latest request of any kind giving a call its
+        model: an automatic compaction runs beside a step, both requests are
+        written before either usage, and if the alias was pointed at another
+        model in between, the step's call must keep the step's model."""
+        path = self._write([self._req("kimi-k2.6", "loop", 1793354400000),
+                            self._req("kimi-k3", "compaction", 1793354400500),
+                            self._use(100, "session", 1793354405000),
+                            self._use(200, "turn", 1793354406000)])
+        got = {ev["_usage"]["input_tokens"]: ev["model"] for _, ev in kimi_code.records(path)}
+        self.assertEqual(got, {100: "kimi-k3", 200: "kimi-k2.6"})
+
+    def test_a_request_serves_one_call(self):
+        """Guards against a stale request naming a later call's model: each
+        call writes its own request first, so a second usage with no request
+        of its own after the first is left out, not given the old model."""
+        path = self._write([self._req("kimi-k3", "loop", 1793354400000),
+                            self._use(100, "turn", 1793354401000),
+                            self._use(200, "turn", 1793354402000)])
+        self.assertEqual([ev["_usage"]["input_tokens"] for _, ev in kimi_code.records(path)], [100])
+        self.assertEqual(len(kimi_code._STATE["no_model"]), 1)
+
+    def test_the_openai_protocol_counts_only_families_whose_cache_it_reads(self):
+        """Guards against cached input priced as uncached: over the OpenAI
+        protocol Kimi Code reads only cached_tokens and
+        prompt_tokens_details.cached_tokens, Moonshot's and OpenAI's fields,
+        so another family's call over it is left out, while over the
+        Anthropic protocol any family is counted."""
+        lines, t = [], 1793354400000
+        for i, (model, protocol) in enumerate((("kimi-k3", "openai"), ("gpt-5.5", "openai"),
+                                               ("deepseek-v4", "openai"), ("glm-5", "openai"),
+                                               ("deepseek-v4", "anthropic"))):
+            lines += [self._req(model, "loop", t + 2 * i, protocol=protocol),
+                      self._use(100 + i, "turn", t + 2 * i + 1)]
+        got = [ev["model"] for _, ev in kimi_code.records(self._write(lines))]
+        self.assertEqual(got, ["kimi-k3", "gpt-5.5", "deepseek-v4"])
+        self.assertEqual(len(kimi_code._STATE["cache_unread"]), 2)
+
+    def test_a_subagents_calls_are_marked_as_a_subagents(self):
+        """Guards against a subagent's calls counted as the main agent's."""
+        evs = [ev for _, ev in kimi_code.records(self._wire(_KIMI_A, "agent-0"))]
+        self.assertEqual(len(evs), 1)
+        self.assertTrue(evs[0]["sidechain"])
+        self.assertEqual(evs[0]["session"], _KIMI_A)
+
+    def test_the_provider_comes_from_the_models_family(self):
+        """Guards against pricing by protocol: llm.request's provider is the
+        wire protocol, and Kimi's own models go over the OpenAI one, which
+        would price k3 from OpenAI's table."""
+        for model, want in (("k3", "moonshot"), ("kimi-for-coding", "moonshot"),
+                            ("kimi-k2.6", "moonshot"), ("claude-sonnet-4-6", "anthropic"),
+                            ("gpt-5.5", "openai"), ("o4-mini", "openai"),
+                            ("gemini-3-pro-preview", "google"), ("deepseek-v4", "deepseek"),
+                            ("grok-5", "xai"), ("glm-5", "zai"), ("devstral-2", "mistral"),
+                            ("qwen3-coder-plus", "unknown"), ("kestrel", "unknown")):
+            with self.subTest(model=model):
+                self.assertEqual(kimi_code.provider_for(model), want)
+
+    def test_session_and_project_narrow_the_files(self):
+        """Guards against --session or --project reading the wrong files: a
+        session is its folder's name, a project the cwd in state.json."""
+        self.assertEqual(kimi_code.files([self.root], session=_KIMI_B), [self._wire(_KIMI_B)])
+        self.assertEqual(len(kimi_code.files([self.root], session=_KIMI_A)), 2)
+        self.assertEqual(len(kimi_code.files([self.root], project="demo")), 3)
+        self.assertEqual(kimi_code.files([self.root], project="elsewhere"), [])
+        got = json.loads(cli("--json", "--no-ledger", "--session", _KIMI_B))
+        self.assertEqual(got["calls"], 3)
+
+    def test_a_missing_state_file_falls_back_to_the_wires_folder(self):
+        """Guards against a call losing its project when state.json is gone:
+        config.update in the wire names the working folder too."""
+        os.remove(os.path.join(self.root, _KIMI_WS, _KIMI_A, "state.json"))
+        evs = [ev for _, ev in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertTrue(evs)
+        self.assertEqual({ev["project"] for ev in evs}, {"/Users/example/code/demo"})
+
+    def test_default_roots_honour_kimi_code_home(self):
+        """Guards against reading ~/.kimi-code when KIMI_CODE_HOME moves it,
+        as resolveKimiHome() in Kimi Code's bootstrap does."""
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": os.path.join(self.home, ".kimi-code")}):
+            self.assertEqual(kimi_code.default_roots(), [self.root])
+            self.assertEqual(len(kimi_code.files(kimi_code.default_roots())), 3)
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": ""}):
+            self.assertEqual(kimi_code.default_roots(),
+                             [os.path.join(os.path.expanduser("~/.kimi-code"), "sessions")])
+
+    def test_looks_like_takes_its_own_lines_and_no_other_format(self):
+        """Guards against a line of another harness being taken for Kimi
+        Code's, which would count its calls under the wrong source, and
+        against kimi-cli's wire.jsonl, which records no model, being read."""
+        lines = slurp(self._wire(_KIMI_A)).splitlines()
+        self.assertTrue(kimi_code.looks_like(lines[0]))             # metadata
+        self.assertTrue(any(kimi_code.looks_like(l) for l in lines if '"llm.request"' in l))
+        self.assertTrue(any(kimi_code.looks_like(l) for l in lines if '"usage.record"' in l))
+        others = {"claude-code": record("msg_01"), "import": json.dumps(GOOD_IMPORT),
+                  "kimi-cli status": _KIMI_CLI_STATUS, "kimi-cli metadata": _KIMI_CLI_META}
+        for path in self._other_fixture_lines_files():
+            for i, line in enumerate(slurp(path).splitlines()):
+                if line.strip():
+                    others[f"{os.path.relpath(path, FIXTURES)}:{i}"] = line
+        self.assertTrue(any(k.startswith("gemini-cli") for k in others))
+        self.assertTrue(any(k.startswith("codex") for k in others))
+        for name, line in others.items():
+            with self.subTest(other=name):
+                self.assertFalse(kimi_code.looks_like(line))
+
+    @staticmethod
+    def _other_fixture_lines_files():
+        """Every line-based fixture of another reader, hidden folders
+        (.gemini) included, which glob leaves out."""
+        out = []
+        for top, dirs, names in os.walk(FIXTURES):
+            if os.path.relpath(top, FIXTURES).split(os.sep)[0] == "kimi-code":
+                continue
+            out += [os.path.join(top, n) for n in names if n.endswith(".jsonl")]
+        return sorted(out)
+
+    def test_labelled_unverified(self):
+        """Guards against the reader's figures losing their unverified label
+        in the report."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("Kimi Code figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+
+class TestDeepSeekHarnessAdapter(Base):
+    """Built from the published source and labelled unverified."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "dsh-home")
+        shutil.copytree(os.path.join(_DSH_HERE, "dsh-home"), self.home)
+        self.root = os.path.join(self.home, "sessions")
+        tm.ADAPTER_ROOTS[deepseek_harness.NAME] = [self.root]
+        tm._ONLY[:] = [deepseek_harness.NAME]
+        self.expected = json.loads(slurp(os.path.join(_DSH_HERE, "expected.json")))
+
+    def session_file(self, project, sid, name="session.v4.jsonl"):
+        return os.path.join(self.root, project, sid, name)
+
+    def read_all(self, paths=None):
+        deepseek_harness.reset()
+        out = []
+        for path in paths or deepseek_harness.files([self.root]):
+            out.extend(deepseek_harness.records(path))
+        return out
+
+    def test_reads_as_the_source_says(self):
+        """The whole tree through the engine: eight calls, each counted once,
+        with input uncached, cache reads and writes apart, and output whole."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(set(groups["provider"]), {"deepseek", "anthropic", "openai"})
+        self.assertEqual(set(groups["project"]), {"/Users/example/code/demo", "/Users/example/code/api"})
+
+    def test_every_call_as_expected(self):
+        """Each call's model, route, time, folder and counts, against the
+        per-call figures in expected.json. A count read from the wrong field,
+        or a time from the wrong event, changes one of them."""
+        got = {}
+        for key, ev in self.read_all():
+            got.setdefault(key, ev)
+        self.assertEqual(set(got), {c["key"] for c in self.expected["calls"]})
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                ev = got[c["key"]]
+                self.assertEqual(ev["model"], c["model"])
+                self.assertEqual(ev["provider"], c["provider"])
+                self.assertEqual(ev["session"], c["session_id"])
+                self.assertEqual(ev["project"], c["project"])
+                self.assertEqual(ev["cwd"], c["cwd"])
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["time_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual(ev["source"], "deepseek-harness")
+                self.assertEqual(ev["_usage"], usage(inp=c["uncached_input"], read=c["cache_read"],
+                                                     w5=c["cache_write"], out=c["output"],
+                                                     think=c["reasoning"], speed="standard"))
+
+    def test_priced_per_call_at_peak_and_off_peak(self):
+        """DeepSeek charges half outside 01:00 to 04:00 and 06:00 to 10:00 UTC
+        on weekdays. A figure summed over calls either side of 10:00 could not
+        be priced right; each call here is priced at its own time."""
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        want = 0.0
+        for c in self.expected["calls"]:
+            u = usage(inp=c["uncached_input"], read=c["cache_read"], w5=c["cache_write"],
+                      out=c["output"], think=c["reasoning"])
+            when = dt.datetime.fromtimestamp(c["time_ms"] / 1000, tz=dt.timezone.utc)
+            want += cost_of(tm.price_record(c["model"], u, provider=c["provider"], when=when))
+        self.assertAlmostEqual(overall["total"], want, places=12)
+        flash = [c for c in self.expected["calls"] if c["model"] == "deepseek-flash"
+                 and c["timestamp"].startswith("2026-09-30T10:00")][0]
+        u = usage(inp=flash["uncached_input"], read=flash["cache_read"], out=flash["output"])
+        at = dt.datetime.fromtimestamp(flash["time_ms"] / 1000, tz=dt.timezone.utc)
+        off = cost_of(tm.price_record("deepseek-flash", u, provider="deepseek", when=at))
+        peak = cost_of(tm.price_record("deepseek-flash", u, provider="deepseek",
+                                       when=at - dt.timedelta(minutes=1)))
+        self.assertAlmostEqual(off, peak / 2, places=12)
+
+    def test_only_the_highest_generation_is_read(self):
+        """Opening an older session writes a migrated successor and keeps the
+        predecessor beside it. Reading both read the same session twice."""
+        found = deepseek_harness.files([self.root])
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        self.assertIn(os.path.join(folder, "session.v4.jsonl"), found)
+        self.assertNotIn(os.path.join(folder, "session.v3.jsonl"), found)
+        os.remove(os.path.join(folder, "session.v4.jsonl"))
+        self.assertIn(os.path.join(folder, "session.v3.jsonl"), deepseek_harness.files([self.root]))
+        # A temporary migration file is not a generation.
+        open(os.path.join(folder, "session.v5.jsonl.tmp-123"), "w").close()
+        self.assertIn(os.path.join(folder, "session.v3.jsonl"), deepseek_harness.files([self.root]))
+
+    def test_a_fork_counts_its_inherited_calls_once(self):
+        """A subagent child starts with a byte copy of its parent's history up
+        to a tagged session/end-seed. Keyed by message id, the copied calls
+        count once, and stay the parent's even though the child's file ends
+        first; the child's own call counts as a subagent's."""
+        child = self.read_all([self.session_file(_DSH_DEMO, _DSH_S3)])
+        self.assertEqual(len(child), 3)
+        own = [ev for _, ev in child if ev["sidechain"]]
+        self.assertEqual([ev["model"] for ev in own], ["deepseek-flash"])
+        self.assertEqual(sum(1 for _, ev in child if not ev["sidechain"]), 2)
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+        self.assertEqual(groups["session"][_DSH_S3]["calls"], 1)
+        self.assertEqual(groups["session"][_DSH_S1]["calls"], 4)
+
+    def test_repeated_interrupted_and_torn_rows(self):
+        """A row written twice counts once, a call cancelled before its usage
+        arrived has nothing to count, and a torn last line is skipped rather
+        than ending the run."""
+        rows = self.read_all([self.session_file(_DSH_DEMO, _DSH_S1)])
+        keys = [k for k, _ in rows]
+        self.assertEqual(len(keys), 5)          # the repeated row is yielded twice
+        self.assertEqual(len(set(keys)), 4)
+        self.assertNotIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e04", keys)
+
+    def test_a_failed_attempt_with_usage_counts_and_a_zero_one_does_not(self):
+        """An error that came back with usage was billed; it is an
+        assistant/attempt with no model, whose route is the latest
+        request/context. pi-ai reports zeros for a transport failure, which
+        billed nothing."""
+        rows = self.read_all([self.session_file(_DSH_API, _DSH_S2)])
+        attempt = [ev for k, ev in rows if k.startswith("deepseek-harness:attempt:")]
+        self.assertEqual(len(attempt), 1)
+        self.assertEqual((attempt[0]["provider"], attempt[0]["model"]),
+                         ("anthropic", "claude-sonnet-4-5"))
+        self.assertEqual(attempt[0]["_usage"]["input_tokens"], 5120)
+
+    def test_a_failed_attempt_takes_the_route_of_its_own_request(self):
+        """A retry on another route logs a new request/context before its
+        request, after the failed attempt settled. Reading the route at the
+        end of the step gave the failed call the fallback's model."""
+        path = self.session_file(_DSH_API, _DSH_S2)
+        lines = slurp(path).splitlines()
+        fallback = json.dumps({"type": "request/context", "seq": 9, "time": 1791037212900,
+                               "data": {"provider": "deepseek-official", "model": "deepseek-flash",
+                                        "contextWindow": 1000000}})
+        at = next(i for i, l in enumerate(lines) if '"llm/retry-started"' in l) + 1
+        with open(path, "w") as f:
+            f.write("\n".join(lines[:at] + [fallback] + lines[at:]) + "\n")
+        rows = self.read_all([path])
+        attempt = [ev for k, ev in rows if k.startswith("deepseek-harness:attempt:")]
+        self.assertEqual((attempt[0]["provider"], attempt[0]["model"]),
+                         ("anthropic", "claude-sonnet-4-5"))
+
+    def test_a_cache_write_on_another_route_is_not_counted(self):
+        """pi-ai writes one-hour cache entries when a profile asks for long
+        retention, and the log does not say which a write was. Priced as a
+        five-minute write, such a call could be understated; it is left out
+        and the report counts it. DeepSeek bills a write as input either
+        way, so its own routes are not affected."""
+        keys = {k for k, _ in self.read_all([self.session_file(_DSH_API, _DSH_S2)])}
+        self.assertNotIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e07", keys)
+        self.assertEqual(deepseek_harness._STATE["lifetime_unknown"],
+                         {"deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e07"})
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        text = slurp(path).replace('"cacheReadTokens":9344,', '"cacheReadTokens":9344,"cacheWriteTokens":64,')
+        with open(path, "w") as f:
+            f.write(text)
+        rows = dict(self.read_all([path]))
+        written = rows["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e02"]["_usage"]["cache_creation"]
+        self.assertEqual(written["ephemeral_5m_input_tokens"], 64)
+        self.assertEqual(deepseek_harness._STATE["lifetime_unknown"], set())
+
+    def test_format_1_failed_runs_are_calls_too(self):
+        """Formats 0 and 1 have no assistant/attempt: a failed call is a run
+        of assistant/chunk events that no assistant/message cites, ended by a
+        retry, as the harness's own migration ends it. Only messages were
+        read before, so a billed failure there was lost; and a run that a
+        message cites must not count again."""
+        rows = self.read_all([self.session_file(_DSH_API, _DSH_S4, "session.v1.jsonl")])
+        self.assertEqual(sorted(k for k, _ in rows),
+                         ["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e08",
+                          "deepseek-harness:attempt:1790074802400:1:1:3100:1024:0:9"])
+        self.assertTrue(all(ev["model"] == "gpt-5-mini" and ev["provider"] == "openai"
+                            for _, ev in rows))
+        self.assertIs(tm.adapter_for(self.session_file(_DSH_API, _DSH_S4, "session.v1.jsonl")),
+                      deepseek_harness)
+
+    def test_a_message_without_data_usage_reads_its_stream(self):
+        """The harness meters a message by data.usage, or else the last usage
+        chunk in its stream (token-meter usageOf). Reading data.usage alone
+        lost such a call."""
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        lines = slurp(path).splitlines()
+        for i, l in enumerate(lines):
+            if "5e01" in l and '"assistant/message"' in l:
+                ev = json.loads(l)
+                del ev["data"]["usage"]
+                lines[i] = json.dumps(ev)
+        with open(path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        rows = dict(self.read_all([path]))
+        self.assertEqual(rows["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e01"]["_usage"]["input_tokens"],
+                         9412)
+
+    def test_compaction_is_its_own_call(self):
+        """The summary call is metered on compaction/summary, not on any
+        assistant/message; missing it undercounts every compacted session."""
+        rows = dict(self.read_all([self.session_file(_DSH_DEMO, _DSH_S1)]))
+        ev = rows["deepseek-harness:compaction:a7e3c9d1-2b4f-4e6a-8c0d-3f5e7a9b1c2d"]
+        self.assertEqual((ev["model"], ev["provider"]), ("deepseek-flash", "deepseek"))
+        self.assertEqual(ev["_usage"]["cache_read_input_tokens"], 10240)
+
+    def test_another_summarisers_compaction_is_not_counted(self):
+        """Only a summary marked llmStreamCall is one call through the
+        harness's own model client. Another summariser's usage may cover
+        several calls, which priced as one could cross a threshold none of
+        them did; it is left out and the report counts it."""
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        text = slurp(path).replace('"llmStreamCall":true,', "")
+        with open(path, "w") as f:
+            f.write(text)
+        keys = {k for k, _ in self.read_all([path])}
+        self.assertNotIn("deepseek-harness:compaction:a7e3c9d1-2b4f-4e6a-8c0d-3f5e7a9b1c2d", keys)
+        self.assertEqual(len(deepseek_harness._STATE["summariser"]), 1)
+
+    def test_notes(self):
+        """The report says the figures are unverified, and how many calls it
+        left out: a cache write of unknown lifetime, the title request and
+        the interrupted call. A silent omission reads as a complete total."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("DeepSeek Harness figures", notes)
+        self.assertIn("are unverified", notes)
+        self.assertIn("1 DeepSeek Harness call on a route other than DeepSeek's wrote to a "
+                      "prompt cache and is not counted", notes)
+        self.assertIn("1 DeepSeek Harness title or web-search request is not counted", notes)
+        self.assertIn("1 interrupted DeepSeek Harness call is not counted", notes)
+
+    def test_labelled_unverified(self):
+        """A reader built from source alone, never run on real files, must
+        say so on every report; figures without the caveat read as checked."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("DeepSeek Harness figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+    def test_the_command_line(self):
+        """--json counts the same calls as the engine does; a reader that
+        works only through collect() would vanish from the command line."""
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], self.expected["totals"]["calls"])
+
+    def test_session_and_project_filters(self):
+        """A session is named by its folder, and a project by the header's cwd."""
+        self.assertEqual(deepseek_harness.files([self.root], session=_DSH_S2),
+                         [self.session_file(_DSH_API, _DSH_S2)])
+        self.assertEqual(len(deepseek_harness.files([self.root], project="/Users/example/code/demo")), 2)
+        self.assertEqual(deepseek_harness.files([self.root], project="/Users/example/code/elsewhere"), [])
+        got = json.loads(cli("--json", "--no-ledger", "--session", _DSH_S1))
+        self.assertEqual(got["calls"], 4)
+
+    def test_default_roots_honour_dsh_home(self):
+        """$DSH_HOME moves everything the harness keeps; a blank one is unset."""
+        with unittest.mock.patch.dict(os.environ, {"DSH_HOME": self.home}):
+            self.assertEqual(deepseek_harness.default_roots(), [self.root])
+        with unittest.mock.patch.dict(os.environ, {"DSH_HOME": "  "}):
+            self.assertEqual(deepseek_harness.default_roots(), [os.path.expanduser("~/.dsh/sessions")])
+        env = dict(os.environ)
+        env.pop("DSH_HOME", None)
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(deepseek_harness.default_roots(), [os.path.expanduser("~/.dsh/sessions")])
+
+    def test_looks_like_is_strict(self):
+        """Claude Code's test is the loosest and runs last; this one must not
+        claim a line of any other reader's format, hidden folders (.gemini,
+        .kimi-code) included, which glob leaves out."""
+        others = [record("msg_1"), json.dumps(GOOD_IMPORT)]
+        paths = [os.path.join(top, n) for top, _, names in os.walk(FIXTURES) for n in names
+                 if ".json" in n]
+        for path in sorted(paths):
+            if os.sep + "deepseek-harness" + os.sep in path or path.endswith("expected.json"):
+                continue
+            others.extend(l for l in slurp(path, encoding="utf-8", errors="ignore").splitlines()
+                          if l.strip())
+        self.assertTrue(others)
+        for line in others:
+            with self.subTest(line=line[:80]):
+                self.assertFalse(deepseek_harness.looks_like(line))
+        own = slurp(self.session_file(_DSH_DEMO, _DSH_S1)).splitlines()
+        self.assertTrue(deepseek_harness.looks_like(own[0]))
+        self.assertTrue(all(deepseek_harness.looks_like(l) for l in own[1:-1]))
+        self.assertIs(tm.adapter_for(self.session_file(_DSH_DEMO, _DSH_S1)), deepseek_harness)
+
+    def compress(self, frames_of, cut=0):
+        """The v4 session as the harness compresses it: one frame for the
+        header, then one per append batch."""
+        raw = slurp(self.session_file(_DSH_DEMO, _DSH_S1), mode="rb").split(b"\n")
+        lines = [l + b"\n" for l in raw if l.strip()][:-1]          # drop the torn line
+        frames = [lines[:1]] + [lines[i:i + frames_of] for i in range(1, len(lines), frames_of)]
+        parts = [zstd_compress(b"".join(f)) for f in frames]
+        if parts[0] is None:
+            self.skipTest("no zstd encoder on this machine")
+        data = b"".join(parts)
+        if cut:
+            data = data[:-cut]
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        for name in os.listdir(folder):
+            os.remove(os.path.join(folder, name))
+        path = os.path.join(folder, "session.v4.jsonl.zstd")
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_a_compressed_session_is_read_across_every_frame(self):
+        """The harness writes one Zstandard frame per append. A decoder that
+        stops at the end of the first frame (the zstandard package's default)
+        read the header and nothing else."""
+        path = self.compress(frames_of=3)
+        rows = self.read_all([path])
+        self.assertEqual(len({k for k, _ in rows}), 4)
+        self.assertEqual(deepseek_harness.files([self.root], project="/Users/example/code/demo"),
+                         sorted([path, self.session_file(_DSH_DEMO, _DSH_S3)]))
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+
+    def test_a_torn_last_frame_keeps_the_calls_before_it(self):
+        """A crash or a write in progress leaves a torn final frame. Treating
+        the whole file as unreadable lost every call in the session."""
+        path = self.compress(frames_of=10, cut=7)
+        keys = {k for k, _ in self.read_all([path])}
+        self.assertIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e01", keys)
+        self.assertIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e02", keys)
+        self.assertEqual(deepseek_harness._STATE["compressed_damaged"], 1)
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("1 compressed DeepSeek Harness session (.jsonl.zstd) ended in a damaged "
+                      "or unfinished frame", notes)
+
+    def test_python_decoders_read_one_frame_at_a_time(self):
+        """Python's own zstd and the zstandard package decode one frame per
+        decompressor. Reading on with one decompressor stopped at the first
+        frame (the header); a stream reader that fails at a torn last frame
+        dropped the whole frames in its last block. A stand-in decoder, one
+        frame per b"F" + length + payload, shows the loop reads every frame
+        and keeps those before a torn one."""
+
+        class Torn(Exception):
+            pass
+
+        class Frame:
+            def __init__(self):
+                self.eof, self.unused_data = False, b""
+
+            def decompress(self, data):
+                if data[:1] != b"F":
+                    raise Torn()
+                size = int.from_bytes(data[1:5], "big")
+                body = data[5:5 + size]
+                if len(body) < size:
+                    return body[:0]
+                self.eof, self.unused_data = True, data[5 + size:]
+                return body
+
+        def frame(b):
+            return b"F" + len(b).to_bytes(4, "big") + b
+
+        path = os.path.join(self.tmp, "frames.jsonl.zstd")
+        whole_ = frame(b"one\n") + frame(b"two\n") + frame(b"three\n")
+        with open(path, "wb") as f:
+            f.write(whole_)
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\nthree\n", False))
+        with open(path, "wb") as f:
+            f.write(whole_[:-3])
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\n", True))
+        with open(path, "wb") as f:
+            f.write(whole_ + b"junk")
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\nthree\n", True))
+
+    def test_no_decoder_is_reported_not_fatal(self):
+        """Without zstd anywhere a compressed session cannot be read: it is
+        counted and reported, and the run goes on."""
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        for name in os.listdir(folder):
+            os.remove(os.path.join(folder, name))
+        with open(os.path.join(folder, "session.v4.jsonl.zstd"), "wb") as f:
+            f.write(b"\x28\xb5\x2f\xfd not really\n")
+        with unittest.mock.patch.dict(sys.modules, {"compression": None, "compression.zstd": None,
+                                                    "zstandard": None}), \
+                unittest.mock.patch.object(codex_module, "_decoder", lambda: None):
+            overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+            notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        # Session 2's one call, the format 1 session's two and the child's
+        # three: its copies of the parent's calls now stand alone.
+        self.assertEqual(overall["calls"], 6)
+        self.assertIn("1 compressed DeepSeek Harness session (.jsonl.zstd) could not be read", notes)
+
+
 class TestTokenCounts(Base):
     """Codex, Gemini CLI and OpenCode each kept their own copy of the rule for
     reading a count from a log, and a count of Infinity or NaN, both of which
@@ -825,6 +2145,1125 @@ class TestTokenCounts(Base):
         (_, ev), = list(gemini_cli.records(gemini_file))
         self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (50, 0))
 
+
+_CX_FIXTURE = os.path.join(FIXTURES, "codex", "remote_compaction.jsonl")
+_CX_THREAD = "019a3c51-7e20-7b44-9d16-2f8e4a6c0b19"
+
+
+def _cx_u(inp, cached=0, written=0, out=0, reasoning=0, total=None):
+    return {"input_tokens": inp, "cached_input_tokens": cached,
+            "cache_write_input_tokens": written, "output_tokens": out,
+            "reasoning_output_tokens": reasoning,
+            "total_tokens": inp + out if total is None else total}
+
+
+def _cx_count(total, last, at="2026-10-30T15:00:05.000Z"):
+    return {"timestamp": at, "type": "event_msg",
+            "payload": {"type": "token_count",
+                        "info": {"total_token_usage": total, "last_token_usage": last,
+                                 "model_context_window": 258400}, "rate_limits": None}}
+
+
+def _cx_record(u, response, at="2026-10-30T15:00:04.900Z"):
+    return {"timestamp": at, "type": "token_usage_record",
+            "payload": {"thread_id": "t1", "turn_id": "turn_1", "session_id": "t1",
+                        "root_turn_id": "turn_1", "response_id": response, "usage": u,
+                        "turn_token_usage": u, "thread_token_usage": u}}
+
+
+def _cx_compacted(response, message="", at="2026-10-30T15:00:04.950Z"):
+    return {"timestamp": at, "type": "compacted",
+            "payload": {"message": message, "replacement_history": [],
+                        "window_number": 1, "first_window_id": "win_01",
+                        "previous_window_id": None, "window_id": "win_02",
+                        "compaction_response_id": response,
+                        "latest_token_usage_record": None}}
+
+
+def _cx_session(*lines):
+    head = [{"timestamp": "2026-10-30T15:00:00.000Z", "type": "session_meta",
+             "payload": {"id": "t1", "session_id": "t1", "cwd": "/Users/example/code/demo"}},
+            {"timestamp": "2026-10-30T15:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}}]
+    return head + list(lines)
+
+
+class TestCodexRemoteCompaction(Base):
+    """A remote compaction is a billed request that no token_count carries.
+    Its token_usage_record names no model: it is counted where the lines
+    before it cannot name the wrong one, and reported, never guessed, where
+    they can."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "codex-home")
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.home, "sessions"),
+                                     os.path.join(self.home, "archived_sessions")]
+
+    def place(self, where="sessions", source=_CX_FIXTURE):
+        d = os.path.join(self.home, where, "2026", "10", "30")
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, f"rollout-2026-10-30T14-00-00-{_CX_THREAD}.jsonl")
+        shutil.copy(source, dest)
+        return dest
+
+    def write_session(self, lines):
+        path = os.path.join(self.tmp, "rollout-2026-10-30T15-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        return path
+
+    def calls(self, path):
+        tm.codex.reset()
+        return list(tm.codex.records(path))
+
+    def test_a_remote_compaction_is_reported_not_dropped_without_a_word(self):
+        """Bug: a remote compaction's token_usage_record was cleared by the
+        token_count after it, whose total had not moved, so the request was
+        left out of every figure and the report said nothing. The calls
+        around it count exactly as before: the call before the model switch
+        on the old model, the one after on the new, and a local compaction,
+        whose total does move, once."""
+        got = self.calls(_CX_FIXTURE)
+        self.assertEqual([(ev["model"], ev["_usage"]["input_tokens"],
+                           ev["_usage"]["cache_read_input_tokens"],
+                           ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"],
+                           ev["_usage"]["output_tokens"],
+                           ev["_usage"]["output_tokens_details"]["thinking_tokens"])
+                          for _, ev in got],
+                         [("gpt-6.1-sol", 1032, 0, 7168, 900, 320),
+                          ("gpt-6.1-sol", 8232, 7168, 0, 1100, 0),
+                          ("gpt-6.1-terra", 2004, 0, 4096, 750, 210)])
+        notes = tm.codex.notes()
+        self.assertEqual(notes, ["1 Codex remote compaction is not counted: Codex records "
+                                 "its tokens without the model that ran it, and the "
+                                 "settings changed around it"])
+
+    def test_a_local_compaction_is_counted_and_not_reported(self):
+        """Bug guarded: telling a remote compaction by its compacted line
+        alone would also report a local one, whose response the running total
+        has already gained and which is counted as a call."""
+        mine = _cx_u(9000, cached=4000, out=600)
+        path = self.write_session(_cx_session(_cx_record(mine, "resp_local"), _cx_count(mine, mine),
+                                           _cx_compacted("resp_local", "Summary of the work."),
+                                           _cx_count(mine, _cx_u(0, total=3000))))
+        self.assertEqual([ev["_usage"]["input_tokens"] for _, ev in self.calls(path)], [5000])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_remote_compaction_opening_a_forked_file_is_not_called_a_move(self):
+        """Bug: in a file that starts from a parent thread's figures, the
+        token_count Codex re-sends after a remote compaction was the file's
+        first, and the compaction's record before it was read as the call it
+        reported, so the report said a token count had moved the total, which
+        it had not. It is one remote compaction, counted once as itself."""
+        parent = _cx_u(50000, cached=30000, out=2000)
+        mine = _cx_u(21000, cached=16000, out=2500)
+        path = self.write_session(_cx_session(_cx_record(mine, "resp_remote"),
+                                           _cx_compacted("resp_remote"),
+                                           _cx_count(parent, _cx_u(0, total=4000))))
+        self.assertEqual([key for key, _ in self.calls(path)],
+                         ["codex:t1:compaction:resp_remote"])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_remote_compaction_on_unchanged_settings_is_counted(self):
+        """Bug: a remote compaction was left out (or only noted) even when no
+        settings line since the last turn_context named another model, where
+        Codex runs it on that turn's own settings, so a billed request with
+        an exact per-request record was missing from the figures. It is
+        counted once, at that model and tier, from its own record, and the
+        calls around it are unchanged."""
+        first = _cx_u(9000, cached=4000, out=600, reasoning=100)
+        squeeze = _cx_u(30000, cached=20000, written=2000, out=1200, reasoning=300)
+        same = {"timestamp": "2026-10-30T15:00:04.800Z", "type": "event_msg",
+                "payload": {"type": "thread_settings_applied",
+                            "thread_settings": {"model": "gpt-6.1-sol",
+                                                "model_provider_id": "openai"}}}
+        path = self.write_session(_cx_session(_cx_record(first, "resp_1"), _cx_count(first, first),
+                                           same, _cx_record(squeeze, "resp_2"),
+                                           _cx_compacted("resp_2"),
+                                           _cx_count(first, _cx_u(0, total=3000))))
+        got = self.calls(path)
+        self.assertEqual([key for key, _ in got], ["codex:t1:9000:4000:0:600:100",
+                                                   "codex:t1:compaction:resp_2"])
+        ev = got[1][1]
+        self.assertEqual((ev["model"], ev["provider"], ev["_usage"]["input_tokens"],
+                          ev["_usage"]["cache_read_input_tokens"],
+                          ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"],
+                          ev["_usage"]["output_tokens"],
+                          ev["_usage"]["output_tokens_details"]["thinking_tokens"]),
+                         ("gpt-6.1-sol", "openai", 8000, 20000, 2000, 1200, 300))
+        self.assertEqual(ev["when"], codex_module.parse_time("2026-10-30T15:00:04.900Z"))
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_changed_settings_or_no_turn_context_leave_it_noted(self):
+        """Bug guarded: a settings line since the last turn_context that
+        names another model, provider or tier means the compaction may have
+        run on either (a model switch compacts on the previous model, a
+        mid-turn update leaves the running turn on the old one), and a file
+        with no turn_context names no model at all. Each is noted, never
+        counted at a guess."""
+        squeeze = _cx_u(30000, cached=20000, out=1200)
+        changes = {"model": {"model": "gpt-6.1-terra"},
+                   "provider": {"model_provider_id": "azure"},
+                   "tier": {"service_tier": "priority"}}
+        for name, ts in changes.items():
+            with self.subTest(change=name):
+                applied = {"timestamp": "2026-10-30T15:00:04.800Z", "type": "event_msg",
+                           "payload": {"type": "thread_settings_applied",
+                                       "thread_settings": ts}}
+                path = self.write_session(_cx_session(applied, _cx_record(squeeze, "resp_2"),
+                                                   _cx_compacted("resp_2"),
+                                                   _cx_count(_cx_u(1), _cx_u(0, total=3000))))
+                self.assertEqual(self.calls(path), [])
+                self.assertEqual([n[:40] for n in tm.codex.notes()],
+                                 ["1 Codex remote compaction is not counted"])
+        with self.subTest(change="no turn_context"):
+            path = self.write_session(_cx_session()[:1] + [_cx_record(squeeze, "resp_2"),
+                                                        _cx_compacted("resp_2")])
+            self.assertEqual(self.calls(path), [])
+            self.assertEqual([n[:40] for n in tm.codex.notes()],
+                             ["1 Codex remote compaction is not counted"])
+
+    def test_a_counted_compaction_in_both_folders_counts_once(self):
+        """Bug guarded: a session read from sessions/ and again from its copy
+        in archived_sessions/ must count its remote compaction once, as its
+        other calls count once."""
+        first = _cx_u(9000, cached=4000, out=600)
+        squeeze = _cx_u(30000, cached=20000, out=1200)
+        lines = _cx_session(_cx_record(first, "resp_1"), _cx_count(first, first),
+                         _cx_record(squeeze, "resp_2"), _cx_compacted("resp_2"),
+                         _cx_count(first, _cx_u(0, total=3000)))
+        source = self.write_session(lines)
+        for where in ("sessions", "archived_sessions"):
+            self.place(where, source)
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 2)
+        self.assertNotIn("remote compaction", cli("--no-ledger"))
+
+    def test_a_compaction_in_both_folders_is_reported_once(self):
+        """Bug guarded: a session read from sessions/ and again from its copy
+        in archived_sessions/ must report its remote compaction once, as its
+        calls count once."""
+        tm.codex.reset()
+        for where in ("sessions", "archived_sessions"):
+            list(tm.codex.records(self.place(where)))
+        self.assertEqual(len(tm.codex.notes()), 1)
+        self.assertIn("1 Codex remote compaction is not counted", tm.codex.notes()[0])
+        tm.codex.reset()
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_through_the_engine(self):
+        """Bug: the report's figures left a remote compaction out without a
+        word. The three calls reach the report and its notes say what is
+        missing."""
+        self.place()
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 3)
+        text = cli("--no-ledger")
+        self.assertIn("1 Codex remote compaction is not counted", text)
+
+
+class TestCodexHome(Base):
+    """CODEX_HOME as Codex reads it (find_codex_home, codex-rs/utils/home-dir
+    at c725e47): one path, an empty value as unset, and anything not absolute
+    resolved against the folder Codex was started in."""
+
+    def roots(self, value):
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOME": value, "HOME": self.tmp}):
+            return codex_module.default_roots(), codex_module.notes()
+
+    def test_one_path_even_with_a_comma_and_a_colon(self):
+        """Bug: the reader split CODEX_HOME at every comma and colon, which
+        Codex never does, so a home whose path held either was read as
+        several folders that do not exist and its sessions were missed."""
+        home = os.path.join(self.tmp, "work,codex:home")
+        d = os.path.join(home, "sessions", "2026", "10", "30")
+        os.makedirs(d)
+        shutil.copy(_CX_FIXTURE, os.path.join(d, f"rollout-2026-10-30T14-00-00-{_CX_THREAD}.jsonl"))
+        roots, notes = self.roots(home)
+        self.assertEqual(roots, [os.path.join(home, "sessions"),
+                                 os.path.join(home, "archived_sessions")])
+        self.assertEqual(notes, [])
+        tm.ADAPTER_ROOTS.pop("codex")
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOME": home, "HOME": self.tmp}):
+            out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 3)
+
+    def test_an_empty_value_is_the_default(self):
+        """Bug guarded: Codex treats an empty CODEX_HOME as unset, so the
+        reader reads ~/.codex and has nothing to report."""
+        roots, notes = self.roots("")
+        default = os.path.join(self.tmp, ".codex")
+        self.assertEqual(roots, [os.path.join(default, "sessions"),
+                                 os.path.join(default, "archived_sessions")])
+        self.assertEqual(notes, [])
+
+    def test_a_relative_value_is_named_not_followed(self):
+        """Bug: a relative CODEX_HOME, or one starting with ~, which Codex
+        does not expand, was read against the folder Tokenmeter ran in (or
+        expanded to the home folder), not the one Codex was started in. The
+        reader cannot know that folder, so it reads ~/.codex and the report
+        names the value."""
+        default = os.path.join(self.tmp, ".codex")
+        for value in ("codex-home", "~/codex-home", " "):
+            with self.subTest(value=value):
+                roots, notes = self.roots(value)
+                self.assertEqual(roots, [os.path.join(default, "sessions"),
+                                         os.path.join(default, "archived_sessions")])
+                self.assertEqual(len(notes), 1)
+                self.assertIn(f"CODEX_HOME is {value!r}", notes[0])
+                self.assertIn("read from ~/.codex", notes[0])
+
+
+
+
+def _note_texts(run):
+    return [n["text"] for n in run["notes"]]
+
+
+class TestKimiCodeHome(Base):
+    """KIMI_CODE_HOME as MoonshotAI/kimi-code resolves it: resolveKimiHome()
+    keeps any value, empty included, and expands no ~
+    (packages/agent-core-v2/src/app/bootstrap/bootstrap.ts:168-174 at
+    a2afdbc and fc3b521, read 2 November 2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = os.path.join(self.tmp, "user")
+        shutil.copytree(os.path.join(_KIMI_HERE, "home"), self.user)
+        self.default = os.path.join(self.user, ".kimi-code", "sessions")
+        home = unittest.mock.patch.dict(os.environ, {"HOME": self.user, "USERPROFILE": self.user})
+        home.start()
+        self.addCleanup(home.stop)
+        kimi_code.reset()
+        self.addCleanup(kimi_code.reset)
+        if hasattr(kimi_code, "_UNFOLLOWED"):
+            self.addCleanup(kimi_code._UNFOLLOWED.__setitem__, 0, None)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": value}):
+            roots = kimi_code.default_roots()
+            return roots, [n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n]
+
+    def test_an_absolute_value_is_followed_without_a_note(self):
+        """Guards against an absolute KIMI_CODE_HOME, the one value Kimi Code
+        and Tokenmeter read alike, being replaced by the default folder or
+        reported as unfollowed."""
+        moved = os.path.join(self.tmp, "kimi-elsewhere")
+        roots, notes = self.roots_and_notes(moved)
+        self.assertEqual(roots, [os.path.join(moved, "sessions")])
+        self.assertEqual(notes, [])
+
+    def test_unset_reads_the_default_without_a_note(self):
+        """Guards against the default folder moving, or a note appearing,
+        when KIMI_CODE_HOME is not set at all."""
+        os.environ.pop("KIMI_CODE_HOME", None)
+        self.assertEqual(kimi_code.default_roots(), [self.default])
+        self.assertEqual([n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n], [])
+
+    def test_an_empty_value_reads_the_default_and_says_so(self):
+        """An empty KIMI_CODE_HOME was read as unset with no word, but Kimi
+        Code keeps it ("??", bootstrap.ts:173) and writes relative to the
+        folder it was started in, so the report claimed every session while
+        some could be elsewhere."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("KIMI_CODE_HOME is set but empty", notes[0])
+        self.assertIn("it read ~/.kimi-code/sessions instead", notes[0])
+
+    def test_a_relative_value_reads_the_default_and_says_so(self):
+        """A relative KIMI_CODE_HOME was read against Tokenmeter's own current
+        folder, which is not the one Kimi Code was started in, so its
+        sessions were missed, or another folder's counted, without a word."""
+        roots, notes = self.roots_and_notes("kimi-data")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('KIMI_CODE_HOME is "kimi-data"', notes[0])
+
+    def test_a_tilde_is_not_expanded(self):
+        """The reader expanded a ~ in KIMI_CODE_HOME, which Kimi Code never
+        does (bootstrap.ts:173; nothing in the command line expands it), so
+        it read a home folder Kimi Code had not written to, and said
+        nothing."""
+        roots, notes = self.roots_and_notes("~/kimi-elsewhere")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('KIMI_CODE_HOME is "~/kimi-elsewhere"', notes[0])
+        self.assertIn("Kimi Code does not expand ~", notes[0])
+
+    def test_the_note_does_not_outlive_its_value(self):
+        """Guards against a note about one value being printed in a run whose
+        environment holds another: the roots are chosen before each scan
+        starts the notes afresh, so the value is remembered past reset()."""
+        self.roots_and_notes("kimi-data")
+        kimi_code.reset()
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": self.tmp}):
+            self.assertEqual([n for n in kimi_code.notes() if "KIMI_CODE_HOME" in n], [])
+
+    def test_a_run_reads_the_default_and_says_so(self):
+        """The whole command line: with KIMI_CODE_HOME set to "~" and no
+        folder given for Kimi Code, a run read <home>/sessions, found
+        nothing and said nothing. It now prices the default folder's calls,
+        as many as an absolute value naming that folder gives, and the
+        report names the variable."""
+        tm.ADAPTER_ROOTS.pop(kimi_code.NAME, None)
+        args = ("--json", "--no-ledger", "--adapter", kimi_code.NAME)
+        with unittest.mock.patch.dict(os.environ,
+                                      {"KIMI_CODE_HOME": os.path.dirname(self.default)}):
+            want = json.loads(cli(*args))
+        self.assertGreater(want["calls"], 0)
+        self.assertFalse([n for n in _note_texts(want) if "KIMI_CODE_HOME" in n])
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": "~"}):
+            got = json.loads(cli(*args))
+        self.assertEqual(got["calls"], want["calls"])
+        self.assertEqual(got["total_usd"], want["total_usd"])
+        self.assertEqual(len([n for n in _note_texts(got) if 'KIMI_CODE_HOME is "~"' in n]), 1)
+
+
+class TestClaudeCodeConfigDir(Base):
+    """CLAUDE_CONFIG_DIR as Claude Code resolves it: the configuration home
+    is the value as given, empty included ("??"), with no ~ expansion, and
+    the projects folder is inside it (the published
+    @anthropic-ai/claude-code 2.1.316, 31 October 2026, read 2 November
+    2026)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = os.path.join(self.tmp, "user")
+        self.default = os.path.join(self.user, ".claude", "projects")
+        os.makedirs(os.path.join(self.default, "-proj"))
+        home = unittest.mock.patch.dict(os.environ, {"HOME": self.user, "USERPROFILE": self.user})
+        home.start()
+        self.addCleanup(home.stop)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": value}):
+            return claude_code.default_roots(), claude_code.notes()
+
+    def test_an_absolute_value_is_followed_unchanged(self):
+        """Guards against Claude Code's figures moving when CLAUDE_CONFIG_DIR
+        is an absolute path: its projects folder is read, as before."""
+        moved = os.path.join(self.tmp, "claude-elsewhere")
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": moved}):
+            self.assertEqual(claude_code.default_roots(), [os.path.join(moved, "projects")])
+
+    def test_unset_reads_the_default_unchanged(self):
+        """Guards against the default projects folder moving when
+        CLAUDE_CONFIG_DIR is not set."""
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(claude_code.default_roots(), [self.default])
+
+    def test_an_absolute_or_unset_value_gives_no_note(self):
+        """Guards against a note about CLAUDE_CONFIG_DIR in a report whose
+        folder was followed, which would cast doubt on verified figures."""
+        self.assertEqual(self.roots_and_notes(os.path.join(self.tmp, "c"))[1], [])
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        self.assertEqual(claude_code.notes(), [])
+
+    def test_an_empty_value_reads_the_default_and_says_so(self):
+        """An empty CLAUDE_CONFIG_DIR was read as unset with no word, but
+        Claude Code keeps it ("??") and writes its transcripts under
+        projects/ in the folder it is working in, so those were missed
+        while the report claimed every transcript."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("CLAUDE_CONFIG_DIR is set but empty", notes[0])
+        self.assertIn("it read ~/.claude/projects instead", notes[0])
+
+    def test_a_relative_value_reads_the_default_and_says_so(self):
+        """A relative CLAUDE_CONFIG_DIR was read against Tokenmeter's own
+        current folder, not the one Claude Code is working in, so its
+        transcripts were missed, or another folder's counted, without a
+        word."""
+        roots, notes = self.roots_and_notes("claude-cfg")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('CLAUDE_CONFIG_DIR is "claude-cfg"', notes[0])
+
+    def test_a_tilde_is_not_expanded(self):
+        """The reader expanded a ~ in CLAUDE_CONFIG_DIR, which Claude Code
+        never does, so it read a folder under the home folder that Claude
+        Code had not written to, and said nothing."""
+        roots, notes = self.roots_and_notes("~/claude-elsewhere")
+        self.assertEqual(roots, [self.default])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("Claude Code does not expand ~", notes[0])
+
+    def run_as_started(self, value):
+        """A run with this CLAUDE_CONFIG_DIR, its projects folder chosen as
+        the engine chooses it when it starts (PROJECTS_DIR, at import)."""
+        with open(os.path.join(self.default, "-proj", "a.jsonl"), "w") as f:
+            f.write(record("msg_1", out=1000, read=5000) + "\n")
+        moved = os.path.join(self.tmp, "claude-elsewhere")
+        shutil.copytree(self.default, os.path.join(moved, "projects"), dirs_exist_ok=True)
+        env = {"CLAUDE_CONFIG_DIR": moved if value is None else value}
+        tm._ROOTS[:] = []
+        with unittest.mock.patch.dict(os.environ, env):
+            os.environ.pop(tm.PROJECTS_ENV, None)
+            with unittest.mock.patch.object(tm, "PROJECTS_DIR", claude_code.default_roots()[0]):
+                return json.loads(cli("--json", "--no-ledger", "--adapter", claude_code.NAME))
+
+    def test_a_run_reads_the_default_and_says_so(self):
+        """The whole command line: with CLAUDE_CONFIG_DIR empty, a run read
+        the default folder and said nothing of the transcripts Claude Code
+        had written relative to the folder it is working in. The figures
+        are the absolute value's, and the report now names the variable."""
+        want = self.run_as_started(None)
+        self.assertEqual(want["calls"], 1)
+        self.assertFalse([n for n in _note_texts(want) if "CLAUDE_CONFIG_DIR" in n])
+        got = self.run_as_started("")
+        self.assertEqual(got["calls"], want["calls"])
+        self.assertEqual(got["total_usd"], want["total_usd"])
+        self.assertEqual(len([n for n in _note_texts(got) if "CLAUDE_CONFIG_DIR is set but empty" in n]), 1)
+
+
+    def test_no_note_when_other_folders_replace_the_default(self):
+        """The note said Claude Code's default folder was read in place of an
+        empty CLAUDE_CONFIG_DIR even when --projects-dir or
+        TOKENMETER_CLAUDE_PROJECTS had replaced that folder and it was never
+        read, so the report stated something false about where its figures
+        came from. A scan that read the default folder still says so, and the
+        next scan, reading only the named folders, does not repeat it."""
+        self.assertEqual(len([n for n in _note_texts(self.run_as_started(""))
+                              if "CLAUDE_CONFIG_DIR" in n]), 1)
+        named = os.path.join(self.tmp, "projects")
+        with open(os.path.join(named, "-proj", "b.jsonl"), "w") as f:
+            f.write(record("msg_2", out=1000, read=5000) + "\n")
+        args = ("--json", "--no-ledger", "--adapter", claude_code.NAME)
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": ""}):
+            tm._ROOTS[:] = []
+            by_env = json.loads(cli(*args))
+            by_flag = json.loads(cli(*args, "--projects-dir", named))
+        for run in (by_env, by_flag):
+            self.assertEqual(run["calls"], 1)
+            self.assertFalse([n for n in _note_texts(run) if "CLAUDE_CONFIG_DIR" in n])
+
+    def test_a_scan_that_read_the_default_folder_says_so(self):
+        """Guards against the note being lost when the default folder was
+        read beside a named one, or when nothing was read at all: in both,
+        transcripts Claude Code wrote under an empty CLAUDE_CONFIG_DIR can
+        be missing."""
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": ""}):
+            claude_code.reset()
+            self.assertEqual(len(claude_code.notes()), 1)
+            for folder in (self.default, os.path.join(self.tmp, "projects")):
+                path = os.path.join(folder, "-proj", "c.jsonl")
+                with open(path, "w") as f:
+                    f.write(record("msg_3") + "\n")
+                list(claude_code.records(path))
+            self.assertEqual(len(claude_code.notes()), 1)
+            claude_code.reset()
+            list(claude_code.records(path))
+            self.assertEqual(claude_code.notes(), [])
+
+
+_ROUTES_HEADER = {"type": "session", "version": 4, "id": "5a0c9e2b-7d41-4f8a-9b36-1e2d3c4b5a69",
+           "createdAt": 1791037198000, "cwd": "/Users/example/code/demo", "isSeeded": False,
+           "delegationDepth": 0}
+
+
+def _dsh_call(seq, mid, route, model, time_ms):
+    """One settled call as the harness writes it: an assistant/message whose
+    source names the route and model, and whose usage is the call's own."""
+    return {"type": "assistant/message", "seq": seq, "time": time_ms,
+            "data": {"turn": 1, "step": seq,
+                     "message": {"id": mid, "role": "assistant",
+                                 "content": [{"type": "text", "text": "Done."}],
+                                 "source": {"kind": "model", "provider": route, "model": model}},
+                     "usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 3500,
+                               "cacheReadTokens": 2000}}}
+
+
+def _external(seq, child, time_ms):
+    """The parent's record of a subagent run in another agent's process
+    (establishExternalCatalogChild, catalog version 2)."""
+    return {"type": "subagent/catalog", "seq": seq, "time": time_ms,
+            "data": {"version": 2, "childId": child, "childCreatedAt": time_ms,
+                     "mode": "external", "label": "Review the diff"}}
+
+
+class _DeepSeekHarnessSession(Base):
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "dsh-home", "sessions")
+        self.folder = os.path.join(self.root, "--Users-example-code-demo--", _ROUTES_HEADER["id"])
+        os.makedirs(self.folder)
+        deepseek_harness.reset()
+        self.addCleanup(deepseek_harness.reset)
+
+    def session(self, *events, header=None):
+        path = os.path.join(self.folder, "session.v4.jsonl")
+        with open(path, "w") as f:
+            for obj in (header or _ROUTES_HEADER,) + events:
+                f.write(json.dumps(obj) + "\n")
+        return path
+
+    def provider_of(self, route, model):
+        path = self.session(_dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e", route, model,
+                                      1791037231000))
+        got = [ev for _, ev in deepseek_harness.records(path)]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["model"], model)
+        return got[0]["provider"]
+
+
+class TestDeepSeekHarnessPlanRoutes(_DeepSeekHarnessSession):
+    """pi-ai 1.3.0's plan routes that serve one maker's models only."""
+
+    def test_openai_codex_is_priced_by_openai(self):
+        """A call over openai-codex (ChatGPT sign-in, GPT models only) was
+        recorded under the route's own name, which no table has, so it was
+        priced at nothing offline and sent to the online lookup online."""
+        self.assertEqual(self.provider_of("openai-codex", "gpt-6.1-sol"), "openai")
+
+    def test_xiaomi_is_priced_by_mimo(self):
+        """A call over pi-ai's xiaomi route (MiMo models only) was recorded
+        under "xiaomi", which no table has, instead of the mimo table."""
+        self.assertEqual(self.provider_of("xiaomi", "mimo-v2.6-pro"), "mimo")
+
+    def test_kimi_coding_is_priced_by_moonshot(self):
+        """A call over kimi-coding (the Kimi Code plan, Kimi models only) was
+        recorded under "kimi-coding", which no table has, instead of Moonshot's."""
+        self.assertEqual(self.provider_of("kimi-coding", "k3"), "moonshot")
+
+    def test_xiaomi_token_plan_ams_is_priced_by_mimo(self):
+        """A call over Xiaomi's European token plan (MiMo models only) was
+        recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-ams", "mimo-v2.6-flash"), "mimo")
+
+    def test_xiaomi_token_plan_sgp_is_priced_by_mimo(self):
+        """A call over Xiaomi's Singapore token plan (MiMo models only) was
+        recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-sgp", "mimo-v2.6-flash"), "mimo")
+
+    def test_minimax_already_names_its_table(self):
+        """pi-ai's minimax route is the table's own name: a mapping added for
+        it, or a rename of the table, would send MiniMax calls elsewhere."""
+        self.assertEqual(self.provider_of("minimax", "MiniMax-M3"), "minimax")
+
+    def test_routes_of_several_makers_or_another_price_list_pass_through(self):
+        """github-copilot serves several makers, and the China routes bill from
+        a yuan price list the international tables are not: mapping any of
+        them to one maker's table would price a call at a rate nobody charged."""
+        for route, model in (("github-copilot", "claude-sonnet-4.6"), ("openrouter", "z-ai/glm-5.3"),
+                             ("moonshotai-cn", "kimi-k3"), ("minimax-cn", "MiniMax-M3"),
+                             ("zai-coding-cn", "glm-5.3"), ("xiaomi-token-plan-cn", "mimo-v2.6-pro")):
+            with self.subTest(route=route):
+                self.assertEqual(self.provider_of(route, model), route)
+
+
+class TestDeepSeekHarnessExternalSubagents(_DeepSeekHarnessSession):
+    """Subagents run in another agent's process leave no usage in this log."""
+
+    def test_external_subagent_runs_are_named_in_a_note(self):
+        """A Claude Code or Codex subagent keeps no log (persistSession: false,
+        an ephemeral thread), so its calls were missing without a word. Each
+        run the parent records as external is counted once, a fork's copy of
+        the same record included, and a local child is not one."""
+        local = {"type": "subagent/catalog", "seq": 3, "time": 1791037240000,
+                 "data": {"version": 0, "childId": "9f8e7d6c-5b4a-4392-8a1b-0c9d8e7f6a5b",
+                          "childCreatedAt": 1791037240000, "mode": "continuable",
+                          "label": "Explore"}}
+        path = self.session(
+            _dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e", "deepseek-official",
+                      "deepseek-v4-pro", 1791037231000),
+            _external(2, "1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081", 1791037235000),
+            local,
+            _external(4, "2c3d4e5f-6071-4829-8b3c-4d5e6f708192", 1791037250000),
+            _external(5, "1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081", 1791037235000))
+        calls = list(deepseek_harness.records(path))
+        self.assertEqual(len(calls), 1)
+        notes = [n for n in deepseek_harness.notes() if "subagent" in n]
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("2 DeepSeek Harness subagent runs went to another "
+                                            "agent's process"), notes[0])
+        self.assertIn("A Claude Code or Codex subagent keeps no log, so its calls are missing",
+                      notes[0])
+        deepseek_harness.reset()
+        self.assertFalse([n for n in deepseek_harness.notes() if "subagent" in n])
+
+    def test_no_note_without_an_external_run(self):
+        """A session whose subagents all ran in the harness's own process has
+        every call in a session file here, so no note says otherwise."""
+        path = self.session(_dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e",
+                                      "deepseek-official", "deepseek-v4-pro", 1791037231000))
+        list(deepseek_harness.records(path))
+        self.assertFalse([n for n in deepseek_harness.notes() if "subagent" in n])
+
+
+def _opencode_db(path, provider_id, model, mid="msg_route0001"):
+    """A database with one v2 session and one assistant call, laid out as
+    OpenCode's session_v2 and session_message tables are."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE session_v2 (id text PRIMARY KEY, project_id text NOT NULL,
+          fork_session_id text, slug text NOT NULL, directory text NOT NULL,
+          title text, version text NOT NULL, time_created integer NOT NULL);
+        CREATE TABLE session_message (id text PRIMARY KEY NOT NULL, session_id text NOT NULL,
+          type text NOT NULL, seq integer NOT NULL, time_created integer NOT NULL,
+          time_updated integer NOT NULL, data text NOT NULL);
+    """)
+    con.execute("INSERT INTO session_v2 VALUES ('ses_route0001', 'prj_demo', NULL, 'demo', "
+                "'/Users/example/code/demo', 'Demo', '2.0.0', 1790000300000)")
+    data = {"agent": "build", "model": {"id": model, "providerID": provider_id},
+            "content": [{"type": "text", "id": "txt_01", "text": "Done."}], "finish": "stop",
+            "cost": 0, "tokens": {"input": 900, "output": 120, "reasoning": 0,
+                                  "cache": {"read": 4000, "write": 0}},
+            "time": {"created": 1790000310000, "completed": 1790000320000}}
+    con.execute("INSERT INTO session_message VALUES (?, 'ses_route0001', 'assistant', 1, "
+                "1790000310000, 1790000320000, ?)", (mid, json.dumps(data)))
+    con.commit()
+    con.close()
+    return path
+
+
+class TestOpenCodePlanRoutes(Base):
+    """models.dev's plan routes, as OpenCode records them, that serve one
+    maker's models only."""
+
+    def provider_of(self, provider_id, model):
+        path = _opencode_db(os.path.join(self.tmp, provider_id, "opencode", "opencode.db"),
+                            provider_id, model)
+        got = [ev for _, ev in opencode.records(path)]
+        self.assertEqual(len(got), 1)
+        return got[0]["provider"]
+
+    def test_kimi_for_coding_is_priced_by_moonshot(self):
+        """models.dev's Kimi Code plan id until 18 September 2026: its calls
+        were recorded under "kimi-for-coding", which no table has."""
+        self.assertEqual(self.provider_of("kimi-for-coding", "k3"), "moonshot")
+
+    def test_kimi_code_plan_cn_is_priced_by_moonshot(self):
+        """The Kimi Code plan at api.kimi.com, the endpoint DeepSeek Harness's
+        kimi-coding uses: recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("kimi-code-plan-cn", "k3.1-pro"), "moonshot")
+
+    def test_kimi_code_plan_global_is_priced_by_moonshot(self):
+        """The Kimi Code plan at api.kimi.ai: recorded under the route's name,
+        which no table has."""
+        self.assertEqual(self.provider_of("kimi-code-plan-global", "k3"), "moonshot")
+
+    def test_minimax_coding_plan_is_priced_by_minimax(self):
+        """MiniMax's international token plan (MiniMax models only): recorded
+        under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("minimax-coding-plan", "MiniMax-M3"), "minimax")
+
+    def test_zai_coding_plan_is_priced_by_zai(self):
+        """Z.ai's international coding plan (GLM models only): recorded under
+        the route's name, which no table has."""
+        self.assertEqual(self.provider_of("zai-coding-plan", "glm-5.3"), "zai")
+
+    def test_xiaomi_is_priced_by_mimo(self):
+        """Xiaomi's pay-as-you-go route (MiMo models only): recorded under
+        "xiaomi", which no table has, instead of the mimo table."""
+        self.assertEqual(self.provider_of("xiaomi", "mimo-v2.6-pro"), "mimo")
+
+    def test_xiaomi_token_plan_ams_is_priced_by_mimo(self):
+        """Xiaomi's European token plan: recorded under the route's name."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-ams", "mimo-v2.6-flash"), "mimo")
+
+    def test_xiaomi_token_plan_sgp_is_priced_by_mimo(self):
+        """Xiaomi's Singapore token plan: recorded under the route's name."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-sgp", "mimo-v2.6-flash"), "mimo")
+
+    def test_minimax_already_names_its_table(self):
+        """models.dev's minimax id is the table's own name: a mapping added for
+        it, or a rename of the table, would send MiniMax calls elsewhere."""
+        self.assertEqual(self.provider_of("minimax", "MiniMax-M3"), "minimax")
+
+    def test_routes_of_several_makers_or_another_price_list_pass_through(self):
+        """github-copilot and OpenCode's own gateways serve several makers, and
+        the China routes bill from a yuan price list: mapping any of them to one
+        maker's table would price a call at a rate nobody charged."""
+        for route, model in (("github-copilot", "claude-sonnet-4.6"), ("opencode", "kimi-k3"),
+                             ("moonshotai-cn", "kimi-k3"), ("minimax-cn-coding-plan", "MiniMax-M3"),
+                             ("zhipuai-coding-plan", "glm-5.3"),
+                             ("xiaomi-token-plan-cn", "mimo-v2.6-pro")):
+            with self.subTest(route=route):
+                self.assertEqual(self.provider_of(route, model), route)
+
+    def test_zhipuai_china_platform_passes_through(self):
+        """models.dev's zhipuai is Zhipu's China platform (open.bigmodel.cn,
+        billed from a yuan list: glm-5.3 at $1.19516 in and $4.18306 out
+        against Z.ai's $1.40 and $4.40 in models.dev 4201251), but the reader
+        recorded it under zai, so Z.ai's international table priced it at
+        rates nobody charged."""
+        self.assertEqual(self.provider_of("zhipuai", "glm-5.3"), "zhipuai")
+
+
+class TestOpenCodeDataFolderVariable(Base):
+    """XDG_DATA_HOME as OpenCode's global-roots.ts reads it at d9184f2: an
+    empty value is the default, any other is used as it stands."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(opencode.default_roots)
+
+    def roots_and_notes(self, value):
+        with unittest.mock.patch.dict(os.environ, {"XDG_DATA_HOME": value,
+                                                   "HOME": os.path.join(self.tmp, "home")}):
+            return opencode.default_roots(), opencode.notes()
+
+    def test_a_relative_value_reads_the_default_folder_with_a_note(self):
+        """OpenCode resolves a relative XDG_DATA_HOME against the folder it was
+        started in, which Tokenmeter cannot know: the reader resolved it
+        against Tokenmeter's own folder instead and said nothing, so its
+        databases were missed, or another folder's read, without a word."""
+        roots, notes = self.roots_and_notes("work/data")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(len(notes), 1)
+        self.assertIn('XDG_DATA_HOME is "work/data"', notes[0])
+        self.assertIn("~/.local/share/opencode instead", notes[0])
+
+    def test_a_value_of_spaces_is_not_stripped(self):
+        """OpenCode uses a value of spaces as a folder name relative to the
+        folder it was started in: the reader stripped it to the default
+        without a note, so the user was not told logs may be missing."""
+        roots, notes = self.roots_and_notes("  ")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(len(notes), 1)
+
+    def test_an_empty_value_is_the_default_without_a_note(self):
+        """An empty XDG_DATA_HOME falls back to ~/.local/share in OpenCode too
+        (the || in global-roots.ts), so nothing is missing and a note saying
+        otherwise would be wrong."""
+        roots, notes = self.roots_and_notes("")
+        self.assertEqual(roots, [os.path.join(self.tmp, "home", ".local", "share", "opencode")])
+        self.assertEqual(notes, [])
+
+    def test_an_absolute_value_is_followed_as_it_stands(self):
+        """An absolute XDG_DATA_HOME is OpenCode's data folder, trailing
+        space included: no note, and the folder read is OpenCode's own."""
+        value = os.path.join(self.tmp, "xdg ")
+        roots, notes = self.roots_and_notes(value)
+        self.assertEqual(roots, [os.path.join(value, "opencode")])
+        self.assertEqual(notes, [])
+
+
+class TestOpenCodeDatabaseVariable(Base):
+    """OPENCODE_DB as OpenCode's databasePath() reads it at d9184f2: the
+    value unstripped, resolved against the data folder."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "oc", "opencode")
+        _opencode_db(os.path.join(self.root, "opencode.db"), "anthropic", "claude-sonnet-4-5",
+                     mid="msg_default0001")
+
+    def found(self, value):
+        with unittest.mock.patch.dict(os.environ, {"OPENCODE_DB": value}):
+            return sorted(os.path.relpath(p, self.root) for p in opencode.files([self.root]))
+
+    def test_an_empty_value_reads_the_default_databases_only(self):
+        """An empty OPENCODE_DB names the data folder itself, which OpenCode
+        cannot open, so it records nothing there: the reader neither fails on
+        the folder nor stops reading the databases already in it."""
+        self.assertEqual(self.found(""), ["opencode.db"])
+
+    def test_a_relative_value_is_resolved_against_the_data_folder(self):
+        """OpenCode resolves a relative value against its data folder, not the
+        folder it was started in, so the reader can follow it exactly."""
+        _opencode_db(os.path.join(self.root, "work", "other.sqlite"), "openai", "gpt-6.1-sol")
+        self.assertEqual(self.found("work/other.sqlite"),
+                         ["opencode.db", os.path.join("work", "other.sqlite")])
+
+    def test_a_tilde_is_not_expanded(self):
+        """OpenCode does not expand ~ (path.resolve keeps it as a folder name),
+        so ~/x.db is a folder named ~ inside the data folder, never the home
+        folder, and a database at the home folder's x.db is not OpenCode's."""
+        _opencode_db(os.path.join(self.root, "~", "x.db"), "openai", "gpt-6.1-sol")
+        with unittest.mock.patch.dict(os.environ, {"HOME": os.path.join(self.tmp, "home")}):
+            _opencode_db(os.path.join(self.tmp, "home", "x.db"), "openai", "gpt-6.1-sol",
+                         mid="msg_home0001")
+            self.assertEqual(self.found("~/x.db"), ["opencode.db", os.path.join("~", "x.db")])
+
+    def test_memory_adds_nothing(self):
+        """:memory: is a database that never reaches disk: nothing more to read,
+        and no file of that name is looked for."""
+        with open(os.path.join(self.root, ":memory:"), "w") as f:
+            f.write("not a database")
+        self.assertEqual(self.found(":memory:"), ["opencode.db"])
+
+    def test_the_value_is_not_stripped(self):
+        """OpenCode takes the value as it stands, spaces included, so a value
+        with a leading space names a different file from the one without: the
+        reader stripped it and read the wrong file, or none."""
+        _opencode_db(os.path.join(self.root, " spaced.sqlite"), "openai", "gpt-6.1-sol")
+        self.assertEqual(self.found(" spaced.sqlite"), [" spaced.sqlite", "opencode.db"])
+
+
+_KILO_HERE = os.path.join(FIXTURES, "kilo-code")
+
+
+def _kilo_ms(when):
+    return int(when.timestamp() * 1000)
+
+
+class KiloBase(Base):
+    def setUp(self):
+        super().setUp()
+        env = unittest.mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(kilo_code.DB_ENV, None)
+        self.root = os.path.join(self.tmp, "kilo-data", "kilo")
+        os.makedirs(self.root)
+        self.db = os.path.join(self.root, "kilo.db")
+        con = sqlite3.connect(self.db)
+        con.executescript(slurp(os.path.join(_KILO_HERE, "build_db.sql")))
+        con.commit()
+        con.close()
+        self.expected = json.loads(slurp(os.path.join(_KILO_HERE, "expected.json")))
+        kilo_code.reset()
+
+    def sql(self, *statements):
+        con = sqlite3.connect(self.db)
+        for s in statements:
+            con.execute(s)
+        con.commit()
+        con.close()
+
+    def events(self, path=None):
+        return list(kilo_code.records(path or self.db))
+
+    def calls(self):
+        """One call per key, as the engine keeps it: the earliest sighting."""
+        kept = {}
+        for key, ev in self.events():
+            if key not in kept or ev["when"] < kept[key]["when"]:
+                kept[key] = ev
+        return kept
+
+    def engine(self):
+        tm.ADAPTER_ROOTS[kilo_code.NAME] = [self.root]
+        tm._ONLY[:] = [kilo_code.NAME]
+        with unittest.mock.patch.dict(tm.ADAPTERS, {kilo_code.NAME: kilo_code}), \
+                unittest.mock.patch.dict(tm.ALL_SOURCES, {kilo_code.NAME: kilo_code}):
+            return tm.collect(tm.transcripts(), ledger=False)
+
+
+class TestKiloCodeRecords(KiloBase):
+
+    def test_every_call_is_read_as_the_source_writes_it(self):
+        """Kilo Code 7 keeps one step-finish row per API call, with input
+        excluding cache and, from 7.2.6, output excluding reasoning; a reader
+        that counted message rows, or left reasoning out, would be wrong."""
+        got = sorted((ev["model"], ev["provider"], _kilo_ms(ev["when"]), ev["_usage"]["input_tokens"],
+                      ev["_usage"]["output_tokens"], ev["_usage"]["cache_read_input_tokens"],
+                      ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"], ev["sidechain"])
+                     for ev in self.calls().values())
+        want = sorted((c["model"], c["provider"], c["timestamp_ms"], c["uncached_input"], c["output"],
+                       c["cache_read"], c["cache_write"], c["sidechain"])
+                      for c in self.expected["calls"])
+        self.assertEqual(got, want)
+
+    def test_reasoning_is_said_to_be_part_of_output(self):
+        """thinking must say how much of output was reasoning, or the report
+        shows reasoning nowhere."""
+        thinking = sorted(ev["_usage"]["output_tokens_details"]["thinking_tokens"]
+                          for ev in self.calls().values())
+        self.assertEqual(thinking, sorted(c["thinking"] for c in self.expected["calls"]))
+
+    def test_a_fork_copy_counts_once_with_its_original(self):
+        """Forking copies every step-finish row under a new id with the
+        tokens kept; keyed by part id, each forked call would count twice."""
+        keys = {}
+        for key, ev in self.events():
+            keys.setdefault(key, set()).add(ev["session"])
+        shared = [s for s in keys.values() if len(s) > 1]
+        self.assertIn({"ses_kilomain0001", "ses_kilofork0001"}, shared)
+        self.assertIn({"ses_kiloold00001", "ses_kilooldfork1"}, shared)
+        self.assertEqual(len(self.calls()), len(self.expected["calls"]))
+
+    def test_a_copy_whose_original_was_deleted_still_counts_at_its_own_time(self):
+        """A copy is the only record left once its original session is
+        deleted. Skipping copies would lose the call; dating it by its row
+        would put it months late, in the wrong window and price period."""
+        self.sql("DELETE FROM part WHERE session_id = 'ses_kiloold00001'",
+                 "DELETE FROM message WHERE session_id = 'ses_kiloold00001'",
+                 "DELETE FROM session WHERE id = 'ses_kiloold00001'")
+        old = [ev for ev in self.calls().values() if ev["model"] == "gpt-5.1"]
+        self.assertEqual(len(old), 2)
+        self.assertEqual({ev["session"] for ev in old}, {"ses_kilooldfork1"})
+        # The copied message's completion, never the September copy time.
+        self.assertEqual(sorted(_kilo_ms(ev["when"]) for ev in old), [1776000050000, 1776000099000])
+
+    def test_old_rows_are_settled_by_their_total(self):
+        """Up to 7.2.4 output came from AI SDK 5, with reasoning inside it for
+        OpenAI and outside it for Google (7.2.5, on AI SDK 6, had it inside
+        for all); adding reasoning to both counts OpenAI's reasoning twice,
+        adding it to neither drops Google's."""
+        by_model = {ev["model"]: ev for ev in self.calls().values()
+                    if ev["session"] == "ses_kiloold00001" and ev["_usage"]["input_tokens"] > 1000}
+        self.assertEqual(by_model["gpt-5.1"]["_usage"]["output_tokens"], 900)
+        self.assertEqual(by_model["gemini-3.1-pro-preview"]["_usage"]["output_tokens"], 756)
+
+    def test_an_unsettled_old_row_is_left_out_and_said_so(self):
+        """A pre-7.4.16 row with reasoning and no total that settles it cannot
+        be read exactly; counting it would guess, and leaving it out without
+        a word would hide a call. Its fork copy is the same call."""
+        self.events()
+        self.assertFalse(any(ev["_usage"]["input_tokens"] == 1200 for ev in self.calls().values()))
+        notes = kilo_code.notes()
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("1 Kilo Code call from before 7.4.16 was not counted"))
+        kilo_code.reset()
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_a_routed_call_uses_the_provider_its_row_names(self):
+        """A custom auto router sends the call to one of the user's own
+        providers and records it on the step; the message names only the
+        kilo-auto router, which no table prices."""
+        routed = [ev for ev in self.calls().values() if ev["model"] == "gpt-5.2-codex"]
+        self.assertEqual([ev["provider"] for ev in routed], ["openai"])
+
+    def test_the_kilo_gateway_is_not_mapped_to_a_maker(self):
+        """Kilo's gateway serves several makers; mapping it from the model
+        name would be a guess, so it keeps the no-price-table note."""
+        gateway = [ev for ev in self.calls().values() if ev["model"] == "anthropic/claude-sonnet-4.5"]
+        self.assertEqual([ev["provider"] for ev in gateway], ["kilo"])
+
+    def test_one_maker_plan_routes_map_to_that_makers_table(self):
+        """Decision 1: a plan route serving one maker is priced from that
+        maker's table; left as the route name it would have no table."""
+        tokens = {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 0, "write": 0}}
+        counts = kilo_code._counts(tokens)
+        for route, table in (("zai-coding-plan", "zai"), ("kimi-for-coding", "moonshot"),
+                             ("minimax-coding-plan", "minimax"), ("xiaomi", "mimo"),
+                             ("moonshotai", "moonshot"), ("anthropic", "anthropic"),
+                             ("kilo", "kilo"), ("openrouter", "openrouter"),
+                             ("github-copilot", "github-copilot"),
+                             ("moonshotai-cn", "moonshotai-cn"), ("zhipuai", "zhipuai"),
+                             ("kimi-code-plan-cn", "moonshot"), ("kimi-code-plan-global", "moonshot"),
+                             ("xiaomi-token-plan-ams", "mimo"), ("xiaomi-token-plan-sgp", "mimo")):
+            _, ev = kilo_code._event("k", None, "m", route, "", "s", False, counts, 5)
+            self.assertEqual(ev["provider"], table, route)
+
+    def test_china_platforms_and_their_plans_pass_through(self):
+        """The makers' China platforms bill from yuan lists, plans included
+        (zhipuai-coding-plan is open.bigmodel.cn, minimax-cn-coding-plan is
+        api.minimax.cn); mapped to the international tables they were priced
+        at rates nobody charged."""
+        counts = kilo_code._counts({"input": 10, "output": 5})
+        for route in ("zhipuai", "zhipuai-coding-plan", "moonshotai-cn", "minimax-cn",
+                      "minimax-cn-coding-plan", "xiaomi-token-plan-cn"):
+            _, ev = kilo_code._event("k", None, "m", route, "", "s", False, counts, 5)
+            self.assertEqual(ev["provider"], route)
+
+    def test_a_subagent_session_is_a_sidechain(self):
+        """The task tool runs a subagent in a child session (parent_id set);
+        reports show those calls apart."""
+        side = {ev["session"] for ev in self.calls().values() if ev["sidechain"]}
+        self.assertEqual(side, {"ses_kilochild001"})
+
+    def test_rows_without_usage_or_unreadable_are_skipped(self):
+        """A step-finish with zero tokens, none, or broken JSON is no call;
+        reading one as zero would add a call that never happened."""
+        mine = [ev for key, ev in self.events()
+                if ev["session"] == "ses_kilomain0001" and ev["model"] in ("glm-5.1", "claude-sonnet-4-5")
+                and _kilo_ms(ev["when"]) >= 1790000140000]
+        self.assertEqual(len(mine), 1)
+
+    def test_the_event_sourced_layout_is_read_too(self):
+        """Rows written through the /api/session routes live in
+        session_message; reading only part would miss them."""
+        v2 = [ev for ev in self.calls().values() if ev["session"] == "ses_kilov2000001"]
+        self.assertEqual([(ev["model"], ev["provider"], ev["_usage"]["input_tokens"]) for ev in v2],
+                         [("claude-haiku-4-5", "anthropic", 900)])
+
+    def test_project_is_the_recorded_folder(self):
+        """--project matches the folder Kilo Code recorded for the call."""
+        self.assertEqual({ev["project"] for ev in self.calls().values()}, {"/home/dev/projects/shop"})
+
+
+class TestKiloCodeThroughTheEngine(KiloBase):
+
+    def test_the_engine_counts_each_call_once(self):
+        """Through the engine: every call once, forks and repeats folded, the
+        totals the fixture's figures add up to."""
+        overall, groups, *_ = self.engine()
+        calls = self.expected["calls"]
+        self.assertEqual(overall["calls"], len(calls))
+        self.assertEqual(overall["tokens"]["input"], sum(c["uncached_input"] for c in calls))
+        self.assertEqual(overall["tokens"]["output"], sum(c["output"] for c in calls))
+        self.assertEqual(overall["tokens"]["cache_read"], sum(c["cache_read"] for c in calls))
+        self.assertEqual(overall["tokens"]["cache_write"], sum(c["cache_write"] for c in calls))
+
+    def test_a_second_database_with_the_same_rows_counts_once(self):
+        """A channel build's kilo-<channel>.db, or a pre-rename
+        opencode-<channel>.db, can hold the same sessions (kilo import keeps
+        ids); each call must still count once."""
+        shutil.copy(self.db, os.path.join(self.root, "kilo-dev.db"))
+        shutil.copy(self.db, os.path.join(self.root, "opencode-local.db"))
+        overall, *_ = self.engine()
+        self.assertEqual(overall["calls"], len(self.expected["calls"]))
+
+
+class TestKiloCodeFiles(KiloBase):
+
+    def test_every_kilo_database_is_found_and_the_export_queue_is_not(self):
+        """kilo.db, kilo-<channel>.db and opencode-<channel>.db are session
+        databases; session-export.db is an upload queue."""
+        for name in ("kilo-dev.db", "opencode-local.db", "session-export.db", "kilo.db-wal"):
+            open(os.path.join(self.root, name), "w").close()
+        names = [os.path.basename(p) for p in kilo_code.files([self.root])]
+        self.assertEqual(names, ["kilo-dev.db", "kilo.db", "opencode-local.db"])
+
+    def test_kilo_db_names_another_file(self):
+        """KILO_DB moves the database, relative to the data folder unless
+        absolute; ':memory:' writes nothing to read."""
+        elsewhere = os.path.join(self.tmp, "elsewhere.sqlite")
+        shutil.copy(self.db, elsewhere)
+        os.environ[kilo_code.DB_ENV] = elsewhere
+        self.assertIn(elsewhere, kilo_code.files([self.root]))
+        shutil.copy(self.db, os.path.join(self.root, "custom.sqlite"))
+        os.environ[kilo_code.DB_ENV] = "custom.sqlite"
+        self.assertIn(os.path.join(self.root, "custom.sqlite"), kilo_code.files([self.root]))
+        os.environ[kilo_code.DB_ENV] = ":memory:"
+        self.assertEqual([os.path.basename(p) for p in kilo_code.files([self.root])], ["kilo.db"])
+
+    def test_default_root_follows_xdg_data_home(self):
+        """Kilo Code keeps its data in $XDG_DATA_HOME/kilo, else
+        ~/.local/share/kilo, on every platform (xdg-basedir), stripping line
+        breaks first."""
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg")
+        self.assertEqual(kilo_code.default_roots(), [os.path.join(self.tmp, "xdg", "kilo")])
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg") + "\n"
+        self.assertEqual(kilo_code.default_roots(), [os.path.join(self.tmp, "xdg", "kilo")])
+        os.environ["XDG_DATA_HOME"] = ""
+        self.assertEqual(kilo_code.default_roots(),
+                         [os.path.join(os.path.expanduser("~/.local/share"), "kilo")])
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_a_relative_xdg_data_home_reads_the_default_and_says_so(self):
+        """Decision 4: a relative XDG_DATA_HOME is resolved against the folder
+        Kilo Code started in, which Tokenmeter cannot know."""
+        os.environ["XDG_DATA_HOME"] = "data"
+        self.assertEqual(kilo_code.default_roots(),
+                         [os.path.join(os.path.expanduser("~/.local/share"), "kilo")])
+        notes = kilo_code.notes()
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith('XDG_DATA_HOME is "data", which Kilo Code reads'))
+        os.environ["XDG_DATA_HOME"] = os.path.join(self.tmp, "xdg")
+        self.assertEqual(kilo_code.notes(), [])
+
+    def test_looks_like_rejects_every_other_readers_format(self):
+        """Kilo Code's logs are a database, never a text file to recognise; a
+        loose looks_like would claim another harness's lines."""
+        lines = [json.dumps(record("msg_1"))]
+        for path in glob.glob(os.path.join(FIXTURES, "**", "*"), recursive=True):
+            if not os.path.isfile(path) or os.sep + "kilo-code" + os.sep in path:
+                continue
+            try:
+                text = slurp(path)
+            except (UnicodeDecodeError, ValueError):
+                continue
+            lines.extend(line for line in text.splitlines()[:3] if line.strip())
+        self.assertGreater(len(lines), 20)
+        self.assertFalse(any(kilo_code.looks_like(line) for line in lines))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -101,3 +101,17 @@ def usage(input=0, output=0, cache_read=0, cache_write_5m=0, cache_write_1h=0,
         "server_tool_use": {"web_search_requests": int(web_searches)},
         "speed": speed or "standard",
     }
+
+
+def home_note(var: str, value: str, label: str, default: str, what: str) -> str:
+    """The report's note for a harness folder variable that cannot be
+    followed: one the harness reads relative to the folder it is working in
+    (an empty value, a relative path, or a ~ it does not expand), which
+    Tokenmeter cannot know, so the reader read its default folder instead.
+    It names the variable and its value, so the user knows logs may be
+    missing."""
+    shown = "is set but empty" if value == "" else f'is "{value}"'
+    tilde = f" ({label} does not expand ~)" if value.startswith("~") else ""
+    return (f"{var} {shown}, which {label} reads as a folder relative to the one it is "
+            f"working in{tilde}: Tokenmeter cannot know that folder, so it read {default} "
+            f"instead, and {label} {what} kept elsewhere are not counted")

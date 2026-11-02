@@ -1,0 +1,4 @@
+{"sessionId":"0b6d2f84-4e1a-4c7b-9d3e-5f8a1c2b7e60","projectHash":"9d4c1e7a0b3f5d2c8e6a4b1f7c9d0e2a3b5c7d9e1f0a2b4c6d8e0f1a3b5c7d9e","startTime":"2026-10-30T10:05:16.000Z","lastUpdated":"2026-10-30T10:05:16.000Z","kind":"subagent","directories":["/Users/example/code/demo2"]}
+{"id":"6a8c0e2a-4c6e-4a8c-9e2a-0b2d4f6a8c1e","timestamp":"2026-10-30T10:05:16.420Z","type":"user","content":[{"text":"List the callers of loadConfig."}]}
+{"id":"2c4e6a8c-0e2a-4c4e-8a0c-3d5f7b9d1f4a","timestamp":"2026-10-30T10:05:18.077Z","type":"gemini","content":"Two callers: src/main.ts and src/cli.ts.","thoughts":[],"tokens":{"input":3000,"output":80,"cached":0,"thoughts":20,"tool":0,"total":3100},"model":"gemini-3.5-flash"}
+{"$set":{"lastUpdated":"2026-10-30T10:05:18.080Z"}}
