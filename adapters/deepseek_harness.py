@@ -75,10 +75,19 @@ What DeepSeek Harness writes, and what this reader does with it:
     dispatch with no usage, so they are not counted, and a note says how
     many there were. So is a call the user interrupted before its usage
     arrived.
-  - A Claude Code, Codex or ACP subagent runs in that harness's own process.
-    This log records no usage for it (and Claude Code's runs with
-    persistSession: false, Codex's in an ephemeral thread), so nothing here
-    is counted twice.
+  - A subagent the harness hands to another agent's process (Claude Code,
+    Codex, an ACP agent, OAR, or a separate harness through its SDK) records
+    no usage in this log, so nothing here is counted twice. But the Claude
+    Code and Codex subagents keep no log of their own either: Claude Code's
+    runs with persistSession: false (subagent-claude-code src/run.ts:330),
+    Codex's in an ephemeral thread (subagent-codex README.md:95). Their calls
+    are missing, from this report and from every other. The parent logs each
+    such run as a subagent/catalog event with mode "external" and the run's
+    childId (packages/subagent/subagent/src/catalog.ts and manager.ts
+    startExternal), but not which agent ran it, so a note counts those
+    runs, once each, and says their calls may be missing. A subagent the
+    harness runs in its own process writes a session of its own here, and
+    is counted.
   - Compressed sessions are read frame by frame with Python 3.14's own zstd
     or the zstandard package, else as a whole with the zstd command, as
     Codex's reader finds them, and are counted and reported when there is
@@ -138,7 +147,7 @@ _PACKED = ("text-chunks", "reasoning-chunks", "tool-call-chunks")
 
 def _fresh() -> dict:
     return {"compressed_unread": 0, "compressed_damaged": 0, "lifetime_unknown": set(),
-            "unmetered": set(), "interrupted": set(), "summariser": set()}
+            "unmetered": set(), "interrupted": set(), "summariser": set(), "external": set()}
 
 
 _STATE = _fresh()
@@ -242,6 +251,12 @@ def notes() -> list:
         out.append(f"{n:,} interrupted DeepSeek Harness call{_plural(n, '', 's')} "
                    f"{_plural(n, 'is', 'are')} not counted: "
                    f"{_plural(n, 'it', 'they')} stopped before the provider reported usage")
+    n = len(_STATE["external"])
+    if n:
+        out.append(f"{n:,} DeepSeek Harness subagent run{_plural(n, '', 's')} went to another "
+                   "agent's process, which the session does not name. A Claude Code or Codex "
+                   "subagent keeps no log, so its calls are missing; another agent's are counted "
+                   "only where it keeps a log Tokenmeter reads")
     return out
 
 
@@ -436,6 +451,10 @@ def records(path: str):
             cut = seq
         elif kind in _UNMETERED:
             _STATE["unmetered"].add(f"{kind}:{obj.get('time')}")
+        elif kind == "subagent/catalog" and data.get("mode") == "external":
+            run_id = data.get("childId")
+            if isinstance(run_id, str) and run_id:
+                _STATE["external"].add(run_id)   # a fork's copy has the same childId
         elif kind == "assistant/message":
             if legacy and run is not None:
                 cited = obj.get("sourceEventSeqs")

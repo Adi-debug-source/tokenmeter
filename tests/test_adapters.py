@@ -2162,6 +2162,14 @@ def _dsh_call(seq, mid, route, model, time_ms):
                                "cacheReadTokens": 2000}}}
 
 
+def _external(seq, child, time_ms):
+    """The parent's record of a subagent run in another agent's process
+    (establishExternalCatalogChild, catalog version 2)."""
+    return {"type": "subagent/catalog", "seq": seq, "time": time_ms,
+            "data": {"version": 2, "childId": child, "childCreatedAt": time_ms,
+                     "mode": "external", "label": "Review the diff"}}
+
+
 class _DeepSeekHarnessSession(Base):
     def setUp(self):
         super().setUp()
@@ -2230,6 +2238,45 @@ class TestDeepSeekHarnessPlanRoutes(_DeepSeekHarnessSession):
                              ("zai-coding-cn", "glm-5.3"), ("xiaomi-token-plan-cn", "mimo-v2.6-pro")):
             with self.subTest(route=route):
                 self.assertEqual(self.provider_of(route, model), route)
+
+
+class TestDeepSeekHarnessExternalSubagents(_DeepSeekHarnessSession):
+    """Subagents run in another agent's process leave no usage in this log."""
+
+    def test_external_subagent_runs_are_named_in_a_note(self):
+        """A Claude Code or Codex subagent keeps no log (persistSession: false,
+        an ephemeral thread), so its calls were missing without a word. Each
+        run the parent records as external is counted once, a fork's copy of
+        the same record included, and a local child is not one."""
+        local = {"type": "subagent/catalog", "seq": 3, "time": 1791037240000,
+                 "data": {"version": 0, "childId": "9f8e7d6c-5b4a-4392-8a1b-0c9d8e7f6a5b",
+                          "childCreatedAt": 1791037240000, "mode": "continuable",
+                          "label": "Explore"}}
+        path = self.session(
+            _dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e", "deepseek-official",
+                      "deepseek-v4-pro", 1791037231000),
+            _external(2, "1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081", 1791037235000),
+            local,
+            _external(4, "2c3d4e5f-6071-4829-8b3c-4d5e6f708192", 1791037250000),
+            _external(5, "1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081", 1791037235000))
+        calls = list(deepseek_harness.records(path))
+        self.assertEqual(len(calls), 1)
+        notes = [n for n in deepseek_harness.notes() if "subagent" in n]
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("2 DeepSeek Harness subagent runs went to another "
+                                            "agent's process"), notes[0])
+        self.assertIn("A Claude Code or Codex subagent keeps no log, so its calls are missing",
+                      notes[0])
+        deepseek_harness.reset()
+        self.assertFalse([n for n in deepseek_harness.notes() if "subagent" in n])
+
+    def test_no_note_without_an_external_run(self):
+        """A session whose subagents all ran in the harness's own process has
+        every call in a session file here, so no note says otherwise."""
+        path = self.session(_dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e",
+                                      "deepseek-official", "deepseek-v4-pro", 1791037231000))
+        list(deepseek_harness.records(path))
+        self.assertFalse([n for n in deepseek_harness.notes() if "subagent" in n])
 
 
 def _opencode_db(path, provider_id, model, mid="msg_route0001"):
