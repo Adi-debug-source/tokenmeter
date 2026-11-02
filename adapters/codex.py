@@ -1,7 +1,8 @@
 """OpenAI Codex CLI sessions. Unverified.
 
 Built from the published source of openai/codex (read at commit e72da2b, 26
-September 2026, rechecked at commit a098129, 1 November 2026, and at tags
+September 2026, rechecked at commit a098129, 1 November 2026, at commit
+c725e47, 2 November 2026, for remote compactions and CODEX_HOME, and at tags
 rust-v0.30.0 to rust-v0.45.0) and checked against the Codex parser in
 ccusage. It has not yet been run against real session files, so every report
 that uses it says so. If a figure looks wrong, please open an issue with a
@@ -35,6 +36,49 @@ What Codex writes, and what this reader does with it:
     the same numbers. Only one stream may be counted, or every figure doubles;
     this reader counts token_count, the stream every generation has, and
     reads token_usage_record only to tell a file's first call, as above.
+  - A remote compaction (compact_remote_v2.rs) is a request that no
+    token_count carries. Read at c725e47 (in brackets, the line at 00df7f6
+    where it moved), in codex-rs/core/src: its response.completed writes a
+    token_usage_record (compact_remote_v2.rs:445 [441], through
+    record_observed_response_completed and record_response_token_usage,
+    session/mod.rs:5361 and 5381), exact for that one request, but never
+    reaches the running total: only record_token_usage_info (mod.rs:5405)
+    adds to it, and this path does not call it. After the compacted line,
+    recompute_token_usage (compact_remote_v2_installation.rs:282 [277],
+    mod.rs:5485) re-sends the same total with last_token_usage zeroed. A
+    remote compaction is told by a compacted line whose compaction_response_id
+    names a token_usage_record that no move of the total has followed; a
+    local compaction's total moves first (compact.rs:900 to 911), so it is
+    counted as a call already.
+    A TokenUsageRecord has no model (codex-rs/protocol/src/protocol.rs:2522),
+    so the model is read as for every token_count, from the lines around it,
+    and only where they cannot be wrong. The request runs on its step's
+    settings (compact_remote_v2.rs:296 to 310), which are the turn's own,
+    except the compaction Codex runs on the PREVIOUS model when a turn
+    switches model (session/turn.rs:1502 to 1573, skipped when the model is
+    unchanged, turn.rs:1516), retried on the new one when that fails
+    (compact_remote_v2_installation.rs:139; only when the two differ,
+    compact_model_fallback.rs:21), a fallback Codex sends only to telemetry.
+    Every change of model, provider or tier is written as a
+    thread_settings_applied line: at a turn's start (turn_input.rs:199), from
+    a standalone or mid-turn update (session/thread_settings.rs:163,
+    session/handlers.rs:653; the running turn keeps its own settings,
+    session/turn_input.rs:221) and on
+    resume (session/mod.rs:1766). So a remote compaction is counted at the
+    settings the last turn_context line left when no thread_settings_applied
+    since that line has named other ones; otherwise, or with no turn_context
+    in the file, it is not counted and the report says how many. The one
+    exception, a mid-turn model switch that writes no line
+    (session/step_activation.rs:381), sits behind the step_model_switching
+    feature, under development and off by default
+    (codex-rs/features/src/lib.rs:2240), and would mislabel every call after
+    it, not only these. (A settings line is not written before the file
+    exists, session/mod.rs:2761, but then no turn_context is in it either.)
+    Keyed codex:<root>:compaction:<response id>, so a copy in
+    archived_sessions counts once. A remote compaction run in the background
+    (compact_remote_v2.rs:438) writes no usage at all, so nothing says it
+    happened. One that ends incomplete is added to the total (mod.rs:5315)
+    and counted as any incomplete response is.
   - Codex follows OpenAI's convention: input_tokens INCLUDES cached reads and
     cache writes, and output_tokens INCLUDES reasoning. Uncached input is
     input minus both, which is what the engine calls input.
@@ -95,6 +139,12 @@ _STATE = {"guessed": set(), "compressed_unread": 0, "compressed_damaged": 0}
 # said which response moved it, kept as a set for the same reason.
 _UNATTRIBUTED = set()
 
+# Per run: the keys of remote compactions that ran while the settings were
+# changing, whose tokens Codex records without the model that ran them and
+# never adds to the running total, so they are not counted. A set for the
+# same reason.
+_COMPACTIONS = set()
+
 
 def default_roots() -> list:
     homes = os.environ.get("CODEX_HOME", "").strip() or "~/.codex"
@@ -143,6 +193,13 @@ def notes() -> list:
         out.append(f"{n:,} Codex token count{'' if n == 1 else 's'} moved the running total "
                    f"without saying which response did it, so {'its' if n == 1 else 'their'} "
                    "tokens are not counted")
+    if _COMPACTIONS:
+        n = len(_COMPACTIONS)
+        out.append(f"{n:,} Codex remote compaction{'' if n == 1 else 's'} "
+                   f"{'is' if n == 1 else 'are'} not counted: Codex records "
+                   f"{'its' if n == 1 else 'their'} tokens without the model that ran "
+                   f"{'it' if n == 1 else 'them'}, and the settings changed around "
+                   f"{'it' if n == 1 else 'them'}")
     if _STATE["compressed_unread"]:
         n = _STATE["compressed_unread"]
         out.append(f"{n:,} compressed Codex session{'' if n == 1 else 's'} (.jsonl.zst) could "
@@ -158,6 +215,7 @@ def notes() -> list:
 def reset() -> None:
     _STATE.update(guessed=set(), compressed_unread=0, compressed_damaged=0)
     _UNATTRIBUTED.clear()
+    _COMPACTIONS.clear()
 
 
 def _zstd_tool():
@@ -387,6 +445,29 @@ def _call(total, last, previous, previous_last, recorded):
     return UNATTRIBUTED
 
 
+def _event(when, settings: tuple, project: str, session: str, counts: tuple,
+           searches: int) -> dict:
+    """One response's event: settings is (model, provider, speed), counts as
+    _counts() returns them."""
+    model, provider, speed = settings
+    inp, cached, written, out, reasoning = counts
+    cached = min(cached, inp)
+    written = min(written, inp - cached)
+    return {
+        "when": parse_time(when),
+        "model": model,
+        "provider": provider,
+        "project": project,
+        "session": session,
+        "cwd": project,
+        "sidechain": False,
+        "source": NAME,
+        "_usage": usage(input=inp - cached - written, output=out, cache_read=cached,
+                        cache_write_5m=written, thinking=reasoning,
+                        web_searches=searches, speed=speed),
+    }
+
+
 def records(path: str):
     """Yield (key, event) for every response in one session file."""
     text = None
@@ -408,6 +489,9 @@ def records(path: str):
     previous = None       # the running total at the last token_count
     previous_last = None  # last_token_usage at the last token_count
     recorded = []         # token_usage_record usage since the last token_count
+    unsettled = {}        # response id -> (usage, time), recorded since the total last moved
+    anchor = None         # (model, provider, speed) as the last turn_context left them
+    switched = False      # a thread_settings_applied since then named other ones
     searches = 0          # web searches since the last counted response
 
     for obj in _lines(path, text=text):
@@ -424,9 +508,28 @@ def records(path: str):
         elif kind == "turn_context":
             model = payload.get("model") or model
             project = payload.get("cwd") or project
+            anchor = (payload["model"], provider, speed) if payload.get("model") else None
+            switched = False
         elif kind == "token_usage_record":
             if isinstance(payload.get("usage"), dict):
                 recorded.append(_counts(payload["usage"]))
+                if payload.get("response_id") and any(recorded[-1]):
+                    unsettled[payload["response_id"]] = (recorded[-1], obj.get("timestamp"))
+        elif kind == "compacted":
+            # A remote compaction's response is recorded and then installed
+            # with no move in the running total; a local one's total has
+            # moved by then, so its response is settled and counted. Taken
+            # out of `recorded`, it cannot be read as a file's first call.
+            response = payload.get("compaction_response_id")
+            if response in unsettled:
+                got, when = unsettled.pop(response)
+                if got in recorded:
+                    recorded.remove(got)
+                key = f"codex:{root}:compaction:{response}"
+                if anchor is None or switched:
+                    _COMPACTIONS.add(key)  # the model may have changed: see the docstring
+                elif any(got[:4]):
+                    yield key, _event(when, anchor, project, session, got, 0)
         elif kind == "response_item":
             if payload.get("type") == "web_search_call" and payload.get("status", "completed") == "completed":
                 searches += 1
@@ -440,6 +543,8 @@ def records(path: str):
                 if "service_tier" in ts:
                     tier = str(ts.get("service_tier") or "").lower()
                     speed = "fast" if tier in ("fast", "priority") else "standard"
+                if anchor is not None and (model, provider, speed) != anchor:
+                    switched = True
             elif ptype == "token_count":
                 info = payload.get("info")
                 if not isinstance(info, dict):
@@ -449,6 +554,8 @@ def records(path: str):
                 total_c = _counts(total) if isinstance(total, dict) else None
                 last_c = _counts(last) if isinstance(last, dict) else None
                 since, recorded = recorded, []
+                if total_c is None or total_c != previous:
+                    unsettled.clear()
                 before_last = previous_last
                 if last_c is not None:
                     # Kept even from a re-sent total: a context estimate
@@ -464,11 +571,8 @@ def records(path: str):
                 if got == UNATTRIBUTED:
                     _UNATTRIBUTED.add(f"codex:{root}:{':'.join(map(str, total_c))}")
                     continue
-                inp, cached, written, out, reasoning = got
-                if not any((inp, cached, written, out)):
+                if not any(got[:4]):
                     continue
-                cached = min(cached, inp)
-                written = min(written, inp - cached)
                 # Keyed on the thread's root and the running total, so a
                 # forked thread that replays its parent's totals, or a copy of
                 # the same file in archived_sessions, counts once.
@@ -477,17 +581,6 @@ def records(path: str):
                 if not use_model:
                     use_model = LEGACY_MODEL
                     _STATE["guessed"].add(key)
-                yield key, {
-                    "when": parse_time(obj.get("timestamp")),
-                    "model": use_model,
-                    "provider": provider,
-                    "project": project,
-                    "session": session,
-                    "cwd": project,
-                    "sidechain": False,
-                    "source": NAME,
-                    "_usage": usage(input=inp - cached - written, output=out, cache_read=cached,
-                                    cache_write_5m=written, thinking=reasoning,
-                                    web_searches=searches, speed=speed),
-                }
+                yield key, _event(obj.get("timestamp"), (use_model, provider, speed),
+                                  project, session, got, searches)
                 searches = 0

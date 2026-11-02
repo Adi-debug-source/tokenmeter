@@ -2145,6 +2145,223 @@ class TestTokenCounts(Base):
         self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (50, 0))
 
 
+_CX_FIXTURE = os.path.join(FIXTURES, "codex", "remote_compaction.jsonl")
+_CX_THREAD = "019a3c51-7e20-7b44-9d16-2f8e4a6c0b19"
+
+
+def _cx_u(inp, cached=0, written=0, out=0, reasoning=0, total=None):
+    return {"input_tokens": inp, "cached_input_tokens": cached,
+            "cache_write_input_tokens": written, "output_tokens": out,
+            "reasoning_output_tokens": reasoning,
+            "total_tokens": inp + out if total is None else total}
+
+
+def _cx_count(total, last, at="2026-10-30T15:00:05.000Z"):
+    return {"timestamp": at, "type": "event_msg",
+            "payload": {"type": "token_count",
+                        "info": {"total_token_usage": total, "last_token_usage": last,
+                                 "model_context_window": 258400}, "rate_limits": None}}
+
+
+def _cx_record(u, response, at="2026-10-30T15:00:04.900Z"):
+    return {"timestamp": at, "type": "token_usage_record",
+            "payload": {"thread_id": "t1", "turn_id": "turn_1", "session_id": "t1",
+                        "root_turn_id": "turn_1", "response_id": response, "usage": u,
+                        "turn_token_usage": u, "thread_token_usage": u}}
+
+
+def _cx_compacted(response, message="", at="2026-10-30T15:00:04.950Z"):
+    return {"timestamp": at, "type": "compacted",
+            "payload": {"message": message, "replacement_history": [],
+                        "window_number": 1, "first_window_id": "win_01",
+                        "previous_window_id": None, "window_id": "win_02",
+                        "compaction_response_id": response,
+                        "latest_token_usage_record": None}}
+
+
+def _cx_session(*lines):
+    head = [{"timestamp": "2026-10-30T15:00:00.000Z", "type": "session_meta",
+             "payload": {"id": "t1", "session_id": "t1", "cwd": "/Users/example/code/demo"}},
+            {"timestamp": "2026-10-30T15:00:00.100Z", "type": "turn_context",
+             "payload": {"cwd": "/Users/example/code/demo", "model": "gpt-6.1-sol"}}]
+    return head + list(lines)
+
+
+class TestCodexRemoteCompaction(Base):
+    """A remote compaction is a billed request that no token_count carries.
+    Its token_usage_record names no model: it is counted where the lines
+    before it cannot name the wrong one, and reported, never guessed, where
+    they can."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "codex-home")
+        tm.ADAPTER_ROOTS["codex"] = [os.path.join(self.home, "sessions"),
+                                     os.path.join(self.home, "archived_sessions")]
+
+    def place(self, where="sessions", source=_CX_FIXTURE):
+        d = os.path.join(self.home, where, "2026", "10", "30")
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, f"rollout-2026-10-30T14-00-00-{_CX_THREAD}.jsonl")
+        shutil.copy(source, dest)
+        return dest
+
+    def write_session(self, lines):
+        path = os.path.join(self.tmp, "rollout-2026-10-30T15-00-00-t1.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+        return path
+
+    def calls(self, path):
+        tm.codex.reset()
+        return list(tm.codex.records(path))
+
+    def test_a_remote_compaction_is_reported_not_dropped_without_a_word(self):
+        """Bug: a remote compaction's token_usage_record was cleared by the
+        token_count after it, whose total had not moved, so the request was
+        left out of every figure and the report said nothing. The calls
+        around it count exactly as before: the call before the model switch
+        on the old model, the one after on the new, and a local compaction,
+        whose total does move, once."""
+        got = self.calls(_CX_FIXTURE)
+        self.assertEqual([(ev["model"], ev["_usage"]["input_tokens"],
+                           ev["_usage"]["cache_read_input_tokens"],
+                           ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"],
+                           ev["_usage"]["output_tokens"],
+                           ev["_usage"]["output_tokens_details"]["thinking_tokens"])
+                          for _, ev in got],
+                         [("gpt-6.1-sol", 1032, 0, 7168, 900, 320),
+                          ("gpt-6.1-sol", 8232, 7168, 0, 1100, 0),
+                          ("gpt-6.1-terra", 2004, 0, 4096, 750, 210)])
+        notes = tm.codex.notes()
+        self.assertEqual(notes, ["1 Codex remote compaction is not counted: Codex records "
+                                 "its tokens without the model that ran it, and the "
+                                 "settings changed around it"])
+
+    def test_a_local_compaction_is_counted_and_not_reported(self):
+        """Bug guarded: telling a remote compaction by its compacted line
+        alone would also report a local one, whose response the running total
+        has already gained and which is counted as a call."""
+        mine = _cx_u(9000, cached=4000, out=600)
+        path = self.write_session(_cx_session(_cx_record(mine, "resp_local"), _cx_count(mine, mine),
+                                           _cx_compacted("resp_local", "Summary of the work."),
+                                           _cx_count(mine, _cx_u(0, total=3000))))
+        self.assertEqual([ev["_usage"]["input_tokens"] for _, ev in self.calls(path)], [5000])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_remote_compaction_opening_a_forked_file_is_not_called_a_move(self):
+        """Bug: in a file that starts from a parent thread's figures, the
+        token_count Codex re-sends after a remote compaction was the file's
+        first, and the compaction's record before it was read as the call it
+        reported, so the report said a token count had moved the total, which
+        it had not. It is one remote compaction, counted once as itself."""
+        parent = _cx_u(50000, cached=30000, out=2000)
+        mine = _cx_u(21000, cached=16000, out=2500)
+        path = self.write_session(_cx_session(_cx_record(mine, "resp_remote"),
+                                           _cx_compacted("resp_remote"),
+                                           _cx_count(parent, _cx_u(0, total=4000))))
+        self.assertEqual([key for key, _ in self.calls(path)],
+                         ["codex:t1:compaction:resp_remote"])
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_a_remote_compaction_on_unchanged_settings_is_counted(self):
+        """Bug: a remote compaction was left out (or only noted) even when no
+        settings line since the last turn_context named another model, where
+        Codex runs it on that turn's own settings, so a billed request with
+        an exact per-request record was missing from the figures. It is
+        counted once, at that model and tier, from its own record, and the
+        calls around it are unchanged."""
+        first = _cx_u(9000, cached=4000, out=600, reasoning=100)
+        squeeze = _cx_u(30000, cached=20000, written=2000, out=1200, reasoning=300)
+        same = {"timestamp": "2026-10-30T15:00:04.800Z", "type": "event_msg",
+                "payload": {"type": "thread_settings_applied",
+                            "thread_settings": {"model": "gpt-6.1-sol",
+                                                "model_provider_id": "openai"}}}
+        path = self.write_session(_cx_session(_cx_record(first, "resp_1"), _cx_count(first, first),
+                                           same, _cx_record(squeeze, "resp_2"),
+                                           _cx_compacted("resp_2"),
+                                           _cx_count(first, _cx_u(0, total=3000))))
+        got = self.calls(path)
+        self.assertEqual([key for key, _ in got], ["codex:t1:9000:4000:0:600:100",
+                                                   "codex:t1:compaction:resp_2"])
+        ev = got[1][1]
+        self.assertEqual((ev["model"], ev["provider"], ev["_usage"]["input_tokens"],
+                          ev["_usage"]["cache_read_input_tokens"],
+                          ev["_usage"]["cache_creation"]["ephemeral_5m_input_tokens"],
+                          ev["_usage"]["output_tokens"],
+                          ev["_usage"]["output_tokens_details"]["thinking_tokens"]),
+                         ("gpt-6.1-sol", "openai", 8000, 20000, 2000, 1200, 300))
+        self.assertEqual(ev["when"], codex_module.parse_time("2026-10-30T15:00:04.900Z"))
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_changed_settings_or_no_turn_context_leave_it_noted(self):
+        """Bug guarded: a settings line since the last turn_context that
+        names another model, provider or tier means the compaction may have
+        run on either (a model switch compacts on the previous model, a
+        mid-turn update leaves the running turn on the old one), and a file
+        with no turn_context names no model at all. Each is noted, never
+        counted at a guess."""
+        squeeze = _cx_u(30000, cached=20000, out=1200)
+        changes = {"model": {"model": "gpt-6.1-terra"},
+                   "provider": {"model_provider_id": "azure"},
+                   "tier": {"service_tier": "priority"}}
+        for name, ts in changes.items():
+            with self.subTest(change=name):
+                applied = {"timestamp": "2026-10-30T15:00:04.800Z", "type": "event_msg",
+                           "payload": {"type": "thread_settings_applied",
+                                       "thread_settings": ts}}
+                path = self.write_session(_cx_session(applied, _cx_record(squeeze, "resp_2"),
+                                                   _cx_compacted("resp_2"),
+                                                   _cx_count(_cx_u(1), _cx_u(0, total=3000))))
+                self.assertEqual(self.calls(path), [])
+                self.assertEqual([n[:40] for n in tm.codex.notes()],
+                                 ["1 Codex remote compaction is not counted"])
+        with self.subTest(change="no turn_context"):
+            path = self.write_session(_cx_session()[:1] + [_cx_record(squeeze, "resp_2"),
+                                                        _cx_compacted("resp_2")])
+            self.assertEqual(self.calls(path), [])
+            self.assertEqual([n[:40] for n in tm.codex.notes()],
+                             ["1 Codex remote compaction is not counted"])
+
+    def test_a_counted_compaction_in_both_folders_counts_once(self):
+        """Bug guarded: a session read from sessions/ and again from its copy
+        in archived_sessions/ must count its remote compaction once, as its
+        other calls count once."""
+        first = _cx_u(9000, cached=4000, out=600)
+        squeeze = _cx_u(30000, cached=20000, out=1200)
+        lines = _cx_session(_cx_record(first, "resp_1"), _cx_count(first, first),
+                         _cx_record(squeeze, "resp_2"), _cx_compacted("resp_2"),
+                         _cx_count(first, _cx_u(0, total=3000)))
+        source = self.write_session(lines)
+        for where in ("sessions", "archived_sessions"):
+            self.place(where, source)
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 2)
+        self.assertNotIn("remote compaction", cli("--no-ledger"))
+
+    def test_a_compaction_in_both_folders_is_reported_once(self):
+        """Bug guarded: a session read from sessions/ and again from its copy
+        in archived_sessions/ must report its remote compaction once, as its
+        calls count once."""
+        tm.codex.reset()
+        for where in ("sessions", "archived_sessions"):
+            list(tm.codex.records(self.place(where)))
+        self.assertEqual(len(tm.codex.notes()), 1)
+        self.assertIn("1 Codex remote compaction is not counted", tm.codex.notes()[0])
+        tm.codex.reset()
+        self.assertEqual(tm.codex.notes(), [])
+
+    def test_through_the_engine(self):
+        """Bug: the report's figures left a remote compaction out without a
+        word. The three calls reach the report and its notes say what is
+        missing."""
+        self.place()
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], 3)
+        text = cli("--no-ledger")
+        self.assertIn("1 Codex remote compaction is not counted", text)
+
+
 def _note_texts(run):
     return [n["text"] for n in run["notes"]]
 
