@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict
 
@@ -1964,16 +1965,10 @@ def report_notes(groups, unknown, fetched=None, only=None) -> list:
                               f"Add {'it' if len(unknown) == 1 else 'them'} under pricing/."
                               + ("" if ONLINE_LOOKUP[0] else " The online lookup is off.")))
     for provider in sorted(groups.get("provider", {})):
-        v = verification(provider)
-        if not v["verified_on"]:
-            continue
-        how = "verified against real usage" if v["measured"] else "published rates, not yet checked against a real bill"
-        if v["stale"]:
-            notes.append(("warn", f"{v['name']} rates were last checked {v['pretty']}, "
-                                  f"{v['age_days']} days ago. Prices may have moved; "
-                                  f"run --check-prices or compare with {v['source']}"))
-        else:
-            notes.append(("info", f"{v['name']} rates checked {v['pretty']} ({how})"))
+        # VERIFIED_ON, and what the daily price check last found on the page.
+        note = rates_note(provider)
+        if note:
+            notes.append(note)
     return notes
 
 
@@ -3080,68 +3075,101 @@ def expected_rates(row: dict, table) -> dict:
     return exp
 
 
+def compare_with_page(table, fetch) -> dict:
+    """One table against its provider's live pricing page: the comparison
+    --check-prices prints and the daily price check records, kept here once
+    so the two can never disagree about what counts as a difference.
+
+    Never prints and never edits. Returns:
+      error     the page's failure as "ExceptionName: message", "" when read
+      found     whether the page gave any rates at all
+      matched   how many of the table's models agree in every column the
+                page lists, out of expected (the table's models less retired)
+      retired   retired models the page no longer lists, which is expected
+      diffs     (model and dated label, field, table's figure or None,
+                page's figure) for each difference
+      absent    current models the page does not list
+      unlisted  models on the page that the table lacks
+    """
+    out = {"error": "", "found": False, "matched": 0, "expected": 0, "retired": [],
+           "diffs": [], "absent": [], "unlisted": []}
+    try:
+        page, unlisted = table.page_rates(fetch, md_tables)
+    except Exception as e:  # no network, a moved page, a changed layout
+        out["error"] = f"{e.__class__.__name__}: {e}"
+        return out
+    if not page:
+        return out
+    matched, diffs, absent = 0, [], []
+    # Retired models stay in the table so older usage keeps its price;
+    # the page is not expected to list them any more.
+    retired = [m for m in getattr(table, "RETIRED", {}) if m not in page]
+    for model, rows in table.PRICES.items():
+        got = page.get(model)
+        if not got:
+            if model not in retired:
+                absent.append(model)
+            continue
+        # A page that states dated prices (one rate through a date, a
+        # higher one after) is checked entry by entry against the table's
+        # own dated entries; otherwise the newest entry must match.
+        checks = [(rows[-1], {k: v for k, v in got.items() if k != "_history"}, "")]
+        for h in got.get("_history", []):
+            row = next((r for r in rows if r["from"] == h["from"]), None)
+            label = f" from {h['from'] or 'launch'}"
+            if row is None:
+                diffs.append((model + label, "entry", None, h.get("in") or 0))
+                continue
+            checks.append((row, {k: v for k, v in h.items() if k != "from"}, label))
+        bad = False
+        for row, fields, label in checks:
+            exp = expected_rates(row, table)
+            for field, value in sorted(fields.items()):
+                if value is None:
+                    continue
+                want = exp.get(field)
+                if want is None or abs(want - value) > 1e-9 * max(1.0, abs(value)):
+                    diffs.append((model + label, field, want, value))
+                    bad = True
+        matched += not bad
+    out.update(found=True, matched=matched, expected=len(table.PRICES) - len(retired),
+               retired=retired, diffs=diffs, absent=absent, unlisted=list(unlisted or []))
+    return out
+
+
 def check_prices(fetch=None) -> int:
     """Compare every table with its provider's live pricing page.
 
     Reports, never edits: a difference is for a person to read, date and
     record as a new entry, because a rate change is history and not a typo.
     Returns 0 when everything matches, 1 on any difference or unlisted model,
-    2 when a page could not be read at all.
+    2 when a page could not be read at all. What it found is also recorded
+    for the daily check's note (record_page_checks()), so a warning that says
+    "run --check-prices" clears when this run finds the page agreeing.
     """
     fetch = fetch or fetch_text
     worst = 0
+    found = {}
     print()
     print(f"  {BOLD}Checking price tables against the published pages{RESET}")
-    for table in TABLES.values():
+    for provider, table in TABLES.items():
         print()
         print(f"  {BOLD}{table.NAME}{RESET}  {DIM}{table.SOURCE}{RESET}")
-        try:
-            page, unlisted = table.page_rates(fetch, md_tables)
-        except Exception as e:  # no network, a moved page, a changed layout
-            print(f"    {YELLOW}could not read the page{RESET} ({e.__class__.__name__}: {e}).")
+        c = found[provider] = compare_with_page(table, fetch)
+        if c["error"]:
+            print(f"    {YELLOW}could not read the page{RESET} ({c['error']}).")
             print(f"    {DIM}Nothing was changed. Check by hand at {table.SOURCE}{RESET}")
             worst = max(worst, 2)
             continue
-        if not page:
+        if not c["found"]:
             print(f"    {YELLOW}the page was read but no rates were found in it{RESET}; "
                   f"its layout may have changed. Check by hand.")
             worst = max(worst, 2)
             continue
-        matched, diffs, absent = 0, [], []
-        # Retired models stay in the table so older usage keeps its price;
-        # the page is not expected to list them any more.
-        retired = [m for m in getattr(table, "RETIRED", {}) if m not in page]
-        for model, rows in table.PRICES.items():
-            got = page.get(model)
-            if not got:
-                if model not in retired:
-                    absent.append(model)
-                continue
-            # A page that states dated prices (one rate through a date, a
-            # higher one after) is checked entry by entry against the table's
-            # own dated entries; otherwise the newest entry must match.
-            checks = [(rows[-1], {k: v for k, v in got.items() if k != "_history"}, "")]
-            for h in got.get("_history", []):
-                row = next((r for r in rows if r["from"] == h["from"]), None)
-                label = f" from {h['from'] or 'launch'}"
-                if row is None:
-                    diffs.append((model + label, "entry", None, h.get("in") or 0))
-                    continue
-                checks.append((row, {k: v for k, v in h.items() if k != "from"}, label))
-            bad = False
-            for row, fields, label in checks:
-                exp = expected_rates(row, table)
-                for field, value in sorted(fields.items()):
-                    if value is None:
-                        continue
-                    want = exp.get(field)
-                    if want is None or abs(want - value) > 1e-9 * max(1.0, abs(value)):
-                        diffs.append((model + label, field, want, value))
-                        bad = True
-            matched += not bad
+        retired, diffs, absent, unlisted = c["retired"], c["diffs"], c["absent"], c["unlisted"]
         kept = (f" {DIM}({len(retired)} retired, kept at the last published price){RESET}"
                 if retired else "")
-        print(f"    {GREEN}{matched} of {len(table.PRICES) - len(retired)} models match{RESET} "
+        print(f"    {GREEN}{c['matched']} of {c['expected']} models match{RESET} "
               f"the page in every column it lists{kept}")
         for model, field, want, value in diffs:
             # Every field is dollars per million but the threshold, in tokens.
@@ -3155,6 +3183,7 @@ def check_prices(fetch=None) -> int:
             print(f"    {YELLOW}on the page but not in the table{RESET}: {', '.join(unlisted)}")
         if diffs or unlisted:
             worst = max(worst, 1)
+    record_page_checks({p: c for p, c in found.items() if hasattr(TABLES[p], "page_rates")})
     print()
     if worst == 0:
         print(f"  {DIM}Everything matches. The tables were not touched.{RESET}")
@@ -3163,6 +3192,204 @@ def check_prices(fetch=None) -> int:
               f"under pricing/, never by editing the old one.{RESET}")
     print()
     return worst
+
+
+# ---------------------------------------------------------------- the daily price check
+#
+# VERIFIED_ON is the day a person read every figure on a provider's page
+# twice, and nothing automatic changes it. Beside it, a run rereads each
+# provider's page at most once a local day, after its own output is written,
+# compares it with the table through compare_with_page(), the comparison
+# --check-prices prints, and keeps the outcome in the price cache under
+# DAILY_CHECK_KEY, one entry per provider:
+#
+#   tried          the local day of the last attempt (ISO date)
+#   matched        the last day the page agreed with the table, "" if never
+#   differs        models whose rates on the page differ from the table
+#   unlisted       models on the page that the table lacks
+#   differs_since  the first day of the current run of differences, or ""
+#   error          why the last read failed, "" when it was read
+#   failures       days in a row on which the page could not be read
+#   failing_since  the first of those days, or ""
+#
+# The note in every report (rates_note()) adds the live date to the
+# hand-checked one, or turns into a warning. --offline, TOKENMETER_OFFLINE=1
+# and the status line never reach any of this.
+
+DAILY_CHECK_KEY = "page_checks"
+DAILY_CHECK_SECONDS = 8      # the online lookup's own fetch timeout, and the whole check's
+DAILY_CHECK_WARN_DAYS = 2    # days in a row a page must fail to read before the note warns
+_NO_CHECK = {"tried": "", "matched": "", "differs": [], "unlisted": [], "differs_since": "",
+             "error": "", "failures": 0, "failing_since": ""}
+
+
+def _page_check(provider: str) -> dict | None:
+    """The daily check's saved state for a provider, or None when there is
+    none or it is not shaped as one (a hand-edited or older file), which
+    reads as no check yet rather than ending a report in a traceback."""
+    checks = _price_cache().get(DAILY_CHECK_KEY)
+    state = checks.get(provider) if isinstance(checks, dict) else None
+    if not isinstance(state, dict):
+        return None
+    out = dict(_NO_CHECK)
+    for key, blank in _NO_CHECK.items():
+        value = state.get(key, blank)
+        if not isinstance(value, type(blank)) or isinstance(value, bool):
+            return None
+        if isinstance(value, list) and not all(isinstance(m, str) for m in value):
+            return None
+        out[key] = value
+    try:
+        for key in ("tried", "matched", "differs_since", "failing_since"):
+            if out[key]:
+                dt.date.fromisoformat(out[key])
+    except ValueError:
+        return None
+    return out
+
+
+def page_check_after(state, result: dict, today: str) -> dict:
+    """A provider's daily-check state after one comparison (compare_with_page()).
+
+    A page that was read resets the failures; it matched when it gave rates,
+    none of them differ and it lists nothing the table lacks. A page that
+    could not be read, or was read with no rates in it, counts one more
+    failed day, unless today already failed: the threshold counts days, not
+    attempts, so --check-prices on a bad day does not add a second.
+    The differences of the last good read are kept through failures, because
+    they are still the last thing known about the page.
+    """
+    new = dict(state or _NO_CHECK)
+    new["tried"] = today
+    if result["error"] or not result["found"]:
+        failed_today = bool(state) and state["tried"] == today and state["failures"] > 0
+        if not failed_today:
+            new["failures"] = new["failures"] + 1
+        new["failing_since"] = new["failing_since"] or today
+        new["error"] = result["error"] or "the page was read but no rates were found in it"
+        return new
+    differs = sorted({d[0].split(" ")[0] for d in result["diffs"]})
+    unlisted = sorted(result["unlisted"])
+    new.update(failures=0, failing_since="", error="", differs=differs, unlisted=unlisted)
+    if differs or unlisted:
+        was = bool(state) and bool(state["differs"] or state["unlisted"])
+        new["differs_since"] = (state["differs_since"] if was else "") or today
+    else:
+        new.update(matched=today, differs_since="")
+    return new
+
+
+def record_page_checks(results: dict) -> None:
+    """Save comparisons ({provider: compare_with_page() result}) as each
+    provider's daily-check state. The cache is read afresh first, so a lookup
+    another run saved meanwhile is kept, and only DAILY_CHECK_KEY changes."""
+    if not results:
+        return
+    today = dt.date.today().isoformat()
+    _PRICE_STATE["loaded"] = False
+    cache = _price_cache()
+    states = {p: _page_check(p) for p in results}
+    checks = cache.get(DAILY_CHECK_KEY)
+    if not isinstance(checks, dict):
+        checks = cache[DAILY_CHECK_KEY] = {}
+    for provider, result in results.items():
+        checks[provider] = page_check_after(states[provider], result, today)
+    _save_price_cache()
+
+
+def daily_price_check(fetch=None, deadline: float = DAILY_CHECK_SECONDS) -> list:
+    """Reread the pricing page of each provider not yet tried today, compare
+    it with its table and record the outcome. Returns the providers checked.
+
+    Makes no request at all when the lookup is off (--offline,
+    TOKENMETER_OFFLINE=1, the status line). main() calls it after a report's
+    output is written and flushed. The pages are read side by side, each
+    fetch with the online lookup's timeout, and the whole check gives up at
+    deadline, so the menu bar's run, which waits for the process to end, is
+    held at most once a day and for no longer than one lookup fetch. A page
+    still unanswered then counts as a failed read; its thread is left to
+    end with the process.
+    """
+    if not ONLINE_LOOKUP[0]:
+        return []
+    today = dt.date.today().isoformat()
+    due = [p for p, table in TABLES.items()
+           if hasattr(table, "page_rates") and (_page_check(p) or _NO_CHECK)["tried"] != today]
+    if not due:
+        return []
+    sys.stdout.flush()
+    fetch = fetch or (lambda url: fetch_text(url, timeout=DAILY_CHECK_SECONDS))
+    results = {}
+
+    def compare(provider):
+        results[provider] = compare_with_page(TABLES[provider], fetch)
+
+    threads = [threading.Thread(target=compare, args=(p,), daemon=True) for p in due]
+    start = time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0.0, deadline - (time.monotonic() - start)))
+    late = {"error": f"no answer within {deadline:g} seconds", "found": False, "diffs": [],
+            "unlisted": []}
+    record_page_checks({p: results.get(p) or late for p in due})
+    return due
+
+
+def rates_note(provider: str):
+    """The note a report carries about a provider's table, as (level, text),
+    or None when the provider has no table.
+
+    It starts with VERIFIED_ON, worded as it always was: "checked" with how,
+    or the stale warning. The daily check then adds to the same note:
+      matched     "; live page matched 27 Oct 2026"
+      differs     a warning: "; since 27 Oct 2026 the live page differs for
+                  a and b and lists c, which the table lacks; run
+                  --check-prices"
+      unreadable  a warning once the page has failed to read on
+                  DAILY_CHECK_WARN_DAYS (2) days in a row: "; live page last
+                  matched 20 Oct 2026, but could not be read since
+                  26 Oct 2026; run --check-prices"
+    A single failed day leaves the last match standing: one fetch on a bad
+    connection is not evidence that a price moved. Nothing is added before
+    the first check, or when it never matched and has failed only once.
+    """
+    v = verification(provider)
+    if not v["verified_on"]:
+        return None
+    how = "verified against real usage" if v["measured"] else "published rates, not yet checked against a real bill"
+    if v["stale"]:
+        level, text = "warn", (f"{v['name']} rates were last checked {v['pretty']}, "
+                               f"{v['age_days']} days ago. Prices may have moved; "
+                               f"run --check-prices or compare with {v['source']}")
+    else:
+        level, text = "info", f"{v['name']} rates checked {v['pretty']} ({how})"
+    s = _page_check(provider)
+    if s is None:
+        return level, text
+
+    def day(iso):
+        return dt.date.fromisoformat(iso).strftime("%d %b %Y").lstrip("0")
+
+    def some(names):
+        names = list(names)
+        return join_words(names[:3] + ([f"{len(names) - 3} more"] if len(names) > 3 else []))
+
+    if s["differs"] or s["unlisted"]:
+        what = []
+        if s["differs"]:
+            what.append(f"differs for {some(s['differs'])}")
+        if s["unlisted"]:
+            what.append(f"lists {some(s['unlisted'])}, which the table lacks")
+        since = f"since {day(s['differs_since'])} " if s["differs_since"] else ""
+        return "warn", f"{text}; {since}the live page {' and '.join(what)}; run --check-prices"
+    if s["failures"] >= DAILY_CHECK_WARN_DAYS:
+        last = f"last matched {day(s['matched'])}, but " if s["matched"] else ""
+        return "warn", (f"{text}; live page {last}could not be read since "
+                        f"{day(s['failing_since'] or s['tried'])}; run --check-prices")
+    if s["matched"]:
+        return level, f"{text}; live page matched {day(s['matched'])}"
+    return level, text
 
 
 # ---------------------------------------------------------------- the price listing
@@ -3747,6 +3974,8 @@ def main(argv=None) -> None:
     # mistyped TOKENMETER_CURRENCY cannot blank it.
     if args.summary_json:
         print(json.dumps(summary(ledger=not args.no_ledger)))
+        # After the output, and at most once a day: see daily_price_check().
+        daily_price_check()
         return
 
     # A code that came from the environment is named as such, so a typo there
@@ -3790,6 +4019,7 @@ def main(argv=None) -> None:
     else:
         print_report(overall, groups, meta, unknown, args.by, label, args.sessions,
                      covered=covered_span(groups, paths))
+    daily_price_check()
 
 
 if __name__ == "__main__":
