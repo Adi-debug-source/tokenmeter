@@ -3,9 +3,10 @@
 Built from the published source of deepseek-ai/deepseek-harness (read at
 commit ce7073d, 30 October 2026, Session format 4, with its format references
 for 0 to 3) and, for the routes it sends through pi-ai, @earendil-works/pi-ai
-1.3.0. It has not yet been run against real session files, so every report
-that uses it says so. If a figure looks wrong, please open an issue with a
-sample.
+1.3.0 (the version its pnpm-lock.yaml pins). Its routes and subagents were
+read again at the same commit, still the latest, on 2 November 2026. It has
+not yet been run against real session files, so every report that uses it
+says so. If a figure looks wrong, please open an issue with a sample.
 
 What DeepSeek Harness writes, and what this reader does with it:
 
@@ -108,10 +109,19 @@ FILE = "session"
 
 # Provider routes as the harness records them, where they differ from
 # Tokenmeter's table names. deepseek-official (API key) and deepseek-account
-# (DeepSeek login) are its own; the rest are pi-ai's. Anything else passes
-# through and is priced by a table or the online lookup.
+# (DeepSeek login) are its own; the rest are pi-ai's (1.3.0's catalogue).
+# A plan route that serves only its maker's models is priced by the maker's
+# table: openai-codex (ChatGPT sign-in, GPT models only), kimi-coding (Kimi
+# Code plan, Kimi models only), and Xiaomi's MiMo routes outside China.
+# Routes that serve several makers (github-copilot, openrouter and the other
+# gateways), and the China routes (moonshotai-cn, minimax-cn, zai-coding-cn,
+# xiaomi-token-plan-cn), whose makers bill from a separate yuan price list,
+# pass through, as does anything else, and are priced by a table or the
+# online lookup. minimax and zai already carry their tables' names.
 PROVIDERS = {"deepseek-official": "deepseek", "deepseek-account": "deepseek",
-             "moonshotai": "moonshot", "google-vertex": "google"}
+             "moonshotai": "moonshot", "google-vertex": "google",
+             "openai-codex": "openai", "kimi-coding": "moonshot", "xiaomi": "mimo",
+             "xiaomi-token-plan-ams": "mimo", "xiaomi-token-plan-sgp": "mimo"}
 
 # session.jsonl is format 0; session.v1.jsonl and later carry their number.
 _GENERATION = re.compile(r"^session(?:\.v([1-9][0-9]*))?\.jsonl(\.zstd)?$")

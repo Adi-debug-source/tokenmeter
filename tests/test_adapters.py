@@ -2145,5 +2145,192 @@ class TestTokenCounts(Base):
         self.assertEqual((ev["_usage"]["input_tokens"], ev["_usage"]["output_tokens"]), (50, 0))
 
 
+_ROUTES_HEADER = {"type": "session", "version": 4, "id": "5a0c9e2b-7d41-4f8a-9b36-1e2d3c4b5a69",
+           "createdAt": 1791037198000, "cwd": "/Users/example/code/demo", "isSeeded": False,
+           "delegationDepth": 0}
+
+
+def _dsh_call(seq, mid, route, model, time_ms):
+    """One settled call as the harness writes it: an assistant/message whose
+    source names the route and model, and whose usage is the call's own."""
+    return {"type": "assistant/message", "seq": seq, "time": time_ms,
+            "data": {"turn": 1, "step": seq,
+                     "message": {"id": mid, "role": "assistant",
+                                 "content": [{"type": "text", "text": "Done."}],
+                                 "source": {"kind": "model", "provider": route, "model": model}},
+                     "usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 3500,
+                               "cacheReadTokens": 2000}}}
+
+
+class _DeepSeekHarnessSession(Base):
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "dsh-home", "sessions")
+        self.folder = os.path.join(self.root, "--Users-example-code-demo--", _ROUTES_HEADER["id"])
+        os.makedirs(self.folder)
+        deepseek_harness.reset()
+        self.addCleanup(deepseek_harness.reset)
+
+    def session(self, *events, header=None):
+        path = os.path.join(self.folder, "session.v4.jsonl")
+        with open(path, "w") as f:
+            for obj in (header or _ROUTES_HEADER,) + events:
+                f.write(json.dumps(obj) + "\n")
+        return path
+
+    def provider_of(self, route, model):
+        path = self.session(_dsh_call(1, "3e9b1c7a-0d2f-4a6b-8c5e-7f1a2b3c4d5e", route, model,
+                                      1791037231000))
+        got = [ev for _, ev in deepseek_harness.records(path)]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["model"], model)
+        return got[0]["provider"]
+
+
+class TestDeepSeekHarnessPlanRoutes(_DeepSeekHarnessSession):
+    """pi-ai 1.3.0's plan routes that serve one maker's models only."""
+
+    def test_openai_codex_is_priced_by_openai(self):
+        """A call over openai-codex (ChatGPT sign-in, GPT models only) was
+        recorded under the route's own name, which no table has, so it was
+        priced at nothing offline and sent to the online lookup online."""
+        self.assertEqual(self.provider_of("openai-codex", "gpt-6.1-sol"), "openai")
+
+    def test_xiaomi_is_priced_by_mimo(self):
+        """A call over pi-ai's xiaomi route (MiMo models only) was recorded
+        under "xiaomi", which no table has, instead of the mimo table."""
+        self.assertEqual(self.provider_of("xiaomi", "mimo-v2.6-pro"), "mimo")
+
+    def test_kimi_coding_is_priced_by_moonshot(self):
+        """A call over kimi-coding (the Kimi Code plan, Kimi models only) was
+        recorded under "kimi-coding", which no table has, instead of Moonshot's."""
+        self.assertEqual(self.provider_of("kimi-coding", "k3"), "moonshot")
+
+    def test_xiaomi_token_plan_ams_is_priced_by_mimo(self):
+        """A call over Xiaomi's European token plan (MiMo models only) was
+        recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-ams", "mimo-v2.6-flash"), "mimo")
+
+    def test_xiaomi_token_plan_sgp_is_priced_by_mimo(self):
+        """A call over Xiaomi's Singapore token plan (MiMo models only) was
+        recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-sgp", "mimo-v2.6-flash"), "mimo")
+
+    def test_minimax_already_names_its_table(self):
+        """pi-ai's minimax route is the table's own name: a mapping added for
+        it, or a rename of the table, would send MiniMax calls elsewhere."""
+        self.assertEqual(self.provider_of("minimax", "MiniMax-M3"), "minimax")
+
+    def test_routes_of_several_makers_or_another_price_list_pass_through(self):
+        """github-copilot serves several makers, and the China routes bill from
+        a yuan price list the international tables are not: mapping any of
+        them to one maker's table would price a call at a rate nobody charged."""
+        for route, model in (("github-copilot", "claude-sonnet-4.6"), ("openrouter", "z-ai/glm-5.3"),
+                             ("moonshotai-cn", "kimi-k3"), ("minimax-cn", "MiniMax-M3"),
+                             ("zai-coding-cn", "glm-5.3"), ("xiaomi-token-plan-cn", "mimo-v2.6-pro")):
+            with self.subTest(route=route):
+                self.assertEqual(self.provider_of(route, model), route)
+
+
+def _opencode_db(path, provider_id, model, mid="msg_route0001"):
+    """A database with one v2 session and one assistant call, laid out as
+    OpenCode's session_v2 and session_message tables are."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE session_v2 (id text PRIMARY KEY, project_id text NOT NULL,
+          fork_session_id text, slug text NOT NULL, directory text NOT NULL,
+          title text, version text NOT NULL, time_created integer NOT NULL);
+        CREATE TABLE session_message (id text PRIMARY KEY NOT NULL, session_id text NOT NULL,
+          type text NOT NULL, seq integer NOT NULL, time_created integer NOT NULL,
+          time_updated integer NOT NULL, data text NOT NULL);
+    """)
+    con.execute("INSERT INTO session_v2 VALUES ('ses_route0001', 'prj_demo', NULL, 'demo', "
+                "'/Users/example/code/demo', 'Demo', '2.0.0', 1790000300000)")
+    data = {"agent": "build", "model": {"id": model, "providerID": provider_id},
+            "content": [{"type": "text", "id": "txt_01", "text": "Done."}], "finish": "stop",
+            "cost": 0, "tokens": {"input": 900, "output": 120, "reasoning": 0,
+                                  "cache": {"read": 4000, "write": 0}},
+            "time": {"created": 1790000310000, "completed": 1790000320000}}
+    con.execute("INSERT INTO session_message VALUES (?, 'ses_route0001', 'assistant', 1, "
+                "1790000310000, 1790000320000, ?)", (mid, json.dumps(data)))
+    con.commit()
+    con.close()
+    return path
+
+
+class TestOpenCodePlanRoutes(Base):
+    """models.dev's plan routes, as OpenCode records them, that serve one
+    maker's models only."""
+
+    def provider_of(self, provider_id, model):
+        path = _opencode_db(os.path.join(self.tmp, provider_id, "opencode", "opencode.db"),
+                            provider_id, model)
+        got = [ev for _, ev in opencode.records(path)]
+        self.assertEqual(len(got), 1)
+        return got[0]["provider"]
+
+    def test_kimi_for_coding_is_priced_by_moonshot(self):
+        """models.dev's Kimi Code plan id until 18 September 2026: its calls
+        were recorded under "kimi-for-coding", which no table has."""
+        self.assertEqual(self.provider_of("kimi-for-coding", "k3"), "moonshot")
+
+    def test_kimi_code_plan_cn_is_priced_by_moonshot(self):
+        """The Kimi Code plan at api.kimi.com, the endpoint DeepSeek Harness's
+        kimi-coding uses: recorded under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("kimi-code-plan-cn", "k3.1-pro"), "moonshot")
+
+    def test_kimi_code_plan_global_is_priced_by_moonshot(self):
+        """The Kimi Code plan at api.kimi.ai: recorded under the route's name,
+        which no table has."""
+        self.assertEqual(self.provider_of("kimi-code-plan-global", "k3"), "moonshot")
+
+    def test_minimax_coding_plan_is_priced_by_minimax(self):
+        """MiniMax's international token plan (MiniMax models only): recorded
+        under the route's name, which no table has."""
+        self.assertEqual(self.provider_of("minimax-coding-plan", "MiniMax-M3"), "minimax")
+
+    def test_zai_coding_plan_is_priced_by_zai(self):
+        """Z.ai's international coding plan (GLM models only): recorded under
+        the route's name, which no table has."""
+        self.assertEqual(self.provider_of("zai-coding-plan", "glm-5.3"), "zai")
+
+    def test_xiaomi_is_priced_by_mimo(self):
+        """Xiaomi's pay-as-you-go route (MiMo models only): recorded under
+        "xiaomi", which no table has, instead of the mimo table."""
+        self.assertEqual(self.provider_of("xiaomi", "mimo-v2.6-pro"), "mimo")
+
+    def test_xiaomi_token_plan_ams_is_priced_by_mimo(self):
+        """Xiaomi's European token plan: recorded under the route's name."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-ams", "mimo-v2.6-flash"), "mimo")
+
+    def test_xiaomi_token_plan_sgp_is_priced_by_mimo(self):
+        """Xiaomi's Singapore token plan: recorded under the route's name."""
+        self.assertEqual(self.provider_of("xiaomi-token-plan-sgp", "mimo-v2.6-flash"), "mimo")
+
+    def test_minimax_already_names_its_table(self):
+        """models.dev's minimax id is the table's own name: a mapping added for
+        it, or a rename of the table, would send MiniMax calls elsewhere."""
+        self.assertEqual(self.provider_of("minimax", "MiniMax-M3"), "minimax")
+
+    def test_routes_of_several_makers_or_another_price_list_pass_through(self):
+        """github-copilot and OpenCode's own gateways serve several makers, and
+        the China routes bill from a yuan price list: mapping any of them to one
+        maker's table would price a call at a rate nobody charged."""
+        for route, model in (("github-copilot", "claude-sonnet-4.6"), ("opencode", "kimi-k3"),
+                             ("moonshotai-cn", "kimi-k3"), ("minimax-cn-coding-plan", "MiniMax-M3"),
+                             ("zhipuai-coding-plan", "glm-5.3"),
+                             ("xiaomi-token-plan-cn", "mimo-v2.6-pro")):
+            with self.subTest(route=route):
+                self.assertEqual(self.provider_of(route, model), route)
+
+    def test_zhipuai_china_platform_passes_through(self):
+        """models.dev's zhipuai is Zhipu's China platform (open.bigmodel.cn,
+        billed from a yuan list: glm-5.3 at $1.19516 in and $4.18306 out
+        against Z.ai's $1.40 and $4.40 in models.dev 4201251), but the reader
+        recorded it under zai, so Z.ai's international table priced it at
+        rates nobody charged."""
+        self.assertEqual(self.provider_of("zhipuai", "glm-5.3"), "zhipuai")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

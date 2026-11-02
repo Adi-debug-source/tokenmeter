@@ -1,8 +1,10 @@
 """OpenCode sessions. Unverified.
 
 Built from the published source of OpenCode (anomalyco/opencode, formerly
-sst/opencode, read at commit b65de4d, 26 September 2026, and again at commit
-8bca532, 1 November 2026) and checked against the OpenCode parser in ccusage.
+sst/opencode, read at commit b65de4d, 26 September 2026, again at commit
+8bca532, 1 November 2026, and for its provider ids and OPENCODE_DB at
+d9184f2, 2 November 2026, with models.dev at 4201251 the same day) and
+checked against the OpenCode parser in ccusage.
 It has not yet been run against a real database, so every report that uses it
 says so. If a figure looks wrong, please open an issue with a sample.
 
@@ -74,9 +76,23 @@ FILES = "databases"
 FILE = "database"
 
 # OpenCode's provider ids, where they differ from Tokenmeter's table names.
-# Anything else passes through and is priced by a table or the online lookup.
-PROVIDERS = {"moonshotai": "moonshot", "zhipuai": "zai", "z-ai": "zai",
-             "google-vertex": "google", "gemini": "google", "x-ai": "xai"}
+# The ids are models.dev's (OpenCode ships a snapshot of its catalogue). A
+# plan route that serves only its maker's models is priced by the maker's
+# table: the Kimi Code plan (kimi-for-coding until models.dev split it on 18
+# September 2026 into kimi-code-plan-cn, the same api.kimi.com endpoint, and
+# kimi-code-plan-global), MiniMax's and Z.ai's international plans, and
+# Xiaomi's MiMo routes outside China. Routes that serve several makers
+# (github-copilot, opencode, openrouter and the other gateways), and the
+# China routes (zhipuai and zhipuai-coding-plan at open.bigmodel.cn,
+# moonshotai-cn, minimax-cn, minimax-cn-coding-plan, xiaomi-token-plan-cn),
+# whose makers bill from a separate yuan price list, pass through, as does
+# anything else, and are priced by a table or the online lookup.
+PROVIDERS = {"moonshotai": "moonshot", "z-ai": "zai",
+             "google-vertex": "google", "gemini": "google", "x-ai": "xai",
+             "kimi-for-coding": "moonshot", "kimi-code-plan-cn": "moonshot",
+             "kimi-code-plan-global": "moonshot", "minimax-coding-plan": "minimax",
+             "zai-coding-plan": "zai", "xiaomi": "mimo", "xiaomi-token-plan-ams": "mimo",
+             "xiaomi-token-plan-sgp": "mimo"}
 
 # Providers that hand the call to another harness's binary, whose own log
 # already holds it.
