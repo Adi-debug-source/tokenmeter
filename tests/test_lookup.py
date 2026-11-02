@@ -18,6 +18,10 @@ import urllib.error
 from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, record, slurp, terminal,
                      tm, usage)
 
+from pricing import minimax
+
+M = 1_000_000
+
 
 class TestOnlineLookup(Base):
     """The startup check, with every fetch faked. Nothing here uses the network."""
@@ -1600,6 +1604,232 @@ class TestZaiPageReader(Base):
         rates, _ = self.read()
         self.assertEqual(rates["glm-4.7-flash"], {"in": 0.0, "out": 0.0, "cached": 0.0})
         self.assertEqual(rates["glm-4-32b-0414-128k"], {"in": 0.1, "out": 0.1, "cached": 0.1})
+
+
+# MiniMax: the page reader in pricing/minimax.py, run on a saved copy of the
+# page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/minimax_page.md, is lines cut verbatim from the
+# markdown copy of https://platform.minimax.io/docs/pricing/overview as fetched
+# on 2 November 2026: the whole "LLM" section (the untabbed MiniMax-M3.1-Flash
+# table and the "Standard" and "Priority" tabs for MiniMax-M3), the "Video"
+# heading, and the "Context-IR" table under it, which is priced per million
+# tokens but is not a text model. Nothing in it was typed by hand.
+#
+# These tests were written before the table was registered in
+# pricing/__init__.py, so they import it directly and add it to tm.TABLES for
+# each test; now that it is registered, that changes nothing.
+
+MINIMAX_PAGE_FILE = os.path.join(FIXTURES, "pages", "minimax_page.md")
+
+
+# Typed from the page on 2 November 2026, not copied from the table: the
+# charged figures, dollars per million tokens (the struck list prices are not
+# what is charged).
+MINIMAX_ON_THE_PAGE = {
+    "MiniMax-M3.1-Flash": {"in": 0.15, "out": 0.60, "cached": 0.015},
+    "MiniMax-M3": {"in": 0.30, "out": 1.20, "cached": 0.06,
+                   "long_in": 0.60, "long_out": 2.40, "long_cached": 0.12, "long_over": 512_000,
+                   "fast_in": 0.45, "fast_out": 1.80, "fast_cached": 0.09,
+                   "fast_long_in": 0.90, "fast_long_out": 3.60, "fast_long_cached": 0.18},
+}
+
+
+# The Priority tab's cache hit and over-512k figures, which the engine's
+# expected_rates() had no field for until 2 November 2026.
+MINIMAX_PRIORITY_EXTRAS = ("fast_cached", "fast_long_cached", "fast_long_in", "fast_long_out")
+
+
+class MiniMaxBase(Base):
+    def setUp(self):
+        super().setUp()
+        tables = unittest.mock.patch.dict(tm.TABLES, {"minimax": minimax})
+        tables.start()
+        self.addCleanup(tables.stop)
+
+    def cost(self, model, speed="standard", **kw):
+        return tm.price_record(model, usage(**kw), speed=speed, provider="minimax")
+
+
+class TestMiniMaxPageReader(MiniMaxBase):
+    def setUp(self):
+        super().setUp()
+        self.page = slurp(MINIMAX_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def fetch(self, url):
+        self.urls.append(url)
+        return self.page
+
+    def read(self, page=None):
+        if page is not None:
+            self.page = page
+        return minimax.page_rates(self.fetch, tm.md_tables)
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """Both text models are read from the markdown copy at the figures
+        the page charges, with MiniMax-M3's over-512k row as its long_
+        figures and its Priority tab's two rows as its fast_ and fast_long_
+        figures, each as printed, and none is named as missing from the
+        table."""
+        rates, unlisted = self.read()
+        self.assertEqual(self.urls, [minimax.SOURCE_MD])
+        self.assertEqual(unlisted, [])
+        self.assertEqual(sorted(rates), sorted(MINIMAX_ON_THE_PAGE))
+        for model, figures in MINIMAX_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                self.assertEqual(sorted(rates[model]), sorted(figures))
+                for field, value in figures.items():
+                    self.assertAlmostEqual(rates[model][field], value, places=9)
+
+    def test_the_struck_list_price_is_not_read(self):
+        """Each MiniMax-M3 cell prints the list price struck through before
+        the charged one ("~~$0.60~~ $0.30", "Permanent 50% off"). Reading
+        the first figure in the cell would check the table against twice
+        what MiniMax charges."""
+        self.assertIn("~~\\$0.60~~ \\$0.30", self.page)
+        rates, _ = self.read()
+        self.assertAlmostEqual(rates["MiniMax-M3"]["in"], 0.30, places=9)
+        self.assertAlmostEqual(rates["MiniMax-M3"]["fast_in"], 0.45, places=9)
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """--check-prices against the saved page: both models match in every
+        column the page lists, none is absent and none unlisted. A slip in a
+        row, or a model the reader drops, fails here.
+
+        The Priority tab's cache hit and over-512k figures are compared by
+        the engine's expected_rates(), the one place the priority rule
+        lives. Until that function gives a field for one of them, the field
+        must still come back as a difference (the table's figure None), so
+        the check fails rather than pass a figure it never compared; the
+        reader once checked them against its own copy of the engine's
+        arithmetic instead. Once the fields exist, this is 2 of 2 with no
+        difference at all."""
+        out = tm.compare_with_page(minimax, self.fetch)
+        exp = tm.expected_rates(minimax.PRICES["MiniMax-M3"][-1], minimax)
+        pending = [f for f in MINIMAX_PRIORITY_EXTRAS if f not in exp]
+        self.assertEqual(out["error"], "")
+        self.assertTrue(out["found"])
+        self.assertEqual(out["diffs"], [("MiniMax-M3", f, None, MINIMAX_ON_THE_PAGE["MiniMax-M3"][f])
+                                        for f in sorted(pending)])
+        self.assertEqual(out["absent"], [])
+        self.assertEqual(out["unlisted"], [])
+        self.assertEqual((out["matched"], out["expected"]), (2 - bool(pending), 2))
+
+    def test_only_the_llm_section_is_read(self):
+        """MiniMax-H3-Context-IR sits under Video with per-million-token
+        columns. Read, it would be named every day as a text model the table
+        lacks; only the LLM section's tables are read."""
+        self.assertIn("MiniMax-H3-Context-IR", self.page)
+        rates, unlisted = self.read()
+        self.assertNotIn("MiniMax-H3-Context-IR", rates)
+        self.assertNotIn("MiniMax-H3-Context-IR", unlisted)
+
+    def test_a_model_new_on_the_page_is_named(self):
+        """A model the page lists and the table lacks is named, so
+        --check-prices fails until it is added."""
+        with unittest.mock.patch.dict(minimax.PRICES):
+            del minimax.PRICES["MiniMax-M3.1-Flash"]
+            _, unlisted = self.read()
+        self.assertEqual(unlisted, ["MiniMax-M3.1-Flash"])
+
+    def test_a_changed_priority_cache_or_long_figure_is_a_difference(self):
+        """The Priority tab's cache hit and over-512k row are read as
+        printed, not worked out in the price file. A Priority cache price or
+        long output price that moves must come back as a difference on that
+        field at the page's new figure, not pass unread."""
+        for field, old, new, value in (
+                ("fast_cached", "~~\\$0.18~~ \\$0.09", "~~\\$0.18~~ \\$0.10", 0.10),
+                ("fast_long_out", "~~\\$7.20~~ \\$3.60", "~~\\$7.20~~ \\$3.70", 3.70)):
+            with self.subTest(field=field):
+                self.page = self.page.replace(old, new)
+                self.assertIn(new, self.page)
+                rates, unlisted = self.read()
+                self.assertEqual(unlisted, [])
+                self.assertAlmostEqual(rates["MiniMax-M3"][field], value, places=9)
+                out = tm.compare_with_page(minimax, self.fetch)
+                self.assertIn(field, [f for m, f, _, _ in out["diffs"] if m == "MiniMax-M3"])
+                got = next(v for m, f, _, v in out["diffs"] if (m, f) == ("MiniMax-M3", field))
+                self.assertAlmostEqual(got, value, places=9)
+                self.assertEqual(out["matched"], 1)
+                self.page = self.page.replace(new, old)
+
+    def test_a_lost_priority_tab_long_row_or_cache_column_is_named(self):
+        """A Priority tab renamed ("Priority Tier") or removed used to drop
+        its rows from the reading, so --check-prices said "2 of 2 models
+        match" with MiniMax-M3's fast price never compared. A model whose
+        row charges a rate the page no longer gives (a lost tab, a lost
+        over-512k row, a dropped cache column) must be named with the
+        fields missing, so the check fails. It is reported as the page not
+        read, never among the models the table lacks: there it printed
+        "2 of 2 models match" over "on the page but not in the table:
+        MiniMax-M3 (not on the page: ...)", which contradicts itself. The
+        startup lookup, which asks only for ids the table lacks, still
+        reads the page."""
+        fast = "fast_cached, fast_in, fast_long_cached, fast_long_in, fast_long_out, fast_out"
+        start = self.page.index("> [tab] Priority")
+        end = self.page.index("\n", self.page.index("~~\\$7.20~~", start)) + 1
+        flash = ("| **Model** | **Input** \\$ / M tokens | **Output** \\$ / M tokens |\n"
+                 "| :- | :-: | :-: |\n"
+                 "| **MiniMax-M3.1-Flash** | \\$0.15 | \\$0.60 |\n")
+        flash_at = self.page.index("| **Model**")
+        flash_end = self.page.index("\n", self.page.index("\\$0.015 |")) + 1
+        long_row = self.page.index("> | **MiniMax-M3** > 512k input tokens\\*")
+        long_end = self.page.index("\n", long_row) + 1
+        cases = {
+            "renamed tab": (self.page.replace("> [tab] Priority\\*", "> [tab] Priority Tier\\*"),
+                            f"MiniMax-M3 (not on the page: {fast})"),
+            "removed tab": (self.page[:start] + self.page[end:],
+                            f"MiniMax-M3 (not on the page: {fast})"),
+            "no over-512k row": (self.page[:long_row] + self.page[long_end:],
+                                 "MiniMax-M3 (not on the page: long_cached, long_in, long_out,"
+                                 " long_over)"),
+            "no cache column": (self.page[:flash_at] + flash + self.page[flash_end:],
+                                "MiniMax-M3.1-Flash (not on the page: cached)"),
+        }
+        saved = self.page
+        for case, (page, named) in cases.items():
+            with self.subTest(case=case):
+                self.assertNotEqual(page, saved)
+                self.page = page
+                with self.assertRaises(ValueError) as raised:
+                    minimax.page_rates(self.fetch, tm.md_tables)
+                self.assertIn(named, str(raised.exception))
+                rates, unlisted = minimax.page_rates(self.fetch, tm.md_tables,
+                                                     want=("MiniMax-M4",))
+                self.assertEqual(unlisted, [])
+                self.assertEqual(sorted(rates), sorted(MINIMAX_ON_THE_PAGE))
+                out = tm.compare_with_page(minimax, self.fetch)
+                self.assertIn(named, out["error"])
+                self.assertFalse(out["found"])
+                self.assertEqual(out["unlisted"], [])
+
+    def test_an_unexpected_row_label_is_not_read(self):
+        """A model cell is read only as its id, a prompt-length tier and a
+        "Permanent N% off" label. A discount that gains an end date needs
+        dated rows, so a changed label leaves the model unread (named as not
+        found on the page) rather than read at figures that may expire."""
+        page = self.page.replace("Permanent 50% off", "50% off until 30 November 2026")
+        self.assertNotEqual(page, self.page)
+        rates, _ = self.read(page)
+        self.assertNotIn("MiniMax-M3", rates)
+        self.assertIn("MiniMax-M3.1-Flash", rates)
+
+    def test_a_second_threshold_is_named(self):
+        """The engine holds one prompt-length threshold per row. A page whose
+        Priority tab splits at a different length than the Standard tab must
+        be named, not read as one of them, and reported as the page not read
+        rather than as a model the table lacks."""
+        page = self.page.replace("**MiniMax-M3** > 512k input tokens Permanent",
+                                 "**MiniMax-M3** > 256k input tokens Permanent")
+        self.assertNotEqual(page, self.page)
+        with self.assertRaises(ValueError) as raised:
+            self.read(page)
+        self.assertIn("MiniMax-M3 (more than one prompt-length threshold)",
+                      str(raised.exception))
+        rates, unlisted = minimax.page_rates(self.fetch, tm.md_tables, want=("MiniMax-M4",))
+        self.assertNotIn("MiniMax-M3", rates)
+        self.assertEqual(unlisted, [])
 
 
 if __name__ == "__main__":

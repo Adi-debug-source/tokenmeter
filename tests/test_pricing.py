@@ -11,6 +11,9 @@ import unittest
 
 from helpers import Base, cli, cost_of, noon, tm, usage
 
+from pricing import minimax
+from test_lookup import MiniMaxBase
+
 M = 1_000_000
 # A prompt well under the 272K long-context line, so a rate is read as printed.
 K = 100_000
@@ -833,6 +836,101 @@ class TestZaiRules(Base):
         table = tm.TABLES["zai"]
         self.assertEqual(table.VERIFIED_ON, "2026-10-27")
         self.assertIs(table.MEASURED, False)
+
+
+# MiniMax: the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestMiniMaxRules(MiniMaxBase):
+    def test_both_ids_are_recognised(self):
+        """The ids are the API's own, as the page, the model list and the
+        API guides print them; neither falls to the fallback."""
+        for model in ("MiniMax-M3.1-Flash", "MiniMax-M3"):
+            with self.subTest(model=model):
+                self.assertFalse(self.cost(model, inp=1)["_unknown_model"])
+
+    def test_cache_hits_bill_at_the_page_figure(self):
+        """A cache hit is $0.015 a million for MiniMax-M3.1-Flash (0.1 of
+        input) and $0.06 for MiniMax-M3 (0.2 of input), not a shared
+        multiple."""
+        # 100,000 tokens, under MiniMax-M3's 512k threshold.
+        self.assertAlmostEqual(self.cost("MiniMax-M3.1-Flash", read=100_000)["cache_read"], 0.0015, places=9)
+        self.assertAlmostEqual(self.cost("MiniMax-M3", read=100_000)["cache_read"], 0.006, places=9)
+
+    def test_a_cache_write_bills_as_input(self):
+        """MiniMax prints no write price; new input tokens, cache writes
+        included, bill at the standard input price."""
+        for model, inp in (("MiniMax-M3.1-Flash", 0.15), ("MiniMax-M3", 0.30)):
+            with self.subTest(model=model):
+                c = self.cost(model, w5=50_000, w1=50_000)
+                self.assertAlmostEqual(c["cache_write"], 0.1 * inp, places=9)
+
+    def test_one_output_price_whatever_the_thinking(self):
+        """The page prints one output price per model: thinking tokens are
+        part of output and add nothing on top."""
+        c = self.cost("MiniMax-M3.1-Flash", out=M, think=M // 2)
+        self.assertAlmostEqual(cost_of(c), 0.60, places=9)
+
+    def test_the_long_tier_starts_over_512000_prompt_tokens(self):
+        """MiniMax-M3 at 512,000 prompt tokens pays the up-to-512k rates; at
+        512,001 the whole request pays the over-512k rates ($0.60 in, $2.40
+        out, $0.12 a cache hit), and cache hits count towards the length."""
+        at = self.cost("MiniMax-M3", inp=512_000, out=M)
+        self.assertAlmostEqual(at["input"], 0.512 * 0.30, places=9)
+        self.assertAlmostEqual(at["output"], 1.20, places=9)
+        over = self.cost("MiniMax-M3", inp=1, read=512_000, out=M)
+        self.assertAlmostEqual(over["output"], 2.40, places=9)
+        self.assertAlmostEqual(over["cache_read"], 0.512 * 0.12, places=9)
+        self.assertAlmostEqual(over["input"], 0.60 / M, places=12)
+
+    def test_flash_has_no_long_tier(self):
+        """MiniMax-M3.1-Flash has one flat price at any prompt length."""
+        c = self.cost("MiniMax-M3.1-Flash", inp=900_000, out=M)
+        self.assertAlmostEqual(c["input"], 0.9 * 0.15, places=9)
+        self.assertAlmostEqual(c["output"], 0.60, places=9)
+
+    def test_priority_is_the_fast_price_with_its_cache_and_long_tier(self):
+        """A MiniMax-M3 call recorded as priority pays the Priority tab: $0.45
+        in, $1.80 out, $0.09 a cache hit, and over 512k $0.90, $3.60 and
+        $0.18, every figure the tab prints."""
+        c = self.cost("MiniMax-M3", speed="fast", inp=M, out=M, read=M)
+        self.assertAlmostEqual(c["input"], 0.45 * 2, places=9)
+        self.assertAlmostEqual(c["output"], 1.80 * 2, places=9)
+        self.assertAlmostEqual(c["cache_read"], 0.09 * 2, places=9)
+        c = self.cost("MiniMax-M3", speed="fast", inp=100_000, out=M, read=100_000)
+        self.assertAlmostEqual(c["input"], 0.1 * 0.45, places=9)
+        self.assertAlmostEqual(c["output"], 1.80, places=9)
+        self.assertAlmostEqual(c["cache_read"], 0.1 * 0.09, places=9)
+
+    def test_flash_priority_prices_at_standard(self):
+        """The page prints no Priority row for MiniMax-M3.1-Flash, so a call
+        recorded as priority is not given a figure the page does not print."""
+        fast = self.cost("MiniMax-M3.1-Flash", speed="fast", inp=M, out=M)
+        standard = self.cost("MiniMax-M3.1-Flash", inp=M, out=M)
+        self.assertAlmostEqual(cost_of(fast), cost_of(standard), places=12)
+        self.assertAlmostEqual(cost_of(standard), 0.75, places=9)
+
+    def test_web_search_is_a_cent_a_request(self):
+        """The web_search server tool is $0.01 a request on the page."""
+        c = self.cost("MiniMax-M3", searches=3)
+        self.assertAlmostEqual(c["web_search"], 0.03, places=9)
+
+    def test_an_unknown_id_prices_at_minimax_m3_and_is_flagged(self):
+        """An id the table lacks and no lookup has priced (MiniMax-M2.7, for
+        one, which existing users can call until 18 November 2026 but no
+        current MiniMax page prices) is priced at the fallback, MiniMax-M3,
+        and flagged as unrecognised, never passed off as its own price."""
+        c = self.cost("MiniMax-M2.7", inp=100_000)
+        self.assertTrue(c["_unknown_model"])
+        self.assertAlmostEqual(c["input"], 0.1 * 0.30, places=9)
+
+    def test_one_rate_since_launch(self):
+        """The page prints no effective date, so each model has one row,
+        from launch, and no off-peak or dated price."""
+        for model, rows in minimax.PRICES.items():
+            with self.subTest(model=model):
+                self.assertEqual([r["from"] for r in rows], [""])
+                self.assertNotIn("off_peak", rows[0])
 
 
 class TestZaiWebSearch(Base):
