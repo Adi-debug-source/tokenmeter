@@ -1,0 +1,48 @@
+{
+  "harness": "opencode",
+  "source": "anomalyco/opencode at 8bca532 (1 November 2026)",
+  "database": "opencode.db",
+  "build_script": "fixtures/opencode/recheck-8bca532/build_db.sql",
+  "notes": [
+    "The v1 tables (session, message, part) are no longer written; an upgrade copies each v1 session into session_v2 and session_message and leaves the v1 rows in place (packages/core/src/database/v1-migration.bun.ts).",
+    "The copied assistant row keeps its v1 message id and holds the v1 message's tokens, which are its last step's only. The step-finish parts are the per-call figures, so the copy is skipped.",
+    "v2 sessions are in session_v2 (renamed from session in migration 20260804233008_loose_psylocke).",
+    "A fork copies its parent's rows under new ids with the parent's time_created; rows older than the forked session are those copies.",
+    "Rows made through the claude-agent provider ran in the user's claude binary with persistSession on, so they are in Claude Code's own log.",
+    "A row still streaming has no tokens; a compaction row's tokens are a total over its calls. Neither is a call here.",
+    "next_db.sql is an opencode-next.db holding sessions 2 and 4, its v2 sessions (fork_session_id included) in a table named session; the upgrade copied its rows into opencode.db under the same ids."
+  ],
+  "calls": [
+    {"key": "opencode:prt_v1step0101", "session": "ses_v1keep0001", "cwd": "/Users/example/code/demo",
+     "timestamp_ms": 1792000040000, "model": "claude-sonnet-4-5", "provider": "anthropic",
+     "uncached_input": 3100, "cache_read": 0, "cache_write": 1500, "output": 210, "reasoning": 0},
+    {"key": "opencode:prt_v1step0102", "session": "ses_v1keep0001", "cwd": "/Users/example/code/demo",
+     "timestamp_ms": 1792000090000, "model": "claude-sonnet-4-5", "provider": "anthropic",
+     "uncached_input": 900, "cache_read": 18000, "cache_write": 600, "output": 340, "reasoning": 120},
+    {"key": "opencode:msg_v2nat0001", "session": "ses_v2native001", "cwd": "/Users/example/code/widget",
+     "timestamp_ms": 1792001020000, "model": "claude-sonnet-4-5", "provider": "anthropic",
+     "uncached_input": 2400, "cache_read": 0, "cache_write": 5200, "output": 180, "reasoning": 0},
+    {"key": "opencode:msg_v2nat0002", "session": "ses_v2native001", "cwd": "/Users/example/code/widget",
+     "timestamp_ms": 1792001110000, "model": "gpt-5.2-codex", "provider": "openai",
+     "uncached_input": 1200, "cache_read": 9600, "cache_write": 0, "output": 260, "reasoning": 400},
+    {"key": "opencode:msg_v2fork0001", "session": "ses_v2fork0001", "cwd": "/Users/example/code/widget",
+     "timestamp_ms": 1792003020000, "model": "claude-sonnet-4-5", "provider": "anthropic",
+     "uncached_input": 700, "cache_read": 4000, "cache_write": 0, "output": 90, "reasoning": 0}
+  ],
+  "not_calls": {
+    "opencode:msg_v1asst0101": "the upgrade's copy of a v1 message",
+    "opencode:msg_v2cla0001": "claude-agent provider, in Claude Code's log",
+    "opencode:msg_forkevt01_1": "the parent's call, copied into the fork",
+    "opencode:msg_v2nat0003": "still streaming, no tokens",
+    "opencode:msg_v2natcomp01": "compaction total"
+  },
+  "totals": {
+    "calls": 5,
+    "uncached_input": 8300,
+    "cache_read": 31600,
+    "cache_write": 7300,
+    "output": 1080,
+    "reasoning": 520
+  },
+  "reader_at_b65de4d_gives": {"calls": 8}
+}

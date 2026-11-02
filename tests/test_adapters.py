@@ -91,6 +91,16 @@ _GEMINI_QWEN_USER = json.dumps({
     "message": {"role": "user", "parts": [{"text": "Find where the config file is parsed."}]}})
 
 
+# OpenCode reader, rechecked against anomalyco/opencode at 8bca532
+# (1 November 2026). The reader was built from b65de4d (26 September 2026); in
+# between OpenCode stopped writing the v1 tables, copies each v1 session into
+# the v2 tables on upgrade (leaving the v1 rows), keeps v2 sessions in
+# session_v2, and gained a claude-agent provider that runs the user's own
+# claude binary. These tests pin a database laid out as 8bca532 leaves one to
+# the per-call figures in tests/fixtures/opencode/recheck-8bca532/expected.json.
+_OPENCODE_HERE = os.path.join(FIXTURES, "opencode", "recheck-8bca532")
+
+
 class TestWorkflowAgents(Base):
     """Workflow agents write to <session>/subagents/workflows/<id>/, and only a
     file directly in a subagents folder was recognised as an agent's, so every
@@ -1156,6 +1166,138 @@ class TestOpenCodeAdapter(Base):
             self.assertEqual(overall["calls"], 0)
         finally:
             tm._PROJECT.clear()
+
+
+class TestOpenCodeAt8bca532(Base):
+    """The OpenCode reader against the database layout of 8bca532."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.tmp, "opencode-data", "opencode")
+        os.makedirs(self.root)
+        self.db = os.path.join(self.root, "opencode.db")
+        con = sqlite3.connect(self.db)
+        con.executescript(slurp(os.path.join(_OPENCODE_HERE, "build_db.sql")))
+        con.commit()
+        con.close()
+        tm.ADAPTER_ROOTS[opencode.NAME] = [self.root]
+        tm._ONLY[:] = [opencode.NAME]
+        self.expected = json.loads(slurp(os.path.join(_OPENCODE_HERE, "expected.json")))
+
+    def records(self):
+        return dict(opencode.records(self.db))
+
+    def test_every_call_matches_its_per_call_figures(self):
+        """Any drift between the reader and OpenCode's 8bca532 layout shows
+        here as a call missing, extra, or with the wrong counts or folder."""
+        got = self.records()
+        self.assertEqual(sorted(got), sorted(c["key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                ev = got[c["key"]]
+                u = ev["_usage"]
+                self.assertEqual(ev["model"], c["model"])
+                self.assertEqual(ev["provider"], c["provider"])
+                self.assertEqual(ev["session"], c["session"])
+                self.assertEqual(ev["cwd"], c["cwd"])
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["timestamp_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual(u["input_tokens"], c["uncached_input"])
+                self.assertEqual(u["cache_read_input_tokens"], c["cache_read"])
+                self.assertEqual(u["cache_creation"]["ephemeral_5m_input_tokens"], c["cache_write"])
+                self.assertEqual(u["output_tokens"], c["output"] + c["reasoning"])
+
+    def test_a_v1_turn_copied_on_upgrade_counts_once(self):
+        """The upgrade copies each v1 assistant message into session_message
+        under its own id with its last step's tokens; read beside the v1
+        step-finish rows, every upgraded turn was counted once more."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v1asst0101", sorted(got))
+        v1 = [k for k, ev in got.items() if ev["session"] == "ses_v1keep0001"]
+        self.assertEqual(sorted(v1), ["opencode:prt_v1step0101", "opencode:prt_v1step0102"])
+
+    def test_claude_agent_calls_are_left_to_claude_code(self):
+        """The claude-agent provider runs the user's claude binary, which
+        saves each call in Claude Code's own log; counting OpenCode's row too
+        priced every such call twice."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v2cla0001", sorted(got))
+        self.assertFalse([ev for ev in got.values() if ev["session"] == "ses_v2claude001"])
+
+    def test_a_fork_does_not_count_its_parents_calls_again(self):
+        """A v2 fork starts with copies of its parent's rows under new ids;
+        counting them charged the parent's calls a second time."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_forkevt01_1", sorted(got))
+        self.assertIn("opencode:msg_v2fork0001", sorted(got))
+        self.assertIn("opencode:msg_v2nat0001", sorted(got))
+
+    def test_a_v2_session_carries_its_folder(self):
+        """v2 sessions live in session_v2 now, so a reader that looked only
+        in session gave every new call an empty folder and --project lost it."""
+        tm._PROJECT[:] = ["widget"]
+        try:
+            overall, *_ = tm.collect(tm.transcripts(project="widget"), ledger=False)
+            self.assertEqual(overall["calls"], 3)
+        finally:
+            tm._PROJECT.clear()
+
+    def test_a_row_still_streaming_or_a_compaction_is_not_a_call(self):
+        """A step still streaming has no tokens yet, and a compaction's tokens
+        are a total over several calls; neither may be priced as one call."""
+        got = self.records()
+        self.assertNotIn("opencode:msg_v2nat0003", sorted(got))
+        self.assertNotIn("opencode:msg_v2natcomp01", sorted(got))
+
+    def test_the_engine_totals_match(self):
+        """The engine's totals for the 8bca532 layout equal the sum of the
+        per-call figures, so no call is lost or doubled on the way."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write"])
+        self.assertEqual(overall["tokens"]["output"], t["output"] + t["reasoning"])
+        self.assertEqual(set(groups["provider"]), {"anthropic", "openai"})
+        self.assertFalse(unknown)
+
+    def test_json_counts_the_calls(self):
+        """--json is what scripts read; it must show the same five calls."""
+        out = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(out["calls"], self.expected["totals"]["calls"])
+
+    def next_db(self):
+        path = os.path.join(self.root, "opencode-next.db")
+        con = sqlite3.connect(path)
+        con.executescript(slurp(os.path.join(_OPENCODE_HERE, "next_db.sql")))
+        con.commit()
+        con.close()
+        return path
+
+    def test_a_copy_in_opencode_next_counts_once(self):
+        """OpenCode copies opencode-next.db's rows into opencode.db under the
+        same ids and leaves the file; both match opencode*.db, so a key that
+        changed with the file would count every such call twice."""
+        self.next_db()
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+
+    def test_a_fork_in_opencode_next_does_not_count_its_parents_calls(self):
+        """opencode-next.db keeps its v2 sessions, fork_session_id included,
+        in a table named session; a reader that looked for forks only in
+        session_v2 counted the fork's copy of its parent's call from that
+        file, once more than the parent's own row."""
+        got = dict(opencode.records(self.next_db()))
+        self.assertEqual(sorted(got), ["opencode:msg_v2fork0001", "opencode:msg_v2nat0001",
+                                       "opencode:msg_v2nat0002"])
+        self.assertEqual(got["opencode:msg_v2fork0001"]["cwd"], "/Users/example/code/widget")
+
+    def test_labelled_unverified(self):
+        """The reader has not been run against a real database, so the report must say so."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("OpenCode figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
 
 
 class TestTokenCounts(Base):
