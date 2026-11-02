@@ -55,6 +55,13 @@
   keep the provider's usage per message but with no time or provider, and
   lose compacted, subagent and title calls. Read at continuedev/continue
   5522c6f (21 July 2026). The finding is in `adapters/README.md`.
+- The README's Limitations name the side calls no reader can count: T3
+  Code's titles, branch names, commit messages, pull request text and
+  review guides (pingdotgg/t3code 9bcf753), Gemini CLI's compression, model
+  routing, loop checks, next speaker check and edit repair
+  (google-gemini/gemini-cli 6814e00), and OpenCode's title and compaction
+  calls (anomalyco/opencode cce323b), each checked against that source on 2
+  November 2026.
 
 ## 1.2.1, 16 October 2026
 

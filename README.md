@@ -279,6 +279,10 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 
 - **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
 - **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
+- **Side calls with no usable record.** Some harnesses make small extra calls whose usage they keep nowhere, or keep in a form that cannot be priced exactly, so these are not counted:
+  - T3 Code's thread titles, branch names, commit messages, pull request text and review guides, which it has Claude Code (2.0.63 or later), Codex or Pi write with session saving off;
+  - Gemini CLI's chat compression, its choice of model while the model is left on auto, and its loop checks once a request runs past 30 turns, plus its next speaker check and edit repair when those are turned on;
+  - OpenCode's title calls, whose tokens it keeps without the model, and its compaction calls, which it keeps per call without the model, and with the model only as one total over all of them.
 - **Three of four harness readers are unverified,** as above.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
 
