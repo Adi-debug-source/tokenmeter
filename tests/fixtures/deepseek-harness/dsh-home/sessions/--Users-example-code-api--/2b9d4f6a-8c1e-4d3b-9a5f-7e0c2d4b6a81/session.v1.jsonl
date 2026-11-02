@@ -1,0 +1,19 @@
+{"type":"session","version":1,"id":"2b9d4f6a-8c1e-4d3b-9a5f-7e0c2d4b6a81","createdAt":1790074798000,"cwd":"/Users/example/code/api","delegationDepth":0}
+{"type":"turn/start","seq":0,"time":1790074800000,"data":{"turn":1}}
+{"type":"user/message","seq":1,"time":1790074800010,"data":{"id":"6b2d0e4a-1f3c-4a8e-9d57-0c3e8f1a2b70","role":"user","content":[{"type":"text","text":"List the routes."}],"source":{"kind":"user"}},"surfaceOp":"append"}
+{"type":"step/start","seq":2,"time":1790074800020,"data":{"turn":1,"step":1}}
+{"type":"request/context","seq":3,"time":1790074800300,"data":{"provider":"openai","model":"gpt-5-mini","contextWindow":400000}}
+{"type":"assistant/chunk","seq":4,"time":1790074802100,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"text-chunks","seq0":5,"time0":1790074802110,"data":{"turn":1,"step":1,"index":0,"dt":[30],"texts":["The ","rou"]}}
+{"type":"assistant/chunk","seq":7,"time":1790074802400,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":3100,"outputTokens":9,"totalTokens":4133,"cacheReadTokens":1024}}}}
+{"type":"assistant/chunk","seq":8,"time":1790074802401,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"terminated","code":"NETWORK_ERROR"}}}}}
+{"type":"llm/retry","seq":9,"time":1790074802410,"data":{"retryId":"8e1f2a3b-4c5d-4e6f-9a0b-1c2d3e4f5a6b","turn":1,"step":1,"provider":"openai","mode":"normal","policyKey":"[\"normal\",4,[\"NETWORK_ERROR\",\"PROVIDER_OVERLOADED\",\"RATE_LIMITED\"],1000,30000,0.2]","retry":1,"maxRetries":4,"delayMs":1000,"failure":{"message":"terminated","code":"NETWORK_ERROR"}}}
+{"type":"llm/retry-started","seq":10,"time":1790074803410,"data":{"retryId":"8e1f2a3b-4c5d-4e6f-9a0b-1c2d3e4f5a6b","turn":1,"step":1,"retry":1}}
+{"type":"assistant/chunk","seq":11,"time":1790074805200,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"text-chunks","seq0":12,"time0":1790074805210,"data":{"turn":1,"step":1,"index":0,"dt":[30,30,30,30,30],"texts":["The ","routes ","are ","/healthz ","and ","/v1."]}}
+{"type":"assistant/chunk","seq":18,"time":1790074805400,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"The routes are /healthz and /v1."}}}}
+{"type":"assistant/chunk","seq":19,"time":1790074805410,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":80,"outputTokens":150,"totalTokens":4326,"cacheReadTokens":4096}}}}
+{"type":"assistant/chunk","seq":20,"time":1790074805411,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":21,"time":1790074805420,"data":{"turn":1,"step":1,"message":{"id":"9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e08","role":"assistant","content":[{"type":"text","text":"The routes are /healthz and /v1."}],"source":{"kind":"model","provider":"openai","model":"gpt-5-mini"}},"usage":{"inputTokens":80,"outputTokens":150,"totalTokens":4326,"cacheReadTokens":4096}},"surfaceOp":"append","sourceEventSeqs":[11,12,13,14,15,16,17,18,19,20]}
+{"type":"step/end","seq":22,"time":1790074805430,"data":{"turn":1,"step":1}}
+{"type":"turn/end","seq":23,"time":1790074805440,"data":{"turn":1,"reason":{"kind":"completed"}}}

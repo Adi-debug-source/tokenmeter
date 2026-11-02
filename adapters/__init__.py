@@ -25,10 +25,11 @@ and every report. An adapter only reads its harness's logs and says what each
 call was, which keeps the arithmetic in one place.
 """
 
-from . import claude_code, codex, gemini_cli, importer, kimi_code, opencode
+from . import claude_code, codex, deepseek_harness, gemini_cli, importer, kimi_code, opencode
 
 # Discovered automatically when their folders exist, in this order.
-ADAPTERS = {m.NAME: m for m in (claude_code, codex, gemini_cli, opencode, kimi_code)}
+ADAPTERS = {m.NAME: m for m in (claude_code, codex, gemini_cli, opencode, kimi_code,
+                                deepseek_harness)}
 
 # Every source a ledger row can name, including the importer, which is only
 # ever used explicitly.

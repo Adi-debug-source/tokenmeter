@@ -16,7 +16,7 @@ from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, t
                      zstd_compress)
 
 from adapters import codex as codex_module
-from adapters import gemini_cli, kimi_code, opencode
+from adapters import deepseek_harness, gemini_cli, kimi_code, opencode
 from adapters.common import parse_time
 
 
@@ -124,6 +124,18 @@ _KIMI_CLI_STATUS = json.dumps({
                         "input_cache_creation": 0},
         "message_id": "chatcmpl-7f3a9c", "plan_mode": False, "mcp_status": None}}})
 _KIMI_CLI_META = json.dumps({"type": "metadata", "protocol_version": "1.9"})
+
+
+# The DeepSeek Harness reader: its session files read as the harness's source
+# writes them (deepseek-ai/deepseek-harness ce7073d, 30 October 2026), from the
+# fixtures in tests/fixtures/deepseek-harness/.
+_DSH_HERE = os.path.join(FIXTURES, "deepseek-harness")
+_DSH_DEMO = "--Users-example-code-demo--"
+_DSH_S1 = "0f3b7c2e-5a91-4d6e-8c40-2b9e1d7a6f53"
+_DSH_S2 = "7d1c3e5a-2f4b-4c6d-9e8f-0a1b2c3d4e5f"
+_DSH_S3 = "4e8a2c6d-9b1f-4a3e-8d7c-5f0e2a4b6c8d"
+_DSH_S4 = "2b9d4f6a-8c1e-4d3b-9a5f-7e0c2d4b6a81"
+_DSH_API = "--Users-example-code-api--"
 
 
 class TestWorkflowAgents(Base):
@@ -1606,6 +1618,395 @@ class TestKimiCodeAdapter(Base):
         overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
         self.assertTrue(any("Kimi Code figures are unverified" in t
                             for _, t in tm.report_notes(groups, unknown)))
+
+
+class TestDeepSeekHarnessAdapter(Base):
+    """Built from the published source and labelled unverified."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "dsh-home")
+        shutil.copytree(os.path.join(_DSH_HERE, "dsh-home"), self.home)
+        self.root = os.path.join(self.home, "sessions")
+        tm.ADAPTER_ROOTS[deepseek_harness.NAME] = [self.root]
+        tm._ONLY[:] = [deepseek_harness.NAME]
+        self.expected = json.loads(slurp(os.path.join(_DSH_HERE, "expected.json")))
+
+    def session_file(self, project, sid, name="session.v4.jsonl"):
+        return os.path.join(self.root, project, sid, name)
+
+    def read_all(self, paths=None):
+        deepseek_harness.reset()
+        out = []
+        for path in paths or deepseek_harness.files([self.root]):
+            out.extend(deepseek_harness.records(path))
+        return out
+
+    def test_reads_as_the_source_says(self):
+        """The whole tree through the engine: eight calls, each counted once,
+        with input uncached, cache reads and writes apart, and output whole."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(set(groups["provider"]), {"deepseek", "anthropic", "openai"})
+        self.assertEqual(set(groups["project"]), {"/Users/example/code/demo", "/Users/example/code/api"})
+
+    def test_every_call_as_expected(self):
+        """Each call's model, route, time, folder and counts, against the
+        per-call figures in expected.json. A count read from the wrong field,
+        or a time from the wrong event, changes one of them."""
+        got = {}
+        for key, ev in self.read_all():
+            got.setdefault(key, ev)
+        self.assertEqual(set(got), {c["key"] for c in self.expected["calls"]})
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["key"]):
+                ev = got[c["key"]]
+                self.assertEqual(ev["model"], c["model"])
+                self.assertEqual(ev["provider"], c["provider"])
+                self.assertEqual(ev["session"], c["session_id"])
+                self.assertEqual(ev["project"], c["project"])
+                self.assertEqual(ev["cwd"], c["cwd"])
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["time_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual(ev["source"], "deepseek-harness")
+                self.assertEqual(ev["_usage"], usage(inp=c["uncached_input"], read=c["cache_read"],
+                                                     w5=c["cache_write"], out=c["output"],
+                                                     think=c["reasoning"], speed="standard"))
+
+    def test_priced_per_call_at_peak_and_off_peak(self):
+        """DeepSeek charges half outside 01:00 to 04:00 and 06:00 to 10:00 UTC
+        on weekdays. A figure summed over calls either side of 10:00 could not
+        be priced right; each call here is priced at its own time."""
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        want = 0.0
+        for c in self.expected["calls"]:
+            u = usage(inp=c["uncached_input"], read=c["cache_read"], w5=c["cache_write"],
+                      out=c["output"], think=c["reasoning"])
+            when = dt.datetime.fromtimestamp(c["time_ms"] / 1000, tz=dt.timezone.utc)
+            want += cost_of(tm.price_record(c["model"], u, provider=c["provider"], when=when))
+        self.assertAlmostEqual(overall["total"], want, places=12)
+        flash = [c for c in self.expected["calls"] if c["model"] == "deepseek-flash"
+                 and c["timestamp"].startswith("2026-09-30T10:00")][0]
+        u = usage(inp=flash["uncached_input"], read=flash["cache_read"], out=flash["output"])
+        at = dt.datetime.fromtimestamp(flash["time_ms"] / 1000, tz=dt.timezone.utc)
+        off = cost_of(tm.price_record("deepseek-flash", u, provider="deepseek", when=at))
+        peak = cost_of(tm.price_record("deepseek-flash", u, provider="deepseek",
+                                       when=at - dt.timedelta(minutes=1)))
+        self.assertAlmostEqual(off, peak / 2, places=12)
+
+    def test_only_the_highest_generation_is_read(self):
+        """Opening an older session writes a migrated successor and keeps the
+        predecessor beside it. Reading both read the same session twice."""
+        found = deepseek_harness.files([self.root])
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        self.assertIn(os.path.join(folder, "session.v4.jsonl"), found)
+        self.assertNotIn(os.path.join(folder, "session.v3.jsonl"), found)
+        os.remove(os.path.join(folder, "session.v4.jsonl"))
+        self.assertIn(os.path.join(folder, "session.v3.jsonl"), deepseek_harness.files([self.root]))
+        # A temporary migration file is not a generation.
+        open(os.path.join(folder, "session.v5.jsonl.tmp-123"), "w").close()
+        self.assertIn(os.path.join(folder, "session.v3.jsonl"), deepseek_harness.files([self.root]))
+
+    def test_a_fork_counts_its_inherited_calls_once(self):
+        """A subagent child starts with a byte copy of its parent's history up
+        to a tagged session/end-seed. Keyed by message id, the copied calls
+        count once, and stay the parent's even though the child's file ends
+        first; the child's own call counts as a subagent's."""
+        child = self.read_all([self.session_file(_DSH_DEMO, _DSH_S3)])
+        self.assertEqual(len(child), 3)
+        own = [ev for _, ev in child if ev["sidechain"]]
+        self.assertEqual([ev["model"] for ev in own], ["deepseek-flash"])
+        self.assertEqual(sum(1 for _, ev in child if not ev["sidechain"]), 2)
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+        self.assertEqual(groups["session"][_DSH_S3]["calls"], 1)
+        self.assertEqual(groups["session"][_DSH_S1]["calls"], 4)
+
+    def test_repeated_interrupted_and_torn_rows(self):
+        """A row written twice counts once, a call cancelled before its usage
+        arrived has nothing to count, and a torn last line is skipped rather
+        than ending the run."""
+        rows = self.read_all([self.session_file(_DSH_DEMO, _DSH_S1)])
+        keys = [k for k, _ in rows]
+        self.assertEqual(len(keys), 5)          # the repeated row is yielded twice
+        self.assertEqual(len(set(keys)), 4)
+        self.assertNotIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e04", keys)
+
+    def test_a_failed_attempt_with_usage_counts_and_a_zero_one_does_not(self):
+        """An error that came back with usage was billed; it is an
+        assistant/attempt with no model, whose route is the latest
+        request/context. pi-ai reports zeros for a transport failure, which
+        billed nothing."""
+        rows = self.read_all([self.session_file(_DSH_API, _DSH_S2)])
+        attempt = [ev for k, ev in rows if k.startswith("deepseek-harness:attempt:")]
+        self.assertEqual(len(attempt), 1)
+        self.assertEqual((attempt[0]["provider"], attempt[0]["model"]),
+                         ("anthropic", "claude-sonnet-4-5"))
+        self.assertEqual(attempt[0]["_usage"]["input_tokens"], 5120)
+
+    def test_a_failed_attempt_takes_the_route_of_its_own_request(self):
+        """A retry on another route logs a new request/context before its
+        request, after the failed attempt settled. Reading the route at the
+        end of the step gave the failed call the fallback's model."""
+        path = self.session_file(_DSH_API, _DSH_S2)
+        lines = slurp(path).splitlines()
+        fallback = json.dumps({"type": "request/context", "seq": 9, "time": 1791037212900,
+                               "data": {"provider": "deepseek-official", "model": "deepseek-flash",
+                                        "contextWindow": 1000000}})
+        at = next(i for i, l in enumerate(lines) if '"llm/retry-started"' in l) + 1
+        with open(path, "w") as f:
+            f.write("\n".join(lines[:at] + [fallback] + lines[at:]) + "\n")
+        rows = self.read_all([path])
+        attempt = [ev for k, ev in rows if k.startswith("deepseek-harness:attempt:")]
+        self.assertEqual((attempt[0]["provider"], attempt[0]["model"]),
+                         ("anthropic", "claude-sonnet-4-5"))
+
+    def test_a_cache_write_on_another_route_is_not_counted(self):
+        """pi-ai writes one-hour cache entries when a profile asks for long
+        retention, and the log does not say which a write was. Priced as a
+        five-minute write, such a call could be understated; it is left out
+        and the report counts it. DeepSeek bills a write as input either
+        way, so its own routes are not affected."""
+        keys = {k for k, _ in self.read_all([self.session_file(_DSH_API, _DSH_S2)])}
+        self.assertNotIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e07", keys)
+        self.assertEqual(deepseek_harness._STATE["lifetime_unknown"],
+                         {"deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e07"})
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        text = slurp(path).replace('"cacheReadTokens":9344,', '"cacheReadTokens":9344,"cacheWriteTokens":64,')
+        with open(path, "w") as f:
+            f.write(text)
+        rows = dict(self.read_all([path]))
+        written = rows["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e02"]["_usage"]["cache_creation"]
+        self.assertEqual(written["ephemeral_5m_input_tokens"], 64)
+        self.assertEqual(deepseek_harness._STATE["lifetime_unknown"], set())
+
+    def test_format_1_failed_runs_are_calls_too(self):
+        """Formats 0 and 1 have no assistant/attempt: a failed call is a run
+        of assistant/chunk events that no assistant/message cites, ended by a
+        retry, as the harness's own migration ends it. Only messages were
+        read before, so a billed failure there was lost; and a run that a
+        message cites must not count again."""
+        rows = self.read_all([self.session_file(_DSH_API, _DSH_S4, "session.v1.jsonl")])
+        self.assertEqual(sorted(k for k, _ in rows),
+                         ["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e08",
+                          "deepseek-harness:attempt:1790074802400:1:1:3100:1024:0:9"])
+        self.assertTrue(all(ev["model"] == "gpt-5-mini" and ev["provider"] == "openai"
+                            for _, ev in rows))
+        self.assertIs(tm.adapter_for(self.session_file(_DSH_API, _DSH_S4, "session.v1.jsonl")),
+                      deepseek_harness)
+
+    def test_a_message_without_data_usage_reads_its_stream(self):
+        """The harness meters a message by data.usage, or else the last usage
+        chunk in its stream (token-meter usageOf). Reading data.usage alone
+        lost such a call."""
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        lines = slurp(path).splitlines()
+        for i, l in enumerate(lines):
+            if "5e01" in l and '"assistant/message"' in l:
+                ev = json.loads(l)
+                del ev["data"]["usage"]
+                lines[i] = json.dumps(ev)
+        with open(path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        rows = dict(self.read_all([path]))
+        self.assertEqual(rows["deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e01"]["_usage"]["input_tokens"],
+                         9412)
+
+    def test_compaction_is_its_own_call(self):
+        """The summary call is metered on compaction/summary, not on any
+        assistant/message; missing it undercounts every compacted session."""
+        rows = dict(self.read_all([self.session_file(_DSH_DEMO, _DSH_S1)]))
+        ev = rows["deepseek-harness:compaction:a7e3c9d1-2b4f-4e6a-8c0d-3f5e7a9b1c2d"]
+        self.assertEqual((ev["model"], ev["provider"]), ("deepseek-flash", "deepseek"))
+        self.assertEqual(ev["_usage"]["cache_read_input_tokens"], 10240)
+
+    def test_another_summarisers_compaction_is_not_counted(self):
+        """Only a summary marked llmStreamCall is one call through the
+        harness's own model client. Another summariser's usage may cover
+        several calls, which priced as one could cross a threshold none of
+        them did; it is left out and the report counts it."""
+        path = self.session_file(_DSH_DEMO, _DSH_S1)
+        text = slurp(path).replace('"llmStreamCall":true,', "")
+        with open(path, "w") as f:
+            f.write(text)
+        keys = {k for k, _ in self.read_all([path])}
+        self.assertNotIn("deepseek-harness:compaction:a7e3c9d1-2b4f-4e6a-8c0d-3f5e7a9b1c2d", keys)
+        self.assertEqual(len(deepseek_harness._STATE["summariser"]), 1)
+
+    def test_notes(self):
+        """The report says the figures are unverified, and how many calls it
+        left out: a cache write of unknown lifetime, the title request and
+        the interrupted call. A silent omission reads as a complete total."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("DeepSeek Harness figures", notes)
+        self.assertIn("are unverified", notes)
+        self.assertIn("1 DeepSeek Harness call on a route other than DeepSeek's wrote to a "
+                      "prompt cache and is not counted", notes)
+        self.assertIn("1 DeepSeek Harness title or web-search request is not counted", notes)
+        self.assertIn("1 interrupted DeepSeek Harness call is not counted", notes)
+
+    def test_labelled_unverified(self):
+        """A reader built from source alone, never run on real files, must
+        say so on every report; figures without the caveat read as checked."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("DeepSeek Harness figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+    def test_the_command_line(self):
+        """--json counts the same calls as the engine does; a reader that
+        works only through collect() would vanish from the command line."""
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], self.expected["totals"]["calls"])
+
+    def test_session_and_project_filters(self):
+        """A session is named by its folder, and a project by the header's cwd."""
+        self.assertEqual(deepseek_harness.files([self.root], session=_DSH_S2),
+                         [self.session_file(_DSH_API, _DSH_S2)])
+        self.assertEqual(len(deepseek_harness.files([self.root], project="/Users/example/code/demo")), 2)
+        self.assertEqual(deepseek_harness.files([self.root], project="/Users/example/code/elsewhere"), [])
+        got = json.loads(cli("--json", "--no-ledger", "--session", _DSH_S1))
+        self.assertEqual(got["calls"], 4)
+
+    def test_default_roots_honour_dsh_home(self):
+        """$DSH_HOME moves everything the harness keeps; a blank one is unset."""
+        with unittest.mock.patch.dict(os.environ, {"DSH_HOME": self.home}):
+            self.assertEqual(deepseek_harness.default_roots(), [self.root])
+        with unittest.mock.patch.dict(os.environ, {"DSH_HOME": "  "}):
+            self.assertEqual(deepseek_harness.default_roots(), [os.path.expanduser("~/.dsh/sessions")])
+        env = dict(os.environ)
+        env.pop("DSH_HOME", None)
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(deepseek_harness.default_roots(), [os.path.expanduser("~/.dsh/sessions")])
+
+    def test_looks_like_is_strict(self):
+        """Claude Code's test is the loosest and runs last; this one must not
+        claim a line of any other reader's format, hidden folders (.gemini,
+        .kimi-code) included, which glob leaves out."""
+        others = [record("msg_1"), json.dumps(GOOD_IMPORT)]
+        paths = [os.path.join(top, n) for top, _, names in os.walk(FIXTURES) for n in names
+                 if ".json" in n]
+        for path in sorted(paths):
+            if os.sep + "deepseek-harness" + os.sep in path or path.endswith("expected.json"):
+                continue
+            others.extend(l for l in slurp(path, encoding="utf-8", errors="ignore").splitlines()
+                          if l.strip())
+        self.assertTrue(others)
+        for line in others:
+            with self.subTest(line=line[:80]):
+                self.assertFalse(deepseek_harness.looks_like(line))
+        own = slurp(self.session_file(_DSH_DEMO, _DSH_S1)).splitlines()
+        self.assertTrue(deepseek_harness.looks_like(own[0]))
+        self.assertTrue(all(deepseek_harness.looks_like(l) for l in own[1:-1]))
+        self.assertIs(tm.adapter_for(self.session_file(_DSH_DEMO, _DSH_S1)), deepseek_harness)
+
+    def compress(self, frames_of, cut=0):
+        """The v4 session as the harness compresses it: one frame for the
+        header, then one per append batch."""
+        raw = slurp(self.session_file(_DSH_DEMO, _DSH_S1), mode="rb").split(b"\n")
+        lines = [l + b"\n" for l in raw if l.strip()][:-1]          # drop the torn line
+        frames = [lines[:1]] + [lines[i:i + frames_of] for i in range(1, len(lines), frames_of)]
+        parts = [zstd_compress(b"".join(f)) for f in frames]
+        if parts[0] is None:
+            self.skipTest("no zstd encoder on this machine")
+        data = b"".join(parts)
+        if cut:
+            data = data[:-cut]
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        for name in os.listdir(folder):
+            os.remove(os.path.join(folder, name))
+        path = os.path.join(folder, "session.v4.jsonl.zstd")
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_a_compressed_session_is_read_across_every_frame(self):
+        """The harness writes one Zstandard frame per append. A decoder that
+        stops at the end of the first frame (the zstandard package's default)
+        read the header and nothing else."""
+        path = self.compress(frames_of=3)
+        rows = self.read_all([path])
+        self.assertEqual(len({k for k, _ in rows}), 4)
+        self.assertEqual(deepseek_harness.files([self.root], project="/Users/example/code/demo"),
+                         sorted([path, self.session_file(_DSH_DEMO, _DSH_S3)]))
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], self.expected["totals"]["calls"])
+
+    def test_a_torn_last_frame_keeps_the_calls_before_it(self):
+        """A crash or a write in progress leaves a torn final frame. Treating
+        the whole file as unreadable lost every call in the session."""
+        path = self.compress(frames_of=10, cut=7)
+        keys = {k for k, _ in self.read_all([path])}
+        self.assertIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e01", keys)
+        self.assertIn("deepseek-harness:9c4f1d2e-7a3b-4e5c-8d6f-1a2b3c4d5e02", keys)
+        self.assertEqual(deepseek_harness._STATE["compressed_damaged"], 1)
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        self.assertIn("1 compressed DeepSeek Harness session (.jsonl.zstd) ended in a damaged "
+                      "or unfinished frame", notes)
+
+    def test_python_decoders_read_one_frame_at_a_time(self):
+        """Python's own zstd and the zstandard package decode one frame per
+        decompressor. Reading on with one decompressor stopped at the first
+        frame (the header); a stream reader that fails at a torn last frame
+        dropped the whole frames in its last block. A stand-in decoder, one
+        frame per b"F" + length + payload, shows the loop reads every frame
+        and keeps those before a torn one."""
+
+        class Torn(Exception):
+            pass
+
+        class Frame:
+            def __init__(self):
+                self.eof, self.unused_data = False, b""
+
+            def decompress(self, data):
+                if data[:1] != b"F":
+                    raise Torn()
+                size = int.from_bytes(data[1:5], "big")
+                body = data[5:5 + size]
+                if len(body) < size:
+                    return body[:0]
+                self.eof, self.unused_data = True, data[5 + size:]
+                return body
+
+        def frame(b):
+            return b"F" + len(b).to_bytes(4, "big") + b
+
+        path = os.path.join(self.tmp, "frames.jsonl.zstd")
+        whole_ = frame(b"one\n") + frame(b"two\n") + frame(b"three\n")
+        with open(path, "wb") as f:
+            f.write(whole_)
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\nthree\n", False))
+        with open(path, "wb") as f:
+            f.write(whole_[:-3])
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\n", True))
+        with open(path, "wb") as f:
+            f.write(whole_ + b"junk")
+        self.assertEqual(deepseek_harness._frames(path, Frame, Torn), (b"one\ntwo\nthree\n", True))
+
+    def test_no_decoder_is_reported_not_fatal(self):
+        """Without zstd anywhere a compressed session cannot be read: it is
+        counted and reported, and the run goes on."""
+        folder = os.path.join(self.root, _DSH_DEMO, _DSH_S1)
+        for name in os.listdir(folder):
+            os.remove(os.path.join(folder, name))
+        with open(os.path.join(folder, "session.v4.jsonl.zstd"), "wb") as f:
+            f.write(b"\x28\xb5\x2f\xfd not really\n")
+        with unittest.mock.patch.dict(sys.modules, {"compression": None, "compression.zstd": None,
+                                                    "zstandard": None}), \
+                unittest.mock.patch.object(codex_module, "_decoder", lambda: None):
+            overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+            notes = " ".join(t for _, t in tm.report_notes(groups, unknown))
+        # Session 2's one call, the format 1 session's two and the child's
+        # three: its copies of the parent's calls now stand alone.
+        self.assertEqual(overall["calls"], 6)
+        self.assertIn("1 compressed DeepSeek Harness session (.jsonl.zstd) could not be read", notes)
 
 
 class TestTokenCounts(Base):
