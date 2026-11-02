@@ -10,8 +10,8 @@ import os
 import time
 import unittest
 
-from helpers import (ANTHROPIC_PAGE, Base, cli, cost_of, payload_of, record, slurp, terminal, tm,
-                     usage)
+from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, record, slurp, terminal,
+                     tm, usage)
 
 
 class TestOnlineLookup(Base):
@@ -416,21 +416,34 @@ class TestCheckPrices(Base):
         self.assertIn("claude-haiku-5-5 long_over: table has 100000, page says 200000", out)
 
     def test_a_model_missing_from_the_page_is_named(self):
-        page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
+        """A current model whose row has gone from the page is named, so a
+        price the table still charges is checked by hand. The model was Haiku
+        3.5 until the table marked it retired on 27 October 2026; Sonnet 4.5
+        is current, and the first assertion says so if that changes."""
+        self.assertNotIn("claude-sonnet-4-5", tm._anthropic.RETIRED)
+        page = "".join(l for l in self.anthropic_page().splitlines(True)
+                       if "| Claude Sonnet 4.5 |" not in l)
         code, out = self.run_check(lambda url: page)
-        self.assertIn("not found on the page: claude-haiku-3-5", out)
+        self.assertIn("not found on the page: claude-sonnet-4-5", out)
 
     def test_a_retired_model_missing_from_the_page_is_expected(self):
+        """A retired model missing from the page is counted as retired, not
+        named as missing, and the check passes. Runs on the real table, which
+        lists Haiku 3.5 as retired since 27 October 2026; the test used to
+        swap the table's RETIRED for its own and then delete it, which took
+        the real one away from every later test in the process."""
+        retired = tm._anthropic.RETIRED
+        self.assertIn("claude-haiku-3-5", retired)
         page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
-        tm._anthropic.RETIRED = {"claude-haiku-3-5": "2026-01-01"}
-        try:
-            code, out = self.run_check(lambda url: page)
-        finally:
-            del tm._anthropic.RETIRED
+        code, out = self.run_check(lambda url: page)
+        self.assertIs(tm._anthropic.RETIRED, retired)
         self.assertEqual(code, 0)
         self.assertNotIn("not found", out)
-        self.assertIn("19 of 19", out)
-        self.assertIn("1 retired, kept at the last published price", out)
+        on_page = len(tm._anthropic.PAGE_NAMES) - 1
+        self.assertIn(f"{on_page} of {on_page}", out)
+        off_page = [m for m in retired if m == "claude-haiku-3-5"
+                    or m not in tm._anthropic.PAGE_NAMES.values()]
+        self.assertIn(f"{len(off_page)} retired, kept at the last published price", out)
 
     def test_every_retired_model_is_still_priced(self):
         """Retiring a model never removes its row; older usage needs it."""
@@ -637,6 +650,140 @@ class TestExchangeRates(Base):
                 tm.fx_rates = lambda: ({"USD": 1.0, "GBP": 0.5}, when, live)
                 tm.render_html(*result, "all time", out)
                 self.assertEqual(payload_of(slurp(out, encoding="utf-8"))["rateWhen"], shown)
+
+
+# Anthropic: the page reader in pricing/anthropic.py, run on a saved copy of
+# the page with a faked fetch, and each rule the table models.
+#
+# The saved page, fixtures/pages/anthropic_page.md, is lines cut verbatim from
+# https://platform.claude.com/docs/en/about-claude/pricing.md as fetched on 27
+# October 2026: the "Model pricing" heading and its table, and the "Fast mode
+# pricing" heading and its table. Nothing in it was typed by hand. A test that
+# needs a different page builds it from that copy.
+
+ANTHROPIC_PAGE_FILE = os.path.join(FIXTURES, "pages", "anthropic_page.md")
+
+
+# Typed from the page on 27 October 2026, not copied from the table:
+# base input, 5m write, 1h write, cache hit, output.
+ANTHROPIC_ON_THE_PAGE = {
+    "claude-fable-5-1": (10, 12.50, 20, 0.25, 50),
+    "claude-opus-5-5": (4, 5, 8, 0.20, 20),
+    "claude-opus-4-1": (15, 18.75, 30, 1.50, 75),
+    "claude-sonnet-5-5": (2, 2.50, 4, 0.10, 10),
+    "claude-sonnet-5": (2, 2.50, 4, 0.20, 10),
+    "claude-haiku-5-5": (0.10, 0.125, 0.20, 0.01, 0.50),
+    "claude-haiku-3-5": (0.80, 1, 1.60, 0.08, 4),
+}
+
+
+ANTHROPIC_FIELDS = ("in", "write_5m", "write_1h", "cached", "out")
+
+
+def anthropic_model_table(text):
+    """The saved page's model table, as its header and its rows of cells."""
+    lines = [l for l in text.splitlines() if l.startswith("| ")]
+    split = [[c.strip() for c in l.strip()[1:-1].split("|")] for l in lines]
+    start = next(i for i, r in enumerate(split) if r[0] == "Model" and len(r) == 6)
+    end = next(i for i in range(start + 2, len(split)) if len(split[i]) != 6)
+    return split[start], split[start + 2:end]
+
+
+def anthropic_as_markdown(header, rows):
+    """A header and rows written back as a markdown pipe table."""
+    out = ["| " + " | ".join(header) + " |", "|" + " :-- |" * len(header)]
+    out += ["| " + " | ".join(r) + " |" for r in rows]
+    return "\n".join(out) + "\n"
+
+
+class TestAnthropicPageReader(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["anthropic"]
+        self.page = slurp(ANTHROPIC_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def read(self, text, **kw):
+        def fetch(url):
+            self.urls.append(url)
+            return text
+        return self.table.page_rates(fetch, tm.md_tables, **kw)
+
+    def test_every_model_is_read_off_the_saved_page(self):
+        """Guards the reader losing a model to a name cell it cannot clean:
+        a "retired, except on ..." link, a <sup> footnote marker, a "limited
+        availability" link or Haiku 5.5's two prompt-length rows. Every one
+        of the twenty is read, at the figures the page prints, from one fetch
+        of the markdown form."""
+        rates, unknown = self.read(self.page)
+        self.assertEqual(self.urls, [self.table.SOURCE_MD])
+        self.assertEqual(unknown, [])
+        self.assertEqual(sorted(rates), sorted(self.table.PAGE_NAMES.values()))
+        for model, official in ANTHROPIC_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                for field, want in zip(ANTHROPIC_FIELDS, official):
+                    self.assertAlmostEqual(rates[model][field], want, places=9, msg=field)
+
+    def test_haiku_5_5_higher_tier_and_fast_rates_are_read(self):
+        """Guards the "over 100,000 tokens" row overwriting the base figures
+        instead of filling the long_ fields, and the fast-mode row that names
+        two models giving its rates to only one."""
+        rates, _ = self.read(self.page)
+        haiku = rates["claude-haiku-5-5"]
+        for field, want in zip(ANTHROPIC_FIELDS, (0.50, 0.625, 1, 0.05, 2.50)):
+            self.assertAlmostEqual(haiku["long_" + field], want, places=9, msg=field)
+        self.assertEqual(haiku["long_over"], 100_000)
+        self.assertAlmostEqual(haiku["in"], 0.10, places=9)
+        for model, fast in (("claude-opus-5-5", (8, 40)), ("claude-opus-5", (10, 50)),
+                            ("claude-opus-4-8", (10, 50))):
+            with self.subTest(model=model):
+                self.assertEqual((rates[model]["fast_in"], rates[model]["fast_out"]), fast)
+        self.assertNotIn("fast_in", rates["claude-opus-4-7"])
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """Guards a table row drifting from the page, and a retired model
+        the page no longer lists being reported as missing: --check-prices's
+        own comparison finds all twenty current models matching in every
+        column and the seven archive-priced ones retired."""
+        r = tm.compare_with_page(self.table, lambda url: self.page)
+        self.assertEqual(r["error"], "")
+        self.assertEqual((r["matched"], r["expected"]), (20, 20))
+        self.assertEqual((r["diffs"], r["absent"], r["unlisted"]), ([], [], []))
+        self.assertEqual(sorted(r["retired"]), sorted(
+            ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku",
+             "claude-3-sonnet", "claude-2.1", "claude-2.0"]))
+
+    def test_columns_are_read_by_header_not_position(self):
+        """Guards the page's HTML column order (Input, Output, then the cache
+        columns) reaching the markdown form: read by position, output would
+        be taken as the 5-minute write and every model would differ. Read by
+        header, the reordered table gives the same figures."""
+        header, rows = anthropic_model_table(self.page)
+        order = [0, 1, 5, 2, 3, 4]
+        moved = anthropic_as_markdown([header[i] for i in order], [[r[i] for i in order] for r in rows])
+        self.assertEqual(self.read(moved), self.read(anthropic_as_markdown(header, rows)))
+        rates, _ = self.read(moved)
+        self.assertAlmostEqual(rates["claude-opus-5-5"]["out"], 20, places=9)
+        self.assertAlmostEqual(rates["claude-opus-5-5"]["write_5m"], 5, places=9)
+
+    def test_a_table_missing_a_column_is_not_read(self):
+        """Guards a guess: a model table without one of its five figure
+        columns is skipped whole, so a changed layout reads as models not
+        found on the page, never as a wrong figure."""
+        header, rows = anthropic_model_table(self.page)
+        keep = [0, 1, 2, 3, 4]
+        cut = anthropic_as_markdown([header[i] for i in keep], [[r[i] for i in keep] for r in rows])
+        self.assertEqual(self.read(cut), ({}, []))
+
+    def test_a_model_new_on_the_page_is_named_and_read_when_wanted(self):
+        """Guards a model the table lacks going unseen: --check-prices names
+        it, and the startup lookup, which asks for its id, gets its rates.
+        want=None, the signature pricing/README.md gives, reads as no ids."""
+        rates, unknown = self.read(ANTHROPIC_PAGE, want=None)
+        self.assertEqual((rates, unknown), ({}, ["Claude Opus 9"]))
+        rates, _ = self.read(ANTHROPIC_PAGE, want=("claude-opus-9",))
+        self.assertAlmostEqual(rates["claude-opus-9"]["in"], 6, places=9)
+        self.assertAlmostEqual(rates["claude-opus-9"]["out"], 30, places=9)
 
 
 if __name__ == "__main__":

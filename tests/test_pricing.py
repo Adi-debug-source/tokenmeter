@@ -9,7 +9,10 @@ import os
 import re
 import unittest
 
-from helpers import Base, cli, cost_of, tm, usage
+from helpers import Base, cli, cost_of, noon, tm, usage
+
+M = 1_000_000
+UTC = dt.timezone.utc
 
 
 class TestPricing(Base):
@@ -198,6 +201,129 @@ class TestPageMoney(Base):
                 # Either spelling: Google's unused regex was named in capitals.
                 self.assertEqual([n for n in vars(table) if n.lower() == "_money"], [])
         self.assertNotIn("common", pricing.TABLES)
+
+
+# Anthropic: the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestAnthropicRules(Base):
+    def table(self):
+        return tm.TABLES["anthropic"]
+
+    def test_a_dated_row_is_in_force_from_its_date(self):
+        """Guards Sonnet 5.5's cache read cut of 7 October 2026 being applied
+        to earlier calls, or not to calls from that day: $0.20 a million hits
+        on 6 October, $0.10 from 7 October, every other rate unchanged."""
+        u = usage(inp=M, out=M, read=M)
+        before = tm.price_record("claude-sonnet-5-5", u, when=noon("2026-10-06"))
+        on = tm.price_record("claude-sonnet-5-5", u, when=noon("2026-10-07"))
+        self.assertAlmostEqual(before["cache_read"], 0.20, places=9)
+        self.assertAlmostEqual(on["cache_read"], 0.10, places=9)
+        for part in ("input", "output"):
+            self.assertAlmostEqual(before[part], on[part], places=9)
+
+    def test_long_prompts_cross_at_over_100000_with_cache_counted(self):
+        """Guards Haiku 5.5's prompt-length tiers: exactly 100,000 prompt
+        tokens is the lower tier ("up to 100,000"), one more is the higher,
+        and cache reads and writes count towards the prompt."""
+        at = tm.price_record("claude-haiku-5-5", usage(inp=60_000, read=30_000, w5=10_000, out=M))
+        over = tm.price_record("claude-haiku-5-5", usage(inp=60_000, read=30_000, w5=10_001, out=M))
+        self.assertAlmostEqual(at["output"], 0.50, places=9)
+        self.assertAlmostEqual(over["output"], 2.50, places=9)
+        self.assertAlmostEqual(over["cache_read"], 30_000 * 0.05 / M, places=12)
+
+    def test_no_row_has_an_off_peak_price(self):
+        """Guards an invented time-of-day price: the page publishes none, so
+        no row carries off_peak and a call at 03:00 UTC on a weekday costs
+        what it costs at noon."""
+        for model, rows in self.table().PRICES.items():
+            for row in rows:
+                with self.subTest(model=model, row=row["from"]):
+                    self.assertNotIn("off_peak", row)
+        u = usage(inp=M, out=M)
+        night = dt.datetime(2026, 10, 20, 3, tzinfo=dt.timezone.utc)
+        noonish = dt.datetime(2026, 10, 20, 12, tzinfo=dt.timezone.utc)
+        self.assertAlmostEqual(cost_of(tm.price_record("claude-opus-5", u, when=night)),
+                               cost_of(tm.price_record("claude-opus-5", u, when=noonish)), places=9)
+
+    def test_fast_mode_is_priced_only_where_the_page_lists_it(self):
+        """Guards fast mode: Opus 5.5 fast is $8 / $40, and a fast call to a
+        model the page gives no fast rate (Opus 4.7 today) prices at its
+        standard rate rather than at another model's fast rate."""
+        u = usage(inp=M, out=M, speed="fast")
+        c = tm.price_record("claude-opus-5-5", u, "fast")
+        self.assertAlmostEqual(c["input"], 8.0, places=9)
+        self.assertAlmostEqual(c["output"], 40.0, places=9)
+        c = tm.price_record("claude-opus-4-7", u, "fast")
+        self.assertAlmostEqual(c["input"], 5.0, places=9)
+        self.assertAlmostEqual(c["output"], 25.0, places=9)
+
+    def test_retired_models_keep_their_last_published_price(self):
+        """Guards a retired model dropping to the fallback: every RETIRED id
+        has a row and an ISO date, a call long after its retirement is still
+        recognised and priced at its row, and Haiku 3's printed figures,
+        whose write and hit are not the table's default multiples, are
+        reproduced exactly."""
+        table = self.table()
+        self.assertEqual(len(table.RETIRED), 11)
+        later = dt.datetime(2026, 10, 27, 12, tzinfo=dt.timezone.utc)
+        for model, day in table.RETIRED.items():
+            with self.subTest(model=model):
+                self.assertIn(model, table.PRICES)
+                dt.date.fromisoformat(day)
+                row, ok = tm.lookup(model, when=later)
+                self.assertTrue(ok)
+                self.assertEqual(row, table.PRICES[model][-1])
+        c = tm.price_record("claude-3-haiku", usage(inp=M, w5=M, w1=M, read=M, out=M))
+        self.assertAlmostEqual(c["input"], 0.25, places=9)
+        self.assertAlmostEqual(c["cache_write"], 0.30 + 0.50, places=9)
+        self.assertAlmostEqual(c["cache_read"], 0.03, places=9)
+        self.assertAlmostEqual(c["output"], 1.25, places=9)
+        c = tm.price_record("claude-2.1", usage(inp=M, out=M))
+        self.assertAlmostEqual((c["input"], c["output"]), (8.0, 24.0))
+
+    def test_models_with_no_published_cache_price_print_no_cache_write(self):
+        """Guards the price list printing cache write figures Anthropic never
+        published: Claude 3 Sonnet's card (archive capture 20250121003151)
+        and Claude 2.1's and 2.0's (20241024003303) print Input and Output
+        only, so their rows carry write_mult 1.0 beside cache_read_mult 1.0.
+        Without it they took the table's 1.25x and 2x, and --list-prices
+        printed "1-hour cache write $6" for Claude 3 Sonnet and "$16" for
+        Claude 2.1 and 2.0."""
+        table = self.table()
+        listing = tm.price_listing(markdown=True).splitlines()
+        for model, inp, out in (("claude-3-sonnet", "$3", "$15"),
+                                ("claude-2.1", "$8", "$24"), ("claude-2.0", "$8", "$24")):
+            with self.subTest(model=model):
+                self.assertEqual(tm.write_mults(table.PRICES[model][-1], table), (1.0, 1.0))
+                line = [l for l in listing if l.startswith(f"| `{model}` |")]
+                self.assertEqual(len(line), 1)
+                cells = [c.strip() for c in line[0].strip("|").split("|")]
+                self.assertEqual(cells[1:5], [inp, "-", "-", out])
+                self.assertNotIn("cache write", cells[5])
+
+    def test_api_ids_and_aliases_price_as_their_model(self):
+        """Guards the API's own names reaching the fallback ($5 / $25): Haiku
+        3.5's row is named from the page (claude-haiku-3-5), so its dated id
+        claude-3-5-haiku-20241022 and its aliases resolve only through
+        ALIASES; the new retired rows' dated ids resolve through SNAPSHOT."""
+        table = self.table()
+        for alias, model in table.ALIASES.items():
+            with self.subTest(alias=alias):
+                self.assertIn(model, table.PRICES)
+                c = tm.price_record(alias, usage(inp=M, out=M))
+                self.assertFalse(c.get("_unknown_model"))
+                self.assertAlmostEqual(c["output"], table.PRICES[model][-1]["out"], places=9)
+        self.assertEqual(tm.lookup("claude-3-5-haiku-20241022")[0]["in"], 0.8)
+        for dated, model in (("claude-3-7-sonnet-20250219", "claude-3-7-sonnet"),
+                             ("claude-3-5-sonnet-20240620", "claude-3-5-sonnet"),
+                             ("claude-3-opus-20240229", "claude-3-opus"),
+                             ("claude-3-haiku-20240307", "claude-3-haiku"),
+                             ("claude-3-sonnet-20240229", "claude-3-sonnet")):
+            with self.subTest(dated=dated):
+                row, ok = tm.lookup(dated)
+                self.assertTrue(ok)
+                self.assertEqual(row, table.PRICES[model][-1])
 
 
 if __name__ == "__main__":
