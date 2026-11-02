@@ -326,5 +326,138 @@ class TestAnthropicRules(Base):
                 self.assertEqual(row, table.PRICES[model][-1])
 
 
+# Google (Gemini API): the rules the table models. Its page reader, and the saved
+# page that reader is tested on, are in test_lookup.py.
+
+class TestGoogleRules(Base):
+    def cost(self, model, day=None, speed="standard", **kw):
+        when = noon(day) if day else None
+        return tm.price_record(model, usage(**kw), speed, when=when, provider="google")
+
+    def test_a_dated_row_is_in_force_from_its_date(self):
+        """Gemini 4 Argon's launch price runs through 30 November 2026 and
+        doubles from 1 December. A call is priced at the rate on its own day;
+        charging the later price early, or the launch price late, is wrong
+        by half or double."""
+        before = self.cost("gemini-4-argon", "2026-11-30", inp=M, out=M, read=M)
+        after = self.cost("gemini-4-argon", "2026-12-01", inp=M, out=M, read=M)
+        self.assertAlmostEqual(before["input"], 2.00, places=9)
+        self.assertAlmostEqual(before["output"], 10.00, places=9)
+        self.assertAlmostEqual(before["cache_read"], 0.10, places=9)
+        self.assertAlmostEqual(after["input"], 4.00, places=9)
+        self.assertAlmostEqual(after["output"], 20.00, places=9)
+        self.assertAlmostEqual(after["cache_read"], 0.20, places=9)
+        jan = self.cost("gemini-3.8-flash", "2027-01-01", inp=M, out=M)
+        dec = self.cost("gemini-3.8-flash", "2026-12-31", inp=M, out=M)
+        self.assertAlmostEqual((dec["input"], dec["output"]), (0.75, 3.75))
+        self.assertAlmostEqual((jan["input"], jan["output"]), (1.50, 7.50))
+
+    def test_priority_is_the_fast_rate_and_follows_the_dates(self):
+        """A call recorded as fast or priority is billed at the page's
+        Priority tier, from its own dated entry, with the cache read at the
+        row's multiple. With fast left at None it was billed at Standard,
+        about 45% under."""
+        f = self.cost("gemini-4-argon", "2026-11-30", "fast", inp=M, out=M, read=M)
+        self.assertAlmostEqual(f["input"], 3.60, places=9)
+        self.assertAlmostEqual(f["output"], 18.00, places=9)
+        self.assertAlmostEqual(f["cache_read"], 0.18, places=9)
+        later = self.cost("gemini-4-argon", "2026-12-01", "fast", inp=M, out=M)
+        self.assertAlmostEqual((later["input"], later["output"]), (7.20, 36.00))
+        std = self.cost("gemini-2.5-flash", "2026-10-27", inp=M, out=M)
+        self.assertAlmostEqual((std["input"], std["output"]), (0.30, 2.50))
+
+    def test_no_time_of_day_price(self):
+        """The page prints no peak or off-peak hours, so no row may carry an
+        off_peak discount: a call at 03:00 UTC costs what one at noon does."""
+        for mid, rows in tm.TABLES["google"].PRICES.items():
+            for row in rows:
+                self.assertNotIn("off_peak", row, mid)
+
+    def test_long_context_is_over_200k_with_priority_on_top(self):
+        """Above 200,000 prompt tokens, cache included, the whole request is
+        2x input and cache and 1.5x output; 200,000 itself is not long. The
+        page's Priority long figures ($7.20, $32.40, $0.72 for 3.1 Pro
+        Preview) come out of the same multiples."""
+        at = self.cost("gemini-3.1-pro-preview", inp=150_000, read=50_000, out=M)
+        over = self.cost("gemini-3.1-pro-preview", inp=150_000, read=50_001, out=M)
+        self.assertAlmostEqual(at["output"], 12.00, places=9)
+        self.assertAlmostEqual(over["output"], 18.00, places=9)
+        self.assertAlmostEqual(over["cache_read"], 50_001 * 0.40 / M, places=12)
+        f = self.cost("gemini-3.1-pro-preview", None, "fast", inp=M, read=M, out=M)
+        self.assertAlmostEqual(f["input"], 7.20, places=9)
+        self.assertAlmostEqual(f["output"], 32.40, places=9)
+        self.assertAlmostEqual(f["cache_read"], 0.72, places=9)
+
+    def test_gemini_1_5_long_context_is_over_128k_and_doubles_everything(self):
+        """The 1.5 series doubled input, output and cache above 128K, not at
+        Gemini's usual 200K with 1.5x output: $1.25 and $2.50 in, $5.00 and
+        $10.00 out, $0.3125 and $0.625 cached for 1.5 Pro."""
+        at = self.cost("gemini-1.5-pro", inp=128_000, out=M)
+        over = self.cost("gemini-1.5-pro", inp=128_001, out=M)
+        self.assertAlmostEqual(at["output"], 5.00, places=9)
+        self.assertAlmostEqual(over["output"], 10.00, places=9)
+        long = self.cost("gemini-1.5-pro", inp=M, read=M, out=M)
+        self.assertAlmostEqual(long["input"], 2.50, places=9)
+        self.assertAlmostEqual(long["cache_read"], 0.625, places=9)
+
+    def test_a_retired_model_is_still_priced_and_recognised(self):
+        """A model the page dropped keeps its last published price for usage
+        before and after its shutdown, and is not flagged as unknown; without
+        its row a 2025 Gemini 2.0 Flash call was priced at the fallback, 3.1
+        Pro Preview, twenty times too high on input."""
+        table = tm.TABLES["google"]
+        for mid, day in table.RETIRED.items():
+            self.assertIn(mid, table.PRICES, mid)
+            self.assertRegex(day, r"^\d{4}-\d{2}-\d{2}$")
+        c = self.cost("gemini-2.0-flash", "2025-06-01", inp=M, out=M, read=M)
+        self.assertFalse(c["_unknown_model"])
+        self.assertAlmostEqual((c["input"], c["output"], c["cache_read"]), (0.10, 0.40, 0.025))
+        late = self.cost("gemini-2.0-flash", "2026-10-27", inp=M)
+        self.assertFalse(late["_unknown_model"])
+        self.assertAlmostEqual(late["input"], 0.10, places=9)
+
+    def test_a_retired_model_with_no_cache_price_gets_no_discount(self):
+        """Where the copy cited printed no caching price (2.0 Flash-Lite,
+        1.0 Pro), a cache read is billed as input, not at a 0.1x discount
+        the page never offered."""
+        c = self.cost("gemini-2.0-flash-lite", inp=M, read=M)
+        self.assertAlmostEqual(c["cache_read"], c["input"], places=12)
+        c = self.cost("gemini-1.0-pro", read=M)
+        self.assertAlmostEqual(c["cache_read"], 0.50, places=9)
+
+    def test_odd_cache_prices_are_reproduced_as_printed(self):
+        """Prices that are no round multiple of input must still come out at
+        the printed figure: 1.5 Flash-8B cached $0.01 against $0.0375 input,
+        the 2.5 Pro Previews $0.31 against $1.25."""
+        # Under each model's long-context threshold, so the short price applies.
+        read = 100_000
+        self.assertAlmostEqual(self.cost("gemini-1.5-flash-8b", read=read)["cache_read"],
+                               read * 0.01 / M, places=15)
+        self.assertAlmostEqual(self.cost("gemini-2.5-pro-preview-06-05", read=read)["cache_read"],
+                               read * 0.31 / M, places=15)
+
+    def test_the_flash_previews_bill_output_at_the_thinking_price(self):
+        """2.5 Flash Preview 04-17 and 05-20 printed $0.60 non-thinking and
+        $3.50 thinking output; the log cannot tell which, and the docstring
+        says the row uses $3.50. A change to that choice must be deliberate."""
+        for mid in ("gemini-2.5-flash-preview-04-17", "gemini-2.5-flash-preview-05-20"):
+            c = self.cost(mid, inp=M, out=M)
+            self.assertAlmostEqual((c["input"], c["output"]), (0.15, 3.50), msg=mid)
+
+    def test_aliases_and_snapshots_reach_their_rows(self):
+        """Google spells some ids two ways, and stable versions carry -001.
+        Each spelling must reach the same row, recognised; an unmatched one
+        was priced at the fallback with a warning."""
+        for alias, mid in (("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),
+                           ("gemini-2.5-flash-preview-09-25", "gemini-2.5-flash-preview-09-2025"),
+                           ("gemini-2.5-flash-lite-06-17", "gemini-2.5-flash-lite-preview-06-17"),
+                           ("gemini-2.0-flash-001", "gemini-2.0-flash"),
+                           ("gemini-2.0-flash-lite-001", "gemini-2.0-flash-lite"),
+                           ("gemini-1.5-flash-8b-001", "gemini-1.5-flash-8b")):
+            row, ok = tm.lookup(alias, provider="google")
+            self.assertTrue(ok, alias)
+            self.assertEqual(row, tm.TABLES["google"].PRICES[mid][-1], alias)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

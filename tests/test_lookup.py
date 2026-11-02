@@ -250,7 +250,9 @@ class TestPageRows(Base):
 
     def test_long_context_keeps_its_providers_threshold(self):
         """Every looked-up long-context rate started above 272,000 tokens,
-        OpenAI's figure, though Google's starts above 200,000."""
+        OpenAI's figure, though Google's starts above 200,000. Also guards
+        that every table row uses its provider's threshold, except a retired
+        model whose own page printed another (Google's 1.5 series, 128k)."""
         r = {"in": 2.00, "out": 12.00, "cached": 0.20, "long_in": 4.00, "long_out": 18.00}
         row, = tm.rows_from_page(r, tm.TABLES["google"])
         self.assertEqual(row["long"], {"over": 200_000, "in": 2.0, "out": 1.5})
@@ -261,11 +263,24 @@ class TestPageRows(Base):
         # A table that states no threshold gets no long-context rule at all.
         row, = tm.rows_from_page(r, tm.TABLES["anthropic"])
         self.assertNotIn("long", row)
+        # Every long rule in a table uses its LONG_OVER, with one named
+        # exception: Google's retired 1.5 series, whose archived page printed
+        # "prompts <= 128k tokens" and "> 128k", so those rows carry their own
+        # 128,000 (the rule changed on 27 October 2026, when the table gained
+        # them). A row's own threshold is honoured by the engine, and allowed
+        # here only on a retired model listed below.
+        own_line = {"google": {"gemini-1.5-pro": 128_000, "gemini-1.5-flash": 128_000,
+                               "gemini-1.5-flash-8b": 128_000}}
         for name in ("openai", "google", "xai"):
             table = tm.TABLES[name]
             with self.subTest(table=name):
-                long = [x["long"] for rows in table.PRICES.values() for x in rows if x.get("long")]
-                self.assertTrue(long and all(x["over"] == table.LONG_OVER for x in long))
+                long = {(m, x["long"]["over"]) for m, rows in table.PRICES.items()
+                        for x in rows if x.get("long")}
+                own = {m: over for m, over in long if over != table.LONG_OVER}
+                self.assertTrue(any(over == table.LONG_OVER for _, over in long))
+                self.assertEqual(own, own_line.get(name, {}))
+                retired = getattr(table, "RETIRED", {})
+                self.assertTrue(all(m in retired for m in own), own)
 
     def test_a_one_hour_write_off_the_default_is_kept(self):
         """The page's 1-hour cache write was read and then dropped."""
