@@ -16,7 +16,7 @@ from helpers import (FIXTURES, GOOD_IMPORT, Base, cli, cost_of, record, slurp, t
                      zstd_compress)
 
 from adapters import codex as codex_module
-from adapters import gemini_cli, opencode
+from adapters import gemini_cli, kimi_code, opencode
 from adapters.common import parse_time
 
 
@@ -99,6 +99,31 @@ _GEMINI_QWEN_USER = json.dumps({
 # claude binary. These tests pin a database laid out as 8bca532 leaves one to
 # the per-call figures in tests/fixtures/opencode/recheck-8bca532/expected.json.
 _OPENCODE_HERE = os.path.join(FIXTURES, "opencode", "recheck-8bca532")
+
+
+# Kimi Code reader, built from MoonshotAI/kimi-code at a2afdbc (30 October
+# 2026). These tests pin the fixture sessions under tests/fixtures/kimi-code to
+# the per-call figures in its expected.json: one usage.record per API call,
+# its model taken from the llm.request of its own kind before it, a
+# duplicated line and a forked session counted once, and the calls Kimi Code
+# cannot record exactly left out and reported.
+_KIMI_HERE = os.path.join(FIXTURES, "kimi-code")
+_KIMI_WS = "wd_demo_f2d28b381d98"
+_KIMI_A = "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17"
+_KIMI_B = "session_9e0d7c6b-5a4f-4b3e-8d2c-1f0e9a8b7c65"
+
+# A kimi-cli wire.jsonl line, with the field names and nesting of
+# WireMessageRecord and StatusUpdate in MoonshotAI/kimi-cli
+# src/kimi_cli/wire/file.py and wire/types.py (9ab1286). Kimi Code does not
+# read it, and this reader must not either: it records no model.
+_KIMI_CLI_STATUS = json.dumps({
+    "timestamp": 1793354409.412,
+    "message": {"type": "StatusUpdate", "payload": {
+        "context_usage": 0.02, "context_tokens": 4590, "max_context_tokens": 262144,
+        "token_usage": {"input_other": 4210, "output": 380, "input_cache_read": 0,
+                        "input_cache_creation": 0},
+        "message_id": "chatcmpl-7f3a9c", "plan_mode": False, "mcp_status": None}}})
+_KIMI_CLI_META = json.dumps({"type": "metadata", "protocol_version": "1.9"})
 
 
 class TestWorkflowAgents(Base):
@@ -1297,6 +1322,289 @@ class TestOpenCodeAt8bca532(Base):
         """The reader has not been run against a real database, so the report must say so."""
         overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
         self.assertTrue(any("OpenCode figures are unverified" in t
+                            for _, t in tm.report_notes(groups, unknown)))
+
+
+class TestKimiCodeAdapter(Base):
+    """Kimi Code session files as a2afdbc writes them."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "kimi-home")
+        shutil.copytree(os.path.join(_KIMI_HERE, "home"), self.home)
+        self.root = os.path.join(self.home, ".kimi-code", "sessions")
+        tm.ADAPTER_ROOTS[kimi_code.NAME] = [self.root]
+        tm._ONLY[:] = [kimi_code.NAME]
+        kimi_code.reset()
+        self.expected = json.loads(slurp(os.path.join(_KIMI_HERE, "expected.json")))
+
+    def _wire(self, session, agent="main"):
+        return os.path.join(self.root, _KIMI_WS, session, "agents", agent, "wire.jsonl")
+
+    def _calls(self):
+        """Every record the reader yields, by key, with how often it was seen."""
+        got, seen = {}, {}
+        for path in kimi_code.files([self.root]):
+            for key, ev in kimi_code.records(path):
+                got.setdefault(key, ev)
+                seen[key] = seen.get(key, 0) + 1
+        return got, seen
+
+    def test_each_call_reads_as_the_source_says(self):
+        """Guards the per-call translation of a usage.record: inputOther is
+        uncached input as it stands, inputCacheCreation a 5-minute write, the
+        model is the one on the llm.request (not the alias usage.record
+        names), and the time, folder, session and subagent flag are the ones
+        the files record. A wrong field name would show as a wrong or missing
+        call."""
+        got, _ = self._calls()
+        self.assertEqual(sorted(got), sorted(c["dedup_key"] for c in self.expected["calls"]))
+        for c in self.expected["calls"]:
+            with self.subTest(key=c["dedup_key"]):
+                ev = got[c["dedup_key"]]
+                u = ev["_usage"]
+                self.assertEqual((ev["model"], ev["provider"], ev["project"], ev["cwd"],
+                                  ev["session"], ev["sidechain"], ev["source"]),
+                                 (c["model"], c["provider"], c["cwd"], c["cwd"],
+                                  c["session_id"], c["sidechain"], kimi_code.NAME))
+                self.assertEqual(ev["when"], dt.datetime.fromtimestamp(c["time_ms"] / 1000,
+                                                                       tz=dt.timezone.utc))
+                self.assertEqual((u["input_tokens"], u["cache_read_input_tokens"],
+                                  u["cache_creation"]["ephemeral_5m_input_tokens"],
+                                  u["cache_creation"]["ephemeral_1h_input_tokens"],
+                                  u["output_tokens"], u["output_tokens_details"]["thinking_tokens"]),
+                                 (c["uncached_input"], c["cache_read"], c["cache_write_5m"], 0,
+                                  c["output"], 0))
+
+    def test_engine_totals_equal_the_per_call_figures(self):
+        """Guards against a call counted twice through the engine: the first
+        call's usage.record is written twice, and the forked session repeats
+        the first turn of the session it forked, times and all."""
+        overall, groups, *_ = tm.collect(tm.transcripts(), ledger=False)
+        t = self.expected["totals"]
+        self.assertEqual(overall["calls"], t["calls"])
+        self.assertEqual(overall["tokens"]["input"], t["uncached_input"])
+        self.assertEqual(overall["tokens"]["cache_read"], t["cache_read"])
+        self.assertEqual(overall["tokens"]["cache_write"], t["cache_write_5m"])
+        self.assertEqual(overall["tokens"]["output"], t["output"])
+        self.assertEqual(set(groups["project"]), {"/Users/example/code/demo"})
+        self.assertEqual(set(groups["session"]), {_KIMI_A, _KIMI_B})
+        self.assertEqual(set(groups["provider"]), {"moonshot", "anthropic"})
+        got = json.loads(cli("--json", "--no-ledger"))
+        self.assertEqual(got["calls"], t["calls"])
+
+    def test_each_call_is_priced_on_its_own(self):
+        """Guards against figures summed before pricing: the engine's total
+        must be the sum of each expected call priced alone, with its own
+        model, table and day."""
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        want = 0.0
+        for c in self.expected["calls"]:
+            u = usage(inp=c["uncached_input"], read=c["cache_read"], w5=c["cache_write_5m"],
+                      out=c["output"])
+            want += cost_of(tm.price_record(
+                c["model"], u, provider=c["provider"],
+                when=dt.datetime.fromtimestamp(c["time_ms"] / 1000, tz=dt.timezone.utc)))
+        self.assertAlmostEqual(overall["total"], want, places=12)
+
+    def test_a_duplicated_line_and_a_fork_count_once(self):
+        """Guards against de-duplication by line, and against a repeated
+        line being reported as a call with no model (its request is already
+        used): a line is repeated, and a fork copies every record of the
+        session it forks, so the same call is seen four times."""
+        _, seen = self._calls()
+        first = self.expected["calls"][0]["dedup_key"]
+        self.assertEqual(seen[first], 4)
+        fork_keys = {k for k, _ in kimi_code.records(self._wire(_KIMI_B))}
+        self.assertEqual(len(fork_keys), 3)
+        self.assertEqual(len(fork_keys & {k for k, _ in kimi_code.records(self._wire(_KIMI_A))}), 2)
+
+    def test_a_model_change_mid_session_is_followed_call_by_call(self):
+        """Guards against one model for a whole session: the alias changes
+        after the first turn, and a custom alias names an Anthropic model, so
+        each call takes the model of the llm.request for its own alias."""
+        models = [ev["model"] for _, ev in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertEqual(models, ["k3", "k3", "k3", "kimi-for-coding", "claude-sonnet-4-6", "k3",
+                                  "k3", "k3"])
+
+    def test_calls_that_cannot_be_counted_exactly_are_left_out_and_reported(self):
+        """Guards against a guessed model, an understated output or cached
+        input priced as uncached: a usage.record with no llm.request for its
+        alias has no model, a call over Google's protocol is recorded without
+        its thinking tokens, and a DeepSeek model over the OpenAI protocol
+        has its cache hits in a field Kimi Code does not read. All are left
+        out, and the report says how many."""
+        got, _ = self._calls()
+        left = self.expected["not_counted"]
+        for key in left["no_model"] + left["no_thinking"] + left["cache_unread"]:
+            self.assertNotIn(key, got)
+        self.assertEqual(kimi_code._STATE["no_model"], set(left["no_model"]))
+        self.assertEqual(kimi_code._STATE["no_thinking"], set(left["no_thinking"]))
+        self.assertEqual(kimi_code._STATE["cache_unread"], set(left["cache_unread"]))
+        notes = kimi_code.notes()
+        self.assertEqual(len(notes), 3)
+        self.assertIn("1 Kimi Code call had no model recorded", notes[0])
+        self.assertIn("1 Kimi Code call over the OpenAI protocol", notes[1])
+        self.assertIn("Gemini", notes[2])
+        kimi_code.reset()
+        self.assertEqual(kimi_code.notes(), [])
+
+    def test_no_usage_a_subagent_total_and_a_cut_off_line_yield_nothing(self):
+        """Guards against counting what is not one API call: a usage.record
+        whose counts are all zero (the provider sent none), the subagent's
+        total on subagent.completed in its parent's file (a sum of the calls
+        in the subagent's own file), and a last line cut off as written."""
+        lines = slurp(self._wire(_KIMI_A)).splitlines()
+        self.assertTrue(any('"inputOther":0,"output":0' in l for l in lines))
+        self.assertTrue(any('"type":"subagent.completed"' in l and '"usage"' in l for l in lines))
+        with self.assertRaises(ValueError):
+            json.loads(lines[-1])
+        keys = [k for k, _ in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertEqual(len(keys), 8)                     # seven calls, one written twice
+        self.assertFalse(any(":0:0:0:0" in k for k in keys))
+        self.assertFalse(any(k.startswith("kimi-code:agent-0:") for k in keys))
+
+    def _write(self, lines):
+        path = os.path.join(self.root, _KIMI_WS, "session_c", "agents", "main", "wire.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(l) for l in lines) + "\n")
+        return path
+
+    @staticmethod
+    def _req(model, kind, at, alias="kimi-code/k3", protocol="openai"):
+        return {"type": "llm.request", "agentId": "main", "kind": kind, "provider": protocol,
+                "model": model, "modelAlias": alias, "toolSelect": False,
+                "systemPromptHash": "sp_1", "toolsHash": "th_1", "messageCount": 2, "time": at}
+
+    @staticmethod
+    def _use(other, scope, at, alias="kimi-code/k3"):
+        return {"type": "usage.record", "agentId": "main", "model": alias,
+                "usage": {"inputOther": other, "output": 10, "inputCacheRead": 0,
+                          "inputCacheCreation": 0}, "usageScope": scope, "time": at}
+
+    def test_a_compaction_beside_a_step_takes_its_own_request(self):
+        """Guards against the latest request of any kind giving a call its
+        model: an automatic compaction runs beside a step, both requests are
+        written before either usage, and if the alias was pointed at another
+        model in between, the step's call must keep the step's model."""
+        path = self._write([self._req("kimi-k2.6", "loop", 1793354400000),
+                            self._req("kimi-k3", "compaction", 1793354400500),
+                            self._use(100, "session", 1793354405000),
+                            self._use(200, "turn", 1793354406000)])
+        got = {ev["_usage"]["input_tokens"]: ev["model"] for _, ev in kimi_code.records(path)}
+        self.assertEqual(got, {100: "kimi-k3", 200: "kimi-k2.6"})
+
+    def test_a_request_serves_one_call(self):
+        """Guards against a stale request naming a later call's model: each
+        call writes its own request first, so a second usage with no request
+        of its own after the first is left out, not given the old model."""
+        path = self._write([self._req("kimi-k3", "loop", 1793354400000),
+                            self._use(100, "turn", 1793354401000),
+                            self._use(200, "turn", 1793354402000)])
+        self.assertEqual([ev["_usage"]["input_tokens"] for _, ev in kimi_code.records(path)], [100])
+        self.assertEqual(len(kimi_code._STATE["no_model"]), 1)
+
+    def test_the_openai_protocol_counts_only_families_whose_cache_it_reads(self):
+        """Guards against cached input priced as uncached: over the OpenAI
+        protocol Kimi Code reads only cached_tokens and
+        prompt_tokens_details.cached_tokens, Moonshot's and OpenAI's fields,
+        so another family's call over it is left out, while over the
+        Anthropic protocol any family is counted."""
+        lines, t = [], 1793354400000
+        for i, (model, protocol) in enumerate((("kimi-k3", "openai"), ("gpt-5.5", "openai"),
+                                               ("deepseek-v4", "openai"), ("glm-5", "openai"),
+                                               ("deepseek-v4", "anthropic"))):
+            lines += [self._req(model, "loop", t + 2 * i, protocol=protocol),
+                      self._use(100 + i, "turn", t + 2 * i + 1)]
+        got = [ev["model"] for _, ev in kimi_code.records(self._write(lines))]
+        self.assertEqual(got, ["kimi-k3", "gpt-5.5", "deepseek-v4"])
+        self.assertEqual(len(kimi_code._STATE["cache_unread"]), 2)
+
+    def test_a_subagents_calls_are_marked_as_a_subagents(self):
+        """Guards against a subagent's calls counted as the main agent's."""
+        evs = [ev for _, ev in kimi_code.records(self._wire(_KIMI_A, "agent-0"))]
+        self.assertEqual(len(evs), 1)
+        self.assertTrue(evs[0]["sidechain"])
+        self.assertEqual(evs[0]["session"], _KIMI_A)
+
+    def test_the_provider_comes_from_the_models_family(self):
+        """Guards against pricing by protocol: llm.request's provider is the
+        wire protocol, and Kimi's own models go over the OpenAI one, which
+        would price k3 from OpenAI's table."""
+        for model, want in (("k3", "moonshot"), ("kimi-for-coding", "moonshot"),
+                            ("kimi-k2.6", "moonshot"), ("claude-sonnet-4-6", "anthropic"),
+                            ("gpt-5.5", "openai"), ("o4-mini", "openai"),
+                            ("gemini-3-pro-preview", "google"), ("deepseek-v4", "deepseek"),
+                            ("grok-5", "xai"), ("glm-5", "zai"), ("devstral-2", "mistral"),
+                            ("qwen3-coder-plus", "unknown"), ("kestrel", "unknown")):
+            with self.subTest(model=model):
+                self.assertEqual(kimi_code.provider_for(model), want)
+
+    def test_session_and_project_narrow_the_files(self):
+        """Guards against --session or --project reading the wrong files: a
+        session is its folder's name, a project the cwd in state.json."""
+        self.assertEqual(kimi_code.files([self.root], session=_KIMI_B), [self._wire(_KIMI_B)])
+        self.assertEqual(len(kimi_code.files([self.root], session=_KIMI_A)), 2)
+        self.assertEqual(len(kimi_code.files([self.root], project="demo")), 3)
+        self.assertEqual(kimi_code.files([self.root], project="elsewhere"), [])
+        got = json.loads(cli("--json", "--no-ledger", "--session", _KIMI_B))
+        self.assertEqual(got["calls"], 3)
+
+    def test_a_missing_state_file_falls_back_to_the_wires_folder(self):
+        """Guards against a call losing its project when state.json is gone:
+        config.update in the wire names the working folder too."""
+        os.remove(os.path.join(self.root, _KIMI_WS, _KIMI_A, "state.json"))
+        evs = [ev for _, ev in kimi_code.records(self._wire(_KIMI_A))]
+        self.assertTrue(evs)
+        self.assertEqual({ev["project"] for ev in evs}, {"/Users/example/code/demo"})
+
+    def test_default_roots_honour_kimi_code_home(self):
+        """Guards against reading ~/.kimi-code when KIMI_CODE_HOME moves it,
+        as resolveKimiHome() in Kimi Code's bootstrap does."""
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": os.path.join(self.home, ".kimi-code")}):
+            self.assertEqual(kimi_code.default_roots(), [self.root])
+            self.assertEqual(len(kimi_code.files(kimi_code.default_roots())), 3)
+        with unittest.mock.patch.dict(os.environ, {"KIMI_CODE_HOME": ""}):
+            self.assertEqual(kimi_code.default_roots(),
+                             [os.path.join(os.path.expanduser("~/.kimi-code"), "sessions")])
+
+    def test_looks_like_takes_its_own_lines_and_no_other_format(self):
+        """Guards against a line of another harness being taken for Kimi
+        Code's, which would count its calls under the wrong source, and
+        against kimi-cli's wire.jsonl, which records no model, being read."""
+        lines = slurp(self._wire(_KIMI_A)).splitlines()
+        self.assertTrue(kimi_code.looks_like(lines[0]))             # metadata
+        self.assertTrue(any(kimi_code.looks_like(l) for l in lines if '"llm.request"' in l))
+        self.assertTrue(any(kimi_code.looks_like(l) for l in lines if '"usage.record"' in l))
+        others = {"claude-code": record("msg_01"), "import": json.dumps(GOOD_IMPORT),
+                  "kimi-cli status": _KIMI_CLI_STATUS, "kimi-cli metadata": _KIMI_CLI_META}
+        for path in self._other_fixture_lines_files():
+            for i, line in enumerate(slurp(path).splitlines()):
+                if line.strip():
+                    others[f"{os.path.relpath(path, FIXTURES)}:{i}"] = line
+        self.assertTrue(any(k.startswith("gemini-cli") for k in others))
+        self.assertTrue(any(k.startswith("codex") for k in others))
+        for name, line in others.items():
+            with self.subTest(other=name):
+                self.assertFalse(kimi_code.looks_like(line))
+
+    @staticmethod
+    def _other_fixture_lines_files():
+        """Every line-based fixture of another reader, hidden folders
+        (.gemini) included, which glob leaves out."""
+        out = []
+        for top, dirs, names in os.walk(FIXTURES):
+            if os.path.relpath(top, FIXTURES).split(os.sep)[0] == "kimi-code":
+                continue
+            out += [os.path.join(top, n) for n in names if n.endswith(".jsonl")]
+        return sorted(out)
+
+    def test_labelled_unverified(self):
+        """Guards against the reader's figures losing their unverified label
+        in the report."""
+        overall, groups, _, unknown = tm.collect(tm.transcripts(), ledger=False)
+        self.assertTrue(any("Kimi Code figures are unverified" in t
                             for _, t in tm.report_notes(groups, unknown)))
 
 

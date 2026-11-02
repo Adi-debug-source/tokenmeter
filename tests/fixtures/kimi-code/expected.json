@@ -1,0 +1,177 @@
+{
+  "harness": "kimi-code",
+  "source": "MoonshotAI/kimi-code a2afdbc (30 October 2026)",
+  "fixture_root": "fixtures/kimi-code/home",
+  "notes": [
+    "Set KIMI_CODE_HOME to <fixture_root>/.kimi-code, or read <fixture_root>/.kimi-code/sessions.",
+    "One usage.record per successful API call, after it; its model is the configured alias. The model as sent is on the latest unused llm.request of the same agent, alias and kind (usageScope turn = loop, session = compaction).",
+    "inputOther is already uncached input; Kimi Code subtracts cached tokens from OpenAI-style prompt_tokens itself.",
+    "The first call's usage.record is written twice, and session B (a fork) copies session A's first turn verbatim: each call counts once.",
+    "Not counted: a usage.record with every count zero, one whose alias has no llm.request (no_model), one over the google-genai protocol (no_thinking), a DeepSeek model over the OpenAI protocol (cache_unread), the subagent.completed total, and the cut-off last line.",
+    "provider is not written by the harness (llm.request's provider is the wire protocol); it is chosen from the model's family."
+  ],
+  "calls": [
+    {
+      "dedup_key": "kimi-code:main:1793354409412:kimi-code/k3:4210:0:0:380",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354409412,
+      "timestamp": "2026-10-30T10:00:09.412000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 4210,
+      "cache_read": 0,
+      "cache_write_5m": 0,
+      "output": 380
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354414077:kimi-code/k3:512:4096:0:214",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354414077,
+      "timestamp": "2026-10-30T10:00:14.077000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 512,
+      "cache_read": 4096,
+      "cache_write_5m": 0,
+      "output": 214
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354436005:kimi-code/kimi-for-coding:300:5120:0:640",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354436005,
+      "timestamp": "2026-10-30T10:00:36.005000Z",
+      "model_alias": "kimi-code/kimi-for-coding",
+      "model": "kimi-for-coding",
+      "provider": "moonshot",
+      "uncached_input": 300,
+      "cache_read": 5120,
+      "cache_write_5m": 0,
+      "output": 640
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354444900:sonnet:12:0:6400:150",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354444900,
+      "timestamp": "2026-10-30T10:00:44.900000Z",
+      "model_alias": "sonnet",
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "uncached_input": 12,
+      "cache_read": 0,
+      "cache_write_5m": 6400,
+      "output": 150
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354458333:kimi-code/k3:9800:0:0:1210",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354458333,
+      "timestamp": "2026-10-30T10:00:58.333000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 9800,
+      "cache_read": 0,
+      "cache_write_5m": 0,
+      "output": 1210
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354474250:kimi-code/k3:11000:0:0:900",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354474250,
+      "timestamp": "2026-10-30T10:01:14.250000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 11000,
+      "cache_read": 0,
+      "cache_write_5m": 0,
+      "output": 900
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354476090:kimi-code/k3:820:6144:0:330",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354476090,
+      "timestamp": "2026-10-30T10:01:16.090000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 820,
+      "cache_read": 6144,
+      "cache_write_5m": 0,
+      "output": 330
+    },
+    {
+      "dedup_key": "kimi-code:agent-0:1793354475640:kimi-code/k3:1800:2048:0:260",
+      "session_id": "session_4c1f9e2a-7b3d-4e8a-9f61-2d5c8b0a3e17",
+      "agent_id": "agent-0",
+      "sidechain": true,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354475640,
+      "timestamp": "2026-10-30T10:01:15.640000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 1800,
+      "cache_read": 2048,
+      "cache_write_5m": 0,
+      "output": 260
+    },
+    {
+      "dedup_key": "kimi-code:main:1793354619018:kimi-code/k3:640:4608:0:512",
+      "session_id": "session_9e0d7c6b-5a4f-4b3e-8d2c-1f0e9a8b7c65",
+      "agent_id": "main",
+      "sidechain": false,
+      "cwd": "/Users/example/code/demo",
+      "time_ms": 1793354619018,
+      "timestamp": "2026-10-30T10:03:39.018000Z",
+      "model_alias": "kimi-code/k3",
+      "model": "k3",
+      "provider": "moonshot",
+      "uncached_input": 640,
+      "cache_read": 4608,
+      "cache_write_5m": 0,
+      "output": 512
+    }
+  ],
+  "not_counted": {
+    "no_model": [
+      "kimi-code:main:1793354460000:kimi-code/k2:700:0:0:90"
+    ],
+    "no_thinking": [
+      "kimi-code:main:1793354466000:gemini:2000:0:0:120"
+    ],
+    "cache_unread": [
+      "kimi-code:main:1793354468000:deepseek:3000:0:0:200"
+    ]
+  },
+  "totals": {
+    "calls": 9,
+    "uncached_input": 29094,
+    "cache_read": 22016,
+    "cache_write_5m": 6400,
+    "output": 4596
+  }
+}
