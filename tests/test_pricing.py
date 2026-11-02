@@ -1000,6 +1000,124 @@ class TestMimoRules(WithMimo):
         self.assertAlmostEqual(c["input"], 0.435, places=9)
 
 
+# Two engine changes agreed on 2 November 2026: a web search rate that
+# starts at a stated instant, and the Priority figures expected_rates() gives
+# for a fast row.
+#
+# Every figure is invented for the test or read from a table; no real usage.
+
+# DeepSeek starts billing Claude Code's searches at 00:00 Beijing time on
+# 1 November 2026, which is this instant.
+WEB_SEARCH_START = dt.datetime(2026, 10, 31, 16, 0, tzinfo=UTC)
+
+
+def search_cost(when, provider="deepseek", model="deepseek-flash", searches=1):
+    return tm.price_record(model, usage(inp=1, searches=searches), when=when,
+                           provider=provider)
+
+
+class TestDatedWebSearchRate(Base):
+    """A table can say when its web search rate starts, and a call's searches
+    are priced at the rate in force at the call's own timestamp."""
+
+    def test_a_deepseek_search_before_the_start_is_free_and_after_it_is_charged(self):
+        """Guards against charging the searches DeepSeek gave away before
+        billing began, and against missing the ones after: one undated
+        WEB_SEARCH_PER_1K charged every call alike, so DeepSeek's was left
+        at 0.0 and every search after 31 October 2026 16:00 UTC was free."""
+        before = search_cost(WEB_SEARCH_START - dt.timedelta(seconds=1))
+        self.assertEqual(before["web_search"], 0.0)
+        for when in (WEB_SEARCH_START, WEB_SEARCH_START + dt.timedelta(seconds=1)):
+            c = search_cost(when)
+            self.assertAlmostEqual(c["web_search"], 0.00075, places=12)
+            # The counterfactual with no caching pays for the search too.
+            self.assertAlmostEqual(c["_no_cache"] - before["_no_cache"], 0.00075, places=12)
+
+    def test_the_start_is_an_instant_not_a_local_day(self):
+        """Guards against dating a search by the local day, as rate_on()
+        dates token rates: billing starts at 16:00 UTC on 31 October, which
+        is midnight in Beijing, so a local-day reading would charge or free
+        hours of searches depending on the machine's time zone."""
+        beijing = dt.timezone(dt.timedelta(hours=8))
+        self.assertEqual(search_cost(dt.datetime(2026, 10, 31, 23, 59, 59,
+                                                 tzinfo=beijing))["web_search"], 0.0)
+        self.assertAlmostEqual(search_cost(dt.datetime(2026, 11, 1, 0, 0,
+                                                       tzinfo=beijing))["web_search"],
+                               0.00075, places=12)
+
+    def test_a_timestamp_with_only_a_date_never_charges_a_free_search(self):
+        """Guards the boundary for a call whose timestamp has no time: it is
+        read as 00:00 UTC, so a call dated 31 October 2026 stays free."""
+        when = tm.parse_time("2026-10-31")
+        self.assertEqual(when, dt.datetime(2026, 10, 31, tzinfo=UTC))
+        self.assertEqual(search_cost(when)["web_search"], 0.0)
+
+    def test_a_call_with_no_timestamp_and_current_rates_take_the_rate_now(self):
+        """Guards that a call with no timestamp, and every call under
+        --current-rates, takes the search rate in force now, as rate_on()
+        does for token rates, rather than the oldest entry."""
+        self.assertAlmostEqual(search_cost(None)["web_search"], 0.00075, places=12)
+        tm.CURRENT_RATES.append(True)
+        self.assertAlmostEqual(search_cost(WEB_SEARCH_START - dt.timedelta(days=30))["web_search"],
+                               0.00075, places=12)
+
+    def test_the_ledger_keeps_the_time_a_search_is_priced_by(self):
+        """Guards that a call read back from the ledger prices its searches
+        as it did when read fresh: the row keeps the call's full time."""
+        for when in (WEB_SEARCH_START - dt.timedelta(seconds=1), WEB_SEARCH_START):
+            row = tm.usage_to_row("m", when, "deepseek-flash", "p", "s",
+                                  usage(inp=1, searches=3), provider="deepseek")
+            again = tm.price_record("deepseek-flash", tm.row_to_usage(row),
+                                    when=tm.parse_time(row["t"]), provider="deepseek")
+            self.assertEqual(again["web_search"], search_cost(when, searches=3)["web_search"])
+
+    def test_a_table_with_only_the_undated_constant_prices_as_before(self):
+        """Guards every table that states one undated figure: its searches
+        cost WEB_SEARCH_PER_1K whenever the call was made, as before the
+        dated list existed."""
+        for when in (None, dt.datetime(2020, 1, 1, tzinfo=UTC), WEB_SEARCH_START,
+                     dt.datetime(2030, 1, 1, tzinfo=UTC)):
+            c = search_cost(when, provider="anthropic", model="claude-opus-5", searches=2)
+            self.assertAlmostEqual(c["web_search"], 2 * 10.0 / 1000, places=12)
+        for provider, table in tm.TABLES.items():
+            if getattr(table, "WEB_SEARCH_RATES", None):
+                continue
+            for when in (None, WEB_SEARCH_START - dt.timedelta(seconds=1), WEB_SEARCH_START):
+                with self.subTest(provider=provider, when=when):
+                    self.assertEqual(tm.web_search_per_1k(table, when), table.WEB_SEARCH_PER_1K)
+
+    def test_a_dated_list_is_ordered_in_utc_and_ends_at_the_constant(self):
+        """Guards a dated list a table can get wrong: entries out of order,
+        a start that is not a UTC instant, or a WEB_SEARCH_PER_1K that no
+        longer matches the newest entry, which is the rate in force now."""
+        dated = {p: t for p, t in tm.TABLES.items() if getattr(t, "WEB_SEARCH_RATES", None)}
+        self.assertIn("deepseek", dated)
+        for provider, table in dated.items():
+            with self.subTest(provider=provider):
+                rates = table.WEB_SEARCH_RATES
+                starts = [r["from"] for r in rates if r["from"]]
+                for s in starts:
+                    self.assertTrue(s.endswith("Z"), s)
+                    tm.parse_time(s)
+                parsed = [tm.parse_time(s) for s in starts]
+                self.assertEqual(parsed, sorted(parsed))
+                self.assertEqual(rates[-1]["per_1k"], table.WEB_SEARCH_PER_1K)
+
+    def test_a_dated_list_starts_with_an_entry_for_always(self):
+        """Guards web_search_per_1k() charging a rate before its own start:
+        a call earlier than every start takes the first entry, so a list
+        whose first entry was dated ahead (2027, say) charged 2026 searches
+        at it. Every dated list must open with "" (always), as DeepSeek's
+        opens with its free searches, and only the first entry may."""
+        dated = {p: t for p, t in tm.TABLES.items() if getattr(t, "WEB_SEARCH_RATES", None)}
+        self.assertIn("deepseek", dated)
+        for provider, table in dated.items():
+            with self.subTest(provider=provider):
+                froms = [r["from"] for r in table.WEB_SEARCH_RATES]
+                self.assertEqual(froms[0], "")
+                self.assertNotIn("", froms[1:])
+
+
 class TestZaiWebSearch(Base):
     def test_one_zai_web_search_costs_one_cent(self):
         """Guards Z.ai web searches being billed at nothing (the table's old

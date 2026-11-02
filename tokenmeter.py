@@ -933,6 +933,45 @@ def write_mults(row: dict, table) -> tuple:
     return m5, m1
 
 
+def web_search_per_1k(table, when=None) -> float:
+    """Dollars per 1,000 web searches for a call made at `when`.
+
+    A table with only WEB_SEARCH_PER_1K charges that one figure for every
+    call, as before. A table that also has WEB_SEARCH_RATES, a list of
+    {"from": start, "per_1k": dollars} oldest first, charges the entry whose
+    start the call has reached, so searches a provider gave away before it
+    began billing stay free. A start is an instant in UTC
+    ("2026-10-31T16:00:00Z"), not a day, because a provider can begin at a
+    time of day (DeepSeek: 00:00 Beijing time); "" means always. The first
+    entry's start must be "", as the first row of PRICES is: a call before
+    every start takes the first entry, so a first entry dated ahead would be
+    charged before it began. A test holds every table to this.
+
+    Every call carries its own time, so the boundary is exact. A timestamp
+    with a date and no time is read as 00:00 UTC (parse_time()), the earliest
+    instant of that day, so a search is never charged before its start. A call
+    with no timestamp at all, and every call under --current-rates, takes the
+    rate in force now, as rate_on() does.
+    """
+    rates = getattr(table, "WEB_SEARCH_RATES", None)
+    if not rates:
+        return table.WEB_SEARCH_PER_1K
+    at = None
+    if when is not None and not CURRENT_RATES:
+        try:
+            at = when.astimezone(dt.timezone.utc)
+        except (ValueError, OSError, OverflowError):
+            pass
+    if at is None:
+        at = dt.datetime.now(dt.timezone.utc)
+    chosen = rates[0]
+    for r in rates:
+        if r["from"] and dt.datetime.fromisoformat(r["from"].replace("Z", "+00:00")) > at:
+            break
+        chosen = r
+    return chosen["per_1k"]
+
+
 def price_record(model: str, usage: dict, speed: str = "standard", when=None,
                  provider: str = DEFAULT_PROVIDER) -> dict:
     """Cost in USD for one API response, split by component.
@@ -983,20 +1022,21 @@ def price_record(model: str, usage: dict, speed: str = "standard", when=None,
         # Long-context rates apply to the whole request, cache included.
         rate_in, rate_out = rate_in * long["in"], rate_out * long["out"]
     m5, m1 = write_mults(p, table)
+    search_rate = web_search_per_1k(table, when)
 
     return {
         "input": inp * rate_in / M,
         "cache_write": (w5 * m5 + w1 * m1) * rate_in / M,
         "cache_read": read * p["cache_read_mult"] * rate_in / M,
         "output": out * rate_out / M,
-        "web_search": searches * table.WEB_SEARCH_PER_1K / 1000.0,
+        "web_search": searches * search_rate / 1000.0,
         # What this same call would have cost with no caching at all: every
         # prompt token billed as fresh input, at this model's own rate. Web
         # searches are billed per request and caching does nothing to them, so
         # the counterfactual pays for them too. Leaving them out understated
         # "saved" by exactly the search bill.
         "_no_cache": ((inp + w5 + w1 + read) * rate_in / M + out * rate_out / M
-                      + searches * table.WEB_SEARCH_PER_1K / 1000.0),
+                      + searches * search_rate / 1000.0),
         "_tokens": tokens,
         "_unknown_model": not recognised,
         "_fetched": p.get("_via", ""),
@@ -3055,15 +3095,26 @@ def expected_rates(row: dict, table) -> dict:
 
     A long-context row also gives its threshold and the higher tier's cache
     rates, which take the input multiple as price_record() charges them, so
-    a page that lists both tiers in full is checked column by column."""
+    a page that lists both tiers in full is checked column by column.
+
+    A fast row also gives its cache read rate and, with a long tier, its
+    long-context rates, worked out as price_record() charges them: the fast
+    rates first, then the long multiple, and a cache read at cache_read_mult
+    of the input rate in force (MiniMax's Priority tab prints all four)."""
     inp = row["in"]
     m5, m1 = write_mults(row, table)
     exp = {"in": inp, "out": row["out"], "cached": inp * row["cache_read_mult"],
            "write_5m": inp * m5, "write_1h": inp * m1}
     exp["write"] = exp["write_5m"]
-    if row["fast"]:
-        exp["fast_in"], exp["fast_out"] = row["fast"]
     long = row.get("long")
+    if row["fast"]:
+        f_in, f_out = row["fast"]
+        exp["fast_in"], exp["fast_out"] = f_in, f_out
+        exp["fast_cached"] = f_in * row["cache_read_mult"]
+        if long:
+            exp["fast_long_in"] = f_in * long["in"]
+            exp["fast_long_out"] = f_out * long["out"]
+            exp["fast_long_cached"] = f_in * long["in"] * row["cache_read_mult"]
     if long:
         long_in = inp * long["in"]
         exp["long_over"] = long["over"]
@@ -3433,12 +3484,17 @@ def price_listing(markdown: bool = False) -> str:
                 m5, m1 = write_mults(row, table)
                 write = inp * m5
                 w1 = inp * m1
+                # A row with no cache discount (cache_read_mult 1.0) has no
+                # published cache price at all, so neither write lifetime is
+                # printed, whatever the table's default write multiples are.
+                # Only the list changes; pricing still asks write_mults().
+                no_cache = row["cache_read_mult"] == 1.0
                 also = []
                 if row["from"]:
                     also.append(f"from {row['from']}")
                 elif len(rows) > 1:
                     also.append(f"until {rows[i + 1]['from']}")
-                if abs(w1 - write) > 1e-12:
+                if abs(w1 - write) > 1e-12 and not no_cache:
                     also.append(f"1-hour cache write {fmt(w1)}")
                 if row.get("long"):
                     lg = row["long"]
@@ -3455,7 +3511,8 @@ def price_listing(markdown: bool = False) -> str:
                     also.append("also " + ", ".join(aliases[:3]) + (f" and {len(aliases) - 3} more" if len(aliases) > 3 else ""))
                 # "-" where the provider charges nothing separate: no cache
                 # discount, or no fee for writing the cache beyond input.
-                bills_writes = (abs(write - inp) > 1e-12 or "write_1h_mult" in row) and inp > 0
+                bills_writes = ((abs(write - inp) > 1e-12 or "write_1h_mult" in row) and inp > 0
+                                and not no_cache)
                 discounted = row["cache_read_mult"] != 1.0 or inp == 0
                 cells = [model, fmt(inp), fmt(cached) if discounted else "-",
                          fmt(write) if bills_writes else "-", fmt(row["out"]), "; ".join(also)]

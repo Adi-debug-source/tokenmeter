@@ -21,6 +21,7 @@ from helpers import (ANTHROPIC_PAGE, FIXTURES, Base, cli, cost_of, payload_of, r
 from pricing import mimo, minimax
 
 M = 1_000_000
+UTC = dt.timezone.utc
 
 
 class TestOnlineLookup(Base):
@@ -1959,6 +1960,64 @@ class TestMimoPageReader(WithMimo):
         reader does not know is skipped whole, never read by position."""
         page = self.page.replace("**Input (Cache Miss)** ", "**Input (Cache Miss, per K)** ")
         self.assertEqual(self.read(page), ({}, []))
+
+
+# Two engine changes agreed on 2 November 2026: a web search rate that
+# starts at a stated instant, and the Priority figures expected_rates() gives
+# for a fast row.
+#
+# Every figure is invented for the test or read from a table; no real usage.
+
+class TestPriorityFiguresInExpectedRates(Base):
+    """expected_rates() gives a fast row's cache and long-context rates, so
+    --check-prices can check MiniMax's Priority tab in every column."""
+
+    def test_minimax_priority_figures_come_from_expected_rates(self):
+        """Guards the four fields MiniMax's page prints on its Priority tab
+        and the live check reported as "table has nothing": fast_cached,
+        fast_long_in, fast_long_out and fast_long_cached."""
+        row = minimax.PRICES["MiniMax-M3"][-1]
+        exp = tm.expected_rates(row, minimax)
+        self.assertAlmostEqual(exp["fast_in"], 0.45, places=12)
+        self.assertAlmostEqual(exp["fast_out"], 1.80, places=12)
+        self.assertAlmostEqual(exp["fast_cached"], 0.09, places=12)
+        self.assertAlmostEqual(exp["fast_long_in"], 0.90, places=12)
+        self.assertAlmostEqual(exp["fast_long_out"], 3.60, places=12)
+        self.assertAlmostEqual(exp["fast_long_cached"], 0.18, places=12)
+
+    def test_the_priority_figures_are_what_price_record_charges(self):
+        """Guards against the check and the bill disagreeing: each Priority
+        figure must be what price_record() charges per million tokens for a
+        fast call, below and above the long-context threshold."""
+        row = minimax.PRICES["MiniMax-M3"][-1]
+        exp = tm.expected_rates(row, minimax)
+        when = dt.datetime(2026, 11, 2, 12, tzinfo=UTC)
+        with unittest.mock.patch.dict(tm.TABLES, {"minimax": minimax}):
+            small = 100_000  # input and cache reads together stay under the threshold
+            short = tm.price_record("MiniMax-M3",
+                                    usage(inp=small, read=small, out=M, speed="fast"),
+                                    "fast", when, "minimax")
+            big = minimax.LONG_OVER + 1
+            long = tm.price_record("MiniMax-M3", usage(inp=big, read=M, out=M, speed="fast"),
+                                   "fast", when, "minimax")
+        self.assertAlmostEqual(short["input"], small * exp["fast_in"] / M, places=9)
+        self.assertAlmostEqual(short["output"], exp["fast_out"], places=9)
+        self.assertAlmostEqual(short["cache_read"], small * exp["fast_cached"] / M, places=9)
+        self.assertAlmostEqual(long["input"], big * exp["fast_long_in"] / M, places=9)
+        self.assertAlmostEqual(long["output"], exp["fast_long_out"], places=9)
+        self.assertAlmostEqual(long["cache_read"], exp["fast_long_cached"], places=9)
+
+    def test_rows_without_fast_or_long_gain_only_what_they_charge(self):
+        """Guards that a row with no fast rate gains no Priority field and a
+        fast row with no long tier gains only fast_cached, so no other
+        table's check is asked about a figure its row cannot charge."""
+        flash = tm.expected_rates(minimax.PRICES["MiniMax-M3.1-Flash"][-1], minimax)
+        self.assertFalse([k for k in flash if k.startswith("fast")])
+        row = {"from": "", "in": 2.0, "out": 8.0, "cache_read_mult": 0.25, "fast": (4.0, 16.0)}
+        exp = tm.expected_rates(row, minimax)
+        self.assertEqual(sorted(k for k in exp if k.startswith("fast")),
+                         ["fast_cached", "fast_in", "fast_out"])
+        self.assertAlmostEqual(exp["fast_cached"], 1.0, places=12)
 
 
 if __name__ == "__main__":
