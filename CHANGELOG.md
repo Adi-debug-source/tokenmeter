@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+### Readers
+
+- Kimi Code is read, from `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`):
+  one `usage.record` per API call, with the model taken from the request it
+  answers. Calls whose model, cached input or thinking tokens Kimi Code did
+  not record are left out and counted in a note. Unverified, built from
+  MoonshotAI/kimi-code at a2afdbc (30 October 2026). The older Python
+  kimi-cli is not read: it records no model.
+- DeepSeek Harness is read, from `~/.dsh/sessions` (or `$DSH_HOME`),
+  compressed sessions included: one `assistant/message` per call, failed
+  calls that reported usage, and compactions that were one call. Calls with
+  no recorded usage, calls that wrote to a cache on a route other than
+  DeepSeek's (the write's lifetime is not recorded) and compactions by
+  another summariser are left out and counted in a note.
+  Unverified, built from deepseek-ai/deepseek-harness at ce7073d (30
+  October 2026).
+- Codex: an incomplete response (new since the reader was built) adds its
+  usage to the running total while the next `token_count` repeats the
+  previous response. The previous response was counted twice and the
+  incomplete one never; each is now counted once, and a move of the total
+  that names no response is left out and counted in a note. Read again at
+  openai/codex a098129 (1 November 2026).
+- OpenCode: sessions moved to `session_v2`, so new calls had no folder; an
+  upgrade copies each v1 turn into the v2 tables and keeps the original, so
+  upgraded turns counted twice; a fork's copy of its parent's calls counted
+  again; and calls through the new `claude-agent` provider, already in Claude
+  Code's own log, counted twice. All four are fixed. Read again at
+  anomalyco/opencode 8bca532 (1 November 2026).
+- Gemini CLI read again at google-gemini/gemini-cli 6814e00 (30 October
+  2026): nothing the reader uses has moved.
+- Aider, Cline, Crush, Goose, Hermes Agent and Qwen Code get no reader: none
+  writes per-call counts that can be priced exactly. Each has a finding in
+  `adapters/README.md` saying what it records and what a reader would need.
+  T3 Code needs none: its turns are in the logs of the harnesses it drives.
+
 ## 1.2.1, 16 October 2026
 
 The menu bar app's log moves out of `/tmp`, the online lookup fetches a

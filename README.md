@@ -93,6 +93,8 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 | OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`); the sessions Codex compresses after a week need Python 3.14, the `zstd` command or the `zstandard` package |
 | Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox |
 | OpenCode | unverified | `~/.local/share/opencode/opencode*.db` (or under `$XDG_DATA_HOME`) |
+| Kimi Code | unverified | `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`). A call whose model, cached input or thinking tokens Kimi Code did not record is left out, and the report says how many. The older Python kimi-cli is not read: it records no model |
+| DeepSeek Harness | unverified | `~/.dsh/sessions` (or `$DSH_HOME`); compressed sessions (`.jsonl.zstd`, the default) need Python 3.14, the `zstd` command or the `zstandard` package. A call whose usage the harness did not record, a call that wrote to a cache on a route other than DeepSeek's (the write's lifetime is not recorded), and a compaction by another summariser are left out, and the report says how many |
 | Anything else | your data | `--import FILE`, in the documented format |
 
 **Verified** means checked against real logs and against the harness's own cost figures. Claude Code's figures match its own `total_cost_usd` to ten decimal places.
@@ -121,7 +123,9 @@ changes.
 
 ### Any other harness
 
-Cursor, Aider, Cline, a script of your own: if you can get at per-call token counts, write one JSON object per call and pass the file with `--import`:
+Aider, Cline, Crush, Goose, Hermes Agent and Qwen Code have no reader: none of them writes per-call token counts that can be priced exactly, and [adapters/README.md](adapters/README.md#harnesses-without-a-reader) says what each records and what a reader would need. T3 Code has no reader of its own: its agent turns are counted through the harnesses it drives (Claude Code, Codex, OpenCode and others), but the short calls it makes for thread titles, branch names and commit messages run with logging off and are not counted anywhere.
+
+For any of these, Cursor, or a script of your own: if you can get at per-call token counts, write one JSON object per call and pass the file with `--import`:
 
 ```json
 {"id": "resp_01", "timestamp": "2026-09-20T14:03:11Z", "provider": "openai", "model": "gpt-6-sol", "input": 1200, "cache_read": 8000, "output": 350}
