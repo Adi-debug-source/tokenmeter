@@ -4,6 +4,7 @@ Every fetch is faked, and urlopen itself refuses and counts, so nothing here
 uses the network.
 """
 
+import contextlib
 import datetime as dt
 import io
 import json
@@ -1140,6 +1141,229 @@ class TestGooglePageReaderOnTheSavedPage(Base):
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gemini-4.5-flash-lite"])
         self.assertEqual(rates["gemini-4.5-flash-lite"]["in"], 0.30)
+
+
+# Mistral: why --check-prices stopped finding Mistral Large 3 and Mistral
+# Medium 3.5, and the page reader in pricing/mistral.py run on a saved copy of
+# the page with a faked fetch.
+#
+# On 27 October 2026 the check read 8 of 8 Mistral models matching; on 1
+# November 2026 it read 6 of 8, with mistral-large-2512 and mistral-medium-3-5
+# "not found on the page". The reader was right: Mistral deprecated both on 31
+# October 2026 and took them off the pricing page. The table "Deprecated &
+# retired models" at https://docs.mistral.ai/models/overview gives each
+# "Deprecation 10/31/2026, Retirement 4/30/2027, Alternative Mistral Large 4".
+#
+# The saved page, fixtures/pages/mistral_page_2026-11-02.html, is
+# https://docs.mistral.ai/inference/pricing as fetched on 2 November 2026, cut
+# down to its price blocks (Generalist, OCR, Audio and Code models) with
+# scripts, styles, icons and class attributes removed. No figure in it was
+# typed by hand.
+#
+# Mistral Large 4 (mistral-large-4), on the page since its Public Preview on 6
+# October 2026, went into the table on 2 November 2026 at the price the page
+# prints that day, as one row from launch. Mistral's changelog says "Launch
+# pricing: 50% off for 2 weeks" without figures, but Internet Archive copies
+# of the pricing page printed a sale price and then a higher one before the
+# cut to today's price; pricing/mistral.py's docstring gives them. The table
+# has no dated rows for them yet, because it takes archive prices only for a
+# retired model and neither boundary is printed to the day.
+
+MISTRAL_PAGE_FILE = os.path.join(FIXTURES, "pages", "mistral_page_2026-11-02.html")
+
+
+# Typed from the page on 2 November 2026, not copied from the table: input,
+# output and cached input, dollars per million tokens, for each model the
+# table knows that the page still prices.
+MISTRAL_ON_THE_PAGE = {
+    "mistral-large-4": (0.7, 2.1, 0.07),
+    "mistral-small-2603": (0.15, 0.6, 0.015),
+    "ministral-14b-2512": (0.2, 0.2, 0.02),
+    "ministral-8b-2512": (0.15, 0.15, 0.015),
+    "ministral-3b-2512": (0.1, 0.1, 0.01),
+    "codestral-2508": (0.3, 0.9, 0.03),
+    "zai-glm-5-3": (1.4, 4.4, 0.14),
+}
+
+
+# The two models Mistral deprecated on 31 October 2026, with the last price
+# the page printed for each (typed from the pinned test's reading of 26
+# September 2026): input, output.
+MISTRAL_DEPRECATED = {"mistral-large-2512": (0.50, 1.50), "mistral-medium-3-5": (1.50, 7.50)}
+
+
+class TestMistralPageReader(Base):
+    def setUp(self):
+        super().setUp()
+        self.table = tm.TABLES["mistral"]
+        self.page = slurp(MISTRAL_PAGE_FILE, encoding="utf-8")
+        self.urls = []
+
+    def fetch(self, url):
+        self.urls.append(url)
+        return self.page
+
+    def read(self):
+        return self.table.page_rates(self.fetch, tm.md_tables)
+
+    def test_every_current_model_is_read_off_the_saved_page(self):
+        """Every model the table knows that the page still prices is read,
+        at the figures the page prints, from the one page the table names."""
+        rates, unlisted = self.read()
+        self.assertEqual(self.urls, [self.table.SOURCE])
+        self.assertEqual(unlisted, [])
+        self.assertEqual(sorted(rates), sorted(MISTRAL_ON_THE_PAGE))
+        for model, (inp, out, cached) in MISTRAL_ON_THE_PAGE.items():
+            with self.subTest(model=model):
+                got = rates[model]
+                self.assertAlmostEqual(got["in"], inp, places=9)
+                self.assertAlmostEqual(got["out"], out, places=9)
+                self.assertAlmostEqual(got["cached"], cached, places=9)
+
+    def test_the_page_no_longer_prices_the_two_deprecated_models(self):
+        """The cause of 6 of 8 on 1 November 2026: the page as it is no
+        longer prints Mistral Large 3 or Mistral Medium 3.5 under any name,
+        so no change to the reader could find them."""
+        rates, _ = self.read()
+        for model in MISTRAL_DEPRECATED:
+            self.assertNotIn(model, rates)
+        names = [n for n, mid in self.table.PAGE_NAMES.items() if mid in MISTRAL_DEPRECATED]
+        self.assertEqual(sorted(names), ["Mistral Large 3", "Mistral Medium 3.5"])
+        for name in names:
+            self.assertNotIn(name, self.page)
+
+    def test_glm_5_3_is_not_read_off_the_flash_row(self):
+        """The page now lists "Z.ai GLM 5.3 Flash" above "Z.ai GLM 5.3"; a
+        reader that matched the shorter name as a prefix would price GLM 5.3
+        at the Flash model's $0.15 and $0.50."""
+        rates, _ = self.read()
+        self.assertIn("Z.ai GLM 5.3 Flash", self.page)
+        self.assertAlmostEqual(rates["zai-glm-5-3"]["in"], 1.4, places=9)
+        self.assertAlmostEqual(rates["zai-glm-5-3"]["out"], 4.4, places=9)
+
+    def test_the_saved_page_agrees_with_the_table(self):
+        """--check-prices's own comparison finds every current model
+        matching, nothing absent and the three retired models expected
+        missing. Before the two deprecated models went into RETIRED it
+        reported them as not found on the page."""
+        out = tm.compare_with_page(self.table, self.fetch)
+        self.assertEqual(out["error"], "")
+        self.assertTrue(out["found"])
+        self.assertEqual(out["diffs"], [])
+        self.assertEqual(out["absent"], [])
+        self.assertEqual(out["unlisted"], [])
+        self.assertEqual(sorted(out["retired"]),
+                         ["mistral-large-2512", "mistral-medium-3-5", "zai-glm-5-2"])
+        self.assertEqual(out["expected"], len(MISTRAL_ON_THE_PAGE))
+        self.assertEqual(out["matched"], len(MISTRAL_ON_THE_PAGE))
+
+    def test_check_prices_prints_a_full_match(self):
+        """The line a person reads: every Mistral model matches and the three
+        retired ones are counted as kept, with no "not found" line."""
+        real = dict(tm.TABLES)
+        tm.TABLES.clear()
+        tm.TABLES["mistral"] = real["mistral"]
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = tm.check_prices(fetch=self.fetch)
+        finally:
+            tm.TABLES.clear()
+            tm.TABLES.update(real)
+        text = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn(f"{len(MISTRAL_ON_THE_PAGE)} of {len(MISTRAL_ON_THE_PAGE)} models match", text)
+        self.assertIn("3 retired, kept at the last published price", text)
+        self.assertNotIn("not found on the page", text)
+
+    def test_the_retirement_dates_are_mistrals(self):
+        """Each RETIRED date is the retirement date Mistral states, not the
+        deprecation date: the API still answers to both models until 30
+        April 2027, and GLM 5.2 retired on 31 October 2026."""
+        self.assertEqual(self.table.RETIRED, {
+            "zai-glm-5-2": "2026-10-31",
+            "mistral-large-2512": "2027-04-30",
+            "mistral-medium-3-5": "2027-04-30",
+        })
+
+    def test_the_deprecated_models_keep_their_last_price(self):
+        """Retiring a model never moves or removes its row: each keeps one
+        row from launch at its last published price, so a call before or
+        after the deprecation prices the same and is still recognised."""
+        before = dt.datetime(2026, 10, 1, 12, tzinfo=dt.timezone.utc)
+        after = dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc)
+        for model, (inp, out) in MISTRAL_DEPRECATED.items():
+            with self.subTest(model=model):
+                rows = self.table.PRICES[model]
+                self.assertEqual([r["from"] for r in rows], [""])
+                self.assertEqual((rows[0]["in"], rows[0]["out"]), (inp, out))
+                for when in (before, after):
+                    row, ok = tm.lookup(model, when=when, provider="mistral")
+                    self.assertTrue(ok)
+                    c = tm.price_record(model, usage(inp=1_000_000, out=1_000_000),
+                                        when=when, provider="mistral")
+                    self.assertAlmostEqual(cost_of(c), inp + out, places=9)
+
+
+    def test_large_4_is_read_off_the_price_table_not_the_featured_card(self):
+        """Guards Mistral Large 4 going unread or half read. The page shows
+        it twice: first in a featured card with input and output only, then
+        in the price table with input, cached input and output. The reader
+        must find it under the page's name and take all three figures from
+        the table row, read off the saved page."""
+        self.assertIn("Mistral Large 4", self.page)
+        self.assertEqual(self.table.PAGE_NAMES["Mistral Large 4"], "mistral-large-4")
+        rates, _ = self.read()
+        self.assertEqual(rates["mistral-large-4"], {"in": 0.7, "cached": 0.07, "out": 2.1})
+
+    def test_large_4_has_one_row_at_the_price_the_page_prints(self):
+        """Guards a dated Large 4 row typed from an Internet Archive copy
+        before it is settled. The live page prints $0.70 in, $2.10 out and
+        $0.07 cached; archive copies of it printed a launch sale ($0.68,
+        $2.09, $0.07) and then $1.36, $4.18 and $0.14 until a cut between 29
+        October and 1 November 2026. The table takes archive prices only
+        for a retired model, so Large 4 keeps a single row from launch, and
+        a call on 10 October 2026 prices the same as one on 2 November 2026.
+        If dated rows are approved, this test changes with them."""
+        rows = self.table.PRICES["mistral-large-4"]
+        self.assertEqual([r["from"] for r in rows], [""])
+        self.assertEqual((rows[0]["in"], rows[0]["out"]), (0.70, 2.10))
+        self.assertAlmostEqual(rows[0]["in"] * rows[0]["cache_read_mult"], 0.07, places=9)
+        self.assertEqual(self.table.CACHE_WRITE_5M_MULT, 1.0)
+        for when in (dt.datetime(2026, 10, 10, 12, tzinfo=dt.timezone.utc),
+                     dt.datetime(2026, 11, 2, 12, tzinfo=dt.timezone.utc)):
+            with self.subTest(when=when):
+                row, ok = tm.lookup("mistral-large-4", when=when, provider="mistral")
+                self.assertTrue(ok)
+                c = tm.price_record("mistral-large-4",
+                                    usage(inp=1_000_000, out=1_000_000, read=1_000_000),
+                                    when=when, provider="mistral")
+                self.assertAlmostEqual(cost_of(c), 0.70 + 2.10 + 0.07, places=9)
+
+    def test_the_fallback_is_a_current_model_not_a_deprecated_one(self):
+        """Guards an unknown Mistral id being priced at Mistral Medium 3.5,
+        which Mistral deprecated on 31 October 2026 and no longer prices on
+        its page. The fallback is mistral-large-4, the model Mistral names as
+        its replacement, and an id the table does not know is still flagged
+        as unrecognised."""
+        self.assertEqual(self.table.FALLBACK_MODEL, "mistral-large-4")
+        self.assertNotIn(self.table.FALLBACK_MODEL, self.table.RETIRED)
+        row, ok = tm.lookup("mistral-made-up-9", provider="mistral")
+        self.assertFalse(ok)
+        self.assertEqual((row["in"], row["out"]), (0.70, 2.10))
+
+    def test_large_4_is_recognised_under_both_names_its_card_gives(self):
+        """Guards a call recorded as mistral-large-4-0 falling to the fallback
+        unrecognised. Mistral Large 4's model card lists two API names for
+        it, mistral-large-4 and mistral-large-4-0; both price at the one row
+        and neither counts as a second model."""
+        self.assertEqual(self.table.ALIASES, {"mistral-large-4-0": "mistral-large-4"})
+        self.assertNotIn("mistral-large-4-0", self.table.PRICES)
+        for name in ("mistral-large-4", "mistral-large-4-0"):
+            with self.subTest(name=name):
+                row, ok = tm.lookup(name, provider="mistral")
+                self.assertTrue(ok)
+                self.assertEqual((row["in"], row["out"]), (0.70, 2.10))
 
 
 # Moonshot (Kimi): the page reader in pricing/moonshot.py, run on a saved
