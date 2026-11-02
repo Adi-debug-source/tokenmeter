@@ -16,7 +16,21 @@ Rules taken from the page and modelled here:
     which can only overstate.
   - Cache hits have their own rate. Building the cache is free: a miss is
     ordinary input.
-  - No long-context tier, no web search.
+  - No long-context tier.
+  - Web search, read 2 November 2026 (saved as pages/deepseek_2026-11-02.html,
+    and fetched again the same day with the same sha256): "Search | Per 1,000
+    successful requests | $0.75", and for Claude Code, Codex and DeepSeek
+    Harness, whose server-side tool calls use that API, "per-request billing
+    starts at 00:00 Beijing time on November 1, 2026". Beijing time is UTC+8,
+    so WEB_SEARCH_RATES charges nothing before 16:00 UTC on 31 October 2026
+    and $0.75 per 1,000 from that instant, judged on each call's own
+    timestamp. WEB_SEARCH_PER_1K is the rate in force now. The Search and
+    Fetch guide (pages/deepseek_search_guide_2026-11-02.md) bills only a
+    request that returns HTTP 200 and a non-empty result; a log's search
+    count may include failed or empty ones, which can only overstate.
+  - Fetch is billed at the same $0.75 per 1,000 successful requests, but
+    the logs record no fetch count the engine reads, so it is not modelled,
+    which can only understate.
 
 The legacy names deepseek-v4-flash and deepseek-v4-flash-vision-exp are
 billed at the Flash price, per the page's own footnote.
@@ -28,12 +42,15 @@ import re
 PROVIDER = "deepseek"
 NAME = "DeepSeek"
 SOURCE = "https://api-docs.deepseek.com/quick_start/pricing"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-11-02"
 MEASURED = False
 
 CACHE_WRITE_5M_MULT = 1.0
 CACHE_WRITE_1H_MULT = 1.0
-WEB_SEARCH_PER_1K = 0.0
+WEB_SEARCH_PER_1K = 0.75
+# Free until 00:00 Beijing time on 1 November 2026, 16:00 UTC the day before.
+WEB_SEARCH_RATES = [{"from": "", "per_1k": 0.0},
+                    {"from": "2026-10-31T16:00:00Z", "per_1k": 0.75}]
 SNAPSHOT = r"(?!)"
 
 # Hours are [start, end) in UTC; weekdays 0 to 4 are Monday to Friday.
