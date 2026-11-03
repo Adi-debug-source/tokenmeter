@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.3.0, 3 November 2026
+
+Every price page read again, two new tables (MiniMax and Xiaomi MiMo), and a
+daily check that each table still matches its live page. New readers for
+Kimi Code, DeepSeek Harness and Kilo Code 7, fixes to the Codex, OpenCode
+and Gemini CLI readers, and written findings for the harnesses that cannot
+be priced exactly.
 
 ### Prices
 
@@ -79,7 +85,7 @@
 - **Z.ai**, checked 27 October 2026: glm-5.3-flashx-legal added, and web
   search priced at $0.01 a search, where it was priced at nothing.
 
-### Readers
+### New readers
 
 - Kimi Code is read, from `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME`):
   one `usage.record` per API call, with the model taken from the request it
@@ -95,6 +101,18 @@
   another summariser are left out and counted in a note.
   Unverified, built from deepseek-ai/deepseek-harness at ce7073d (30
   October 2026).
+- Kilo Code 7 is read (the VS Code extension, the JetBrains plugin and the
+  CLI, which share one database), from `~/.local/share/kilo/kilo*.db` and
+  `opencode-*.db` (or under `$XDG_DATA_HOME`, or `$KILO_DB`): one
+  step-finish row per API call, with the model from its message, or from the
+  row itself when a custom auto router sent the call on. A fork's or an
+  imported session's copied calls count once with their originals. Calls
+  from before 7.4.16 whose record does not say whether output includes
+  reasoning are left out and counted in a note. Unverified, built from
+  Kilo-Org/kilocode at e4833e5 (2 November 2026, 7.8.25).
+
+### Reader fixes
+
 - Codex: an incomplete response (new since the reader was built) adds its
   usage to the running total while the next `token_count` repeats the
   previous response. The previous response was counted twice and the
@@ -115,30 +133,6 @@
   names, used as given, so the reader now looks there instead. Read at
   google-gemini/gemini-cli 6814e00. The other readers' folders were checked
   against their harnesses' variables on 2 November 2026 and were right.
-- Aider, Cline, Crush, Goose, Hermes Agent and Qwen Code get no reader: none
-  writes per-call counts that can be priced exactly. Each has a finding in
-  `adapters/README.md` saying what it records and what a reader would need.
-  T3 Code needs none: its turns are in the logs of the harnesses it drives.
-- Roo Code gets no reader: its per-call records (`api_req_started` in
-  `ui_messages.json`) name neither the model nor the provider, leave
-  Gemini's thinking tokens out of output, and keep no counts for
-  context-condensing calls; and its Claude Code provider ran the local
-  `claude` from 3.21.4 to 3.36.10, calls a reader could not tell apart from
-  Anthropic API calls. Read at RooCodeInc/Roo-Code b867ec9 (15 May 2026,
-  the day the extension was shut down). The finding is in
-  `adapters/README.md`.
-- Continue gets no reader: its IDE extensions log only Continue's own
-  tokenizer estimates (`~/.continue/dev_data`), and its CLI's session files
-  keep the provider's usage per message but with no time or provider, and
-  lose compacted, subagent and title calls. Read at continuedev/continue
-  5522c6f (21 July 2026). The finding is in `adapters/README.md`.
-- The README's Limitations name the side calls no reader can count: T3
-  Code's titles, branch names, commit messages, pull request text and
-  review guides (pingdotgg/t3code 9bcf753), Gemini CLI's compression, model
-  routing, loop checks, next speaker check and edit repair
-  (google-gemini/gemini-cli 6814e00), and OpenCode's title and compaction
-  calls (anomalyco/opencode cce323b), each checked against that source on 2
-  November 2026.
 - DeepSeek Harness, OpenCode and Kilo Code price a plan route that serves
   one maker's models by that maker's table: ChatGPT sign-in
   (`openai-codex`), the Kimi Code plan, MiniMax's and Z.ai's international
@@ -179,15 +173,26 @@
   usage is written to a session-level `wire.jsonl` or to nested agent
   folders, and a loop call cannot run without a turn, so the reader is
   unchanged there; its docstring now gives the source lines.
-- Kilo Code 7 is read (the VS Code extension, the JetBrains plugin and the
-  CLI, which share one database), from `~/.local/share/kilo/kilo*.db` and
-  `opencode-*.db` (or under `$XDG_DATA_HOME`, or `$KILO_DB`): one
-  step-finish row per API call, with the model from its message, or from the
-  row itself when a custom auto router sent the call on. A fork's or an
-  imported session's copied calls count once with their originals. Calls
-  from before 7.4.16 whose record does not say whether output includes
-  reasoning are left out and counted in a note. Unverified, built from
-  Kilo-Org/kilocode at e4833e5 (2 November 2026, 7.8.25).
+
+### Harnesses without a reader
+
+- Aider, Cline, Crush, Goose, Hermes Agent and Qwen Code get no reader: none
+  writes per-call counts that can be priced exactly. Each has a finding in
+  `adapters/README.md` saying what it records and what a reader would need.
+  T3 Code needs none: its turns are in the logs of the harnesses it drives.
+- Roo Code gets no reader: its per-call records (`api_req_started` in
+  `ui_messages.json`) name neither the model nor the provider, leave
+  Gemini's thinking tokens out of output, and keep no counts for
+  context-condensing calls; and its Claude Code provider ran the local
+  `claude` from 3.21.4 to 3.36.10, calls a reader could not tell apart from
+  Anthropic API calls. Read at RooCodeInc/Roo-Code b867ec9 (15 May 2026,
+  the day the extension was shut down). The finding is in
+  `adapters/README.md`.
+- Continue gets no reader: its IDE extensions log only Continue's own
+  tokenizer estimates (`~/.continue/dev_data`), and its CLI's session files
+  keep the provider's usage per message but with no time or provider, and
+  lose compacted, subagent and title calls. Read at continuedev/continue
+  5522c6f (21 July 2026). The finding is in `adapters/README.md`.
 - The Cline VS Code extension gets no reader: its per-call records
   (`api_req_started` in `ui_messages.json`) name the model and provider set
   when the record was made, not necessarily the one that answered, as a
@@ -201,6 +206,26 @@
   Code, whose task format both keep, they save no model or provider with any
   API call. Each has a short finding in `adapters/README.md` saying what
   differs from Roo Code.
+- Cursor CLI, GitHub Copilot CLI, Amp, Grok Build and Antigravity get no
+  reader yet: each has a finding in `adapters/README.md` saying where its
+  logs live, what each call records, whether exact per-call counts exist
+  locally, and what a precise reader would need. Facts that rest on the
+  CodeBurn parser alone are marked as such.
+- The README's Limitations name the side calls no reader can count: T3
+  Code's titles, branch names, commit messages, pull request text and
+  review guides (pingdotgg/t3code 9bcf753), Gemini CLI's compression, model
+  routing, loop checks, next speaker check and edit repair
+  (google-gemini/gemini-cli 6814e00), and OpenCode's title and compaction
+  calls (anomalyco/opencode cce323b), each checked against that source on 2
+  November 2026.
+
+### Project
+
+- `AGENTS.md` gives agents working on the code its commands, layout,
+  conventions and gotchas, imported by a one-line `CLAUDE.md`; the project's
+  settings run the test suite before a turn can end.
+- The tests seal `CLAUDE_CONFIG_DIR` off from the machine, as they already
+  did every other reader's folder variable. No figure changes.
 
 ## 1.2.1, 16 October 2026
 
