@@ -3,6 +3,10 @@
   "attribution": {
     "sessionUrl": false
   },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false
+  },
   "permissions": {
     "allow": [
       "Bash(python3 tests/*)",
