@@ -53,16 +53,18 @@ The table in MAINTENANCE.md, "How it fits together", names every part. In short:
 - The test command above is the gate. It runs before anything is called done, and its output is the evidence: a report names the command that passed and the count. A failing run is reported with its output, never worked around, and a test is never weakened to make it pass.
 - The task's scope is the task. No refactors, features, renames or tidying beyond what was asked; a bug found nearby is reported as a follow-up, not fixed in the same change.
 - State what a change assumes before writing it. Where the ask reads two ways, or a simpler route exists, ask; never pick silently.
+- Understand the real constraint first, then choose the smallest design that makes the right behaviour unsurprising. Inside the task, do not keep complexity only because it is already there. This is for logic and backend code; for the interface, be generous with features and polish.
 - The least code that does the job: no option, layer or abstraction nobody asked for, nothing generalised for one caller, no handling for a state that cannot happen. Cut an over-long diff before calling it done.
 - Every changed line traces to the task, in the existing style. Remove what your change left unused; older dead code is mentioned, not deleted.
 - A correction made twice becomes a check: a test in `tests/`, its docstring naming the mistake, shown to fail on the old code. A line here only when nothing stronger fits.
 - Parallel work runs one task per worktree (`claude -w <name>`; `.claude/worktrees/` is ignored by git). Each agent is given the list of files it owns and touches nothing outside it. Two agents never share a file.
 - Before a commit: the diff is reviewed in a fresh context (`/code-review`, or `/simplify` for cleanups), then the gate runs again.
-- Commits carry the repository's own git identity and say what changed and why. No AI attribution lines or trailers, ever.
+- Commits carry the repository's own git identity and say what changed and why. Claude Code's standard co-author line is left on.
 - Nothing is pushed, tagged or released without the maintainer's yes, given in chat for that push. Force-pushes and pushes to main are denied in `.claude/settings.json`; a release push is the maintainer's own command.
 
 ## Pull requests
 
 - The title is in the conventional form, in plain words saying what changed for the person using it: `fix(dashboard): the chart's tooltip sits beside the bar`. The body gives the problem in a sentence or two, then the fix.
 - One request is one pull request.
+- A pull request description ends with Claude Code's standard line and always names the model that did the work; the effort level is added only when the session knows it, never guessed.
 - A visible change carries before and after images; motion or timing, a short video or GIF. They are made from the invented history, uploaded to the pull request on GitHub and never committed.
