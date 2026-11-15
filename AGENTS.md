@@ -2,6 +2,12 @@
 
 A Python tool that prices the local usage logs of Claude Code and other harnesses at API rates, with a dashboard, a menu bar app and a status line. Its only claim is that its numbers are right, so every rule below protects that.
 
+## The worst mistakes here
+
+- Editing the installed copy in `~/.claude/tools/tokenmeter/`: it is the live tool, and the next install overwrites it. Change the repo, run the gate, then `./install.sh`.
+- Rewriting the real ledger, `~/.claude/cost-ledger.jsonl`, or running `--rebuild-ledger` on it: calls whose logs have been swept are lost for good. Tests build their own in a temp folder; the real one is only appended to (MAINTENANCE.md, "The ledger").
+- Real usage in anything that goes online, a README image or pull request evidence: it shows someone's spend, projects and working days. Capture from the invented history `docs/screenshots/make_demo.py` writes.
+
 ## Commands
 
 - Test: `python3 tests/test_tokenmeter.py` (the gate: a Stop hook runs it at the end of every turn; a few hundred tests in about five seconds, standard library only, no network; one area alone runs as `python3 tests/test_ledger.py`)
@@ -33,12 +39,32 @@ The table in MAINTENANCE.md, "How it fits together", names every part. In short:
 - The caches beside the engine (`.fx_rates.json`, `.today_cost.json`, `.fetched_prices.json`) and any `cost-ledger.jsonl` are usage data and git-ignored; they are never committed.
 - A published tag never moves: the Homebrew formula pins the checksum of its tarball.
 
+## Tests and code
+
+- Test what can break, not what types guarantee, trivial logic or copy. Extend an existing test or table first, at one layer: the lowest that fails without the fix, usually the engine.
+- No sleep, timeout or retry in a test; a flaky test is fixed, not retried.
+- Proof follows the bug: a logic bug gets a failing test first, then the fix; a purely visual one in the dashboard or the menu bar gets before and after captures and no test.
+- Builds and any server run from your own shell, so they end with the session. Stop what you started by the process id you kept; never kill by matching a name, which can hit the installed menu bar app (`costbar/build.sh` stops and reloads it through launchd).
+- No comment unless it records a constraint, an outside quirk or a fact the code cannot show.
+
 ## Working here
 
 - One task per session, with the check that proves it named at the start. Plan first only when the change touches several files; a session that has gone wrong is rewound or abandoned, not argued with.
 - The test command above is the gate. It runs before anything is called done, and its output is the evidence: a report names the command that passed and the count. A failing run is reported with its output, never worked around, and a test is never weakened to make it pass.
 - The task's scope is the task. No refactors, features, renames or tidying beyond what was asked; a bug found nearby is reported as a follow-up, not fixed in the same change.
+- State what a change assumes before writing it. Where the ask reads two ways, or a simpler route exists, ask; never pick silently.
+- Understand the real constraint first, then choose the smallest design that makes the right behaviour unsurprising. Inside the task, do not keep complexity only because it is already there. This is for logic and backend code; for the interface, be generous with features and polish.
+- The least code that does the job: no option, layer or abstraction nobody asked for, nothing generalised for one caller, no handling for a state that cannot happen. Cut an over-long diff before calling it done.
+- Every changed line traces to the task, in the existing style. Remove what your change left unused; older dead code is mentioned, not deleted.
+- A correction made twice becomes a check: a test in `tests/`, its docstring naming the mistake, shown to fail on the old code. A line here only when nothing stronger fits.
 - Parallel work runs one task per worktree (`claude -w <name>`; `.claude/worktrees/` is ignored by git). Each agent is given the list of files it owns and touches nothing outside it. Two agents never share a file.
 - Before a commit: the diff is reviewed in a fresh context (`/code-review`, or `/simplify` for cleanups), then the gate runs again.
-- Commits carry the repository's own git identity and say what changed and why. No AI attribution lines or trailers, ever.
+- Commits carry the repository's own git identity and say what changed and why. Claude Code's standard co-author line is left on.
 - Nothing is pushed, tagged or released without the maintainer's yes, given in chat for that push. Force-pushes and pushes to main are denied in `.claude/settings.json`; a release push is the maintainer's own command.
+
+## Pull requests
+
+- The title is in the conventional form, in plain words saying what changed for the person using it: `fix(dashboard): the chart's tooltip sits beside the bar`. The body gives the problem in a sentence or two, then the fix.
+- One request is one pull request.
+- A pull request description ends with Claude Code's standard line and always names the model that did the work; the effort level is added only when the session knows it, never guessed.
+- A visible change carries before and after images; motion or timing, a short video or GIF. They are made from the invented history, uploaded to the pull request on GitHub and never committed.
