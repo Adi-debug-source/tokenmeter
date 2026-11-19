@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import glob
 import json
+import math
 import os
 import re
 
-from .common import home_note, parse_time
+from .common import home_note, left_out, parse_time
 
 NAME = "claude-code"
 LABEL = "Claude Code"
@@ -184,6 +185,39 @@ def dedup_key(msg: dict, record: dict):
     return msg.get("id") or f"{record.get('requestId')}|{record.get('uuid')}"
 
 
+# Every count the engine reads from a usage block with int(), by the block
+# it sits in (None for the usage block itself).
+COUNTS = {None: ("input_tokens", "output_tokens", "cache_read_input_tokens",
+                 "cache_creation_input_tokens"),
+          "cache_creation": ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"),
+          "output_tokens_details": ("thinking_tokens",),
+          "server_tool_use": ("web_search_requests",)}
+
+
+def _readable(usage: dict) -> bool:
+    """Whether every count in a usage block is one the engine can add up:
+    absent or empty, or a finite int or float. Text, a bool, Infinity, NaN
+    or an integer too large for a float ended every report."""
+    for block, keys in COUNTS.items():
+        within = usage if block is None else usage.get(block)
+        if not within:
+            continue
+        if not isinstance(within, dict):
+            return False
+        for k in keys:
+            v = within.get(k)
+            if not v:
+                continue
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                return False
+            try:
+                if not math.isfinite(v):
+                    return False
+            except OverflowError:
+                return False
+    return True
+
+
 def _session_folder(path: str) -> str:
     """The <project>/<session> folder an agent's transcript lies under, or ""
     for a session's own transcript.
@@ -242,6 +276,8 @@ def records(path: str):
                 d = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(d, dict):
+                continue
             msg = d.get("message")
             if not isinstance(msg, dict):
                 continue
@@ -249,8 +285,12 @@ def records(path: str):
             if not isinstance(usage, dict):
                 continue
             model = msg.get("model") or ""
-            if not model or model.startswith("<"):
+            if isinstance(model, str) and (not model or model.startswith("<")):
                 continue  # synthetic, no API call was made
+            if (not isinstance(model, str) or not isinstance(msg.get("id") or "", str)
+                    or not _readable(usage)):
+                left_out(NAME)
+                continue
             yield dedup_key(msg, d), {
                 "when": parse_time(d.get("timestamp")),
                 "model": model,

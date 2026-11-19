@@ -1,5 +1,118 @@
 # Changelog
 
+## 1.3.1, 19 November 2026
+
+Claude Fable 5.2 and Mythos 5.2, the models OpenAI and Google have released
+since 1.3.0, and readers for the pricing pages OpenAI and Moonshot rebuilt,
+which had every online user warned daily about rates that had not moved. A
+page a reader can no longer see now fails the check where it used to pass.
+Fixes from a security audit: the ledger and caches are their owner's alone,
+names are printable, a looked-up rate is checked before it is trusted, and
+one badly shaped log line no longer ends every report.
+
+### Prices
+
+- Prices: Claude Fable 5.2 and Claude Mythos 5.2 ($8 in, $40 out, cache hits
+  $0.20, which is 0.025x input, cache writes $10 and $16, fast mode $16 in
+  and $80 out). Read off Anthropic's page on 19 November 2026 and pinned in
+  the tests. Fable 5.2 also matched the cost Claude Code records for it in
+  16 sessions, to the seven places it writes. Until now both were priced by
+  the online lookup and labelled as such, or at the Opus 5 stand-in rate
+  with no connection.
+- Anthropic's page no longer prints Claude Haiku 3.5, retired since 19
+  February 2026. Its row stays at the price the page gave on 27 October
+  2026, and `--check-prices` counts it among the retired models.
+- `--check-prices` reads all 21 models on Anthropic's page as matching, so
+  the table is marked verified on 19 November 2026.
+- Fixed: since OpenAI rebuilt its pricing page in November 2026,
+  `--check-prices` and the daily check warned that gpt-5.3-codex differs
+  ($3.50 in, $28 out): the reader took the specialised models' Fast table
+  for their Standard one. Each table now takes its tier from the tab label
+  the page prints above it, and the Specialized models table's
+  "(short context)" and "(long context)" rows are read into the standard
+  and long-context figures, so all 11 models the table prices from it are
+  read; eight of them had been named as not found on the page. The Fast
+  tables' cached and long-context columns are now compared too.
+- Prices: OpenAI's gpt-6.2-astra ($8 in, $40 out, cached $0.40, fast $16 /
+  $80), gpt-6.2-sol ($2, $10, $0.10, fast $4 / $20), gpt-6-cyber ($20,
+  $100, $2) and gpt-6.2-astra-law ($8, $40, $0.40), each with 30-minute
+  and 12-hour cache writes and the 272K long-context tier, read off the page
+  on 19 November 2026 and pinned in the tests.
+- gpt-6-rosalind is $10 in and $50 out from 19 November 2026, the day the
+  cut was first read (it was $15 and $75); the page calls it promotional,
+  "at least through December 31, 2026". Earlier calls keep the old rate.
+- OpenAI's page now prints gpt-5.5-cyber as gpt-5.5-cyber-preview, at the
+  same price. The row takes the new name, and a call logged under the old
+  one is still priced by it.
+- gpt-6-astra-law pays the long-context row OpenAI's page now prints for
+  it ($20 in, $75 out and $2 cached over 272K) from 19 November 2026, the
+  day it was first read. Earlier calls keep the flat rate.
+- `--check-prices` reads all 40 models on OpenAI's page as matching, so the
+  table is marked verified on 19 November 2026.
+- `--check-prices` now fails (exit 1) when a current model in a table is not
+  found on its provider's page, and the daily check warns about that model
+  instead of recording the page as matched. Before, the model was listed in
+  grey and the check still said `Everything matches`, so a table the reader
+  could no longer see passed. A retired model missing from the page still
+  passes.
+- Fixed: since Moonshot rebuilt its Kimi pricing page in November 2026,
+  `--check-prices` and the daily check said the page was read but no rates
+  were found. The figures now sit in the page's embedded manifest rather
+  than in Next.js script chunks, and the K2 rows name their model without a
+  link; the reader takes them from there, so all six models are found again.
+- `--check-prices` reads all 6 models on Moonshot's page as matching, with
+  no rate changed, so the table is marked verified on 19 November 2026.
+- Prices: Google's Gemini 4 Carbon ($2 in, $10 out, cached $0.10, Priority
+  $3.60 / $18 through 30 November 2026, then $4, $20, $0.20 and $7.20 / $36
+  from 1 December), Gemini 4 Neon ($3, $15, $0.15, Priority $5.40 / $27)
+  and Gemini 4 Hydrogen ($1.50, $7.50, $0.075, Priority $2.70 / $13.50),
+  each caching at 0.05x input with no long-context tier. Read off Google's
+  page on 19 November 2026 and pinned in the tests. Until now they were
+  priced by the online lookup and labelled as such.
+- `--check-prices` reads all 13 current models on Google's page as
+  matching, with no other rate changed, so the table is marked verified on
+  19 November 2026.
+### Security
+
+- Fixed: the ledger, the backup a rebuild keeps, the exchange-rate and
+  price caches and the status line's day total were written readable by
+  every account on the Mac (0644), though they name projects, sessions,
+  models and spend. Each is now its owner's alone (0600); a file an older
+  version left readable is tightened the next time it is written, and
+  `install.sh` tightens those already there.
+- Fixed: a model, project or session name read from a log, an import file
+  or the ledger reached the terminal with its control characters, so a
+  crafted name could retitle the window or recolour the report. The same
+  went for the model ids and error text from a provider's pricing page and
+  for the exchange rate's date. They are now removed as each name comes in,
+  so the terminal, `--json`, `--summary-json` and the dashboard show the
+  same printable name; a clean name is unchanged.
+- Fixed: a rate looked up online was saved for seven days whatever its
+  figures, so a NaN, an infinite or a negative figure in LiteLLM's list or
+  on a provider's page priced every call to that model as NaN, infinity or
+  a refund. Such a rate is now refused whole and the model treated as found
+  nowhere. A model a provider's page lists as free is still priced at
+  nothing. A saved price cache or exchange-rate file holding NaN or
+  Infinity is read as damaged.
+- Fixed: one log line of the wrong shape (an array, a model that is a
+  number, an object where an id goes, a count written as text) ended every
+  report in a traceback, in Claude Code's reader, in the Codex, Gemini CLI,
+  Kimi Code, OpenCode and DeepSeek Harness readers, and, once written to
+  the ledger, in every report after it. Such a record is left out, and the
+  report's notes say how many were, per harness and for the ledger.
+- `/tokenmeter` now runs without asking only for the report commands it
+  lists, each exactly as written. Before, it pre-approved the engine with
+  any arguments, `--rebuild-ledger` and `--html` to any file included; any
+  other run now asks first.
+- `SECURITY.md` names every request Tokenmeter makes, the daily reread of
+  each provider's pricing page and the OpenAI lookup whose address names
+  the model included, as the README already did.
+
+### Project
+
+- The test workflow runs with read-only permissions, and its actions are
+  pinned by commit.
+
 ## 1.3.0, 3 November 2026
 
 Every price page read again, two new tables (MiniMax and Xiaomi MiMo), and a

@@ -7,10 +7,12 @@ online lookup at startup, and labelled as looked up rather than checked.
 
 ## Anthropic
 
-Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 27 Oct 2026, checked against the published page and against real usage.
+Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 19 Nov 2026, checked against the published page and against real usage.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `claude-fable-5-2` | $8 | $0.20 | $10 | $40 | 1-hour cache write $16; fast $16 / $80 |
+| `claude-mythos-5-2` | $8 | $0.20 | $10 | $40 | 1-hour cache write $16; fast $16 / $80 |
 | `claude-fable-5-1` | $10 | $0.25 | $12.50 | $50 | 1-hour cache write $20 |
 | `claude-mythos-5-1` | $10 | $0.25 | $12.50 | $50 | 1-hour cache write $20 |
 | `claude-fable-5` | $10 | $1 | $12.50 | $50 | 1-hour cache write $20 |
@@ -42,10 +44,12 @@ Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verifie
 
 ## OpenAI
 
-Source: <https://developers.openai.com/api/docs/pricing>. Last verified 27 Oct 2026, checked against the published page; not yet against a real bill.
+Source: <https://developers.openai.com/api/docs/pricing>. Last verified 19 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `gpt-6.2-astra` | $8 | $0.40 | $10 | $40 | 1-hour cache write $20; over 272K prompt tokens: input x2, output x1.5; fast $16 / $80 |
+| `gpt-6.2-sol` | $2 | $0.10 | $2.50 | $10 | 1-hour cache write $5; over 272K prompt tokens: input x2, output x1.5; fast $4 / $20 |
 | `gpt-6-astra` | $10 | $1 | $12.50 | $50 | until 2026-10-20; over 272K prompt tokens: input x2, output x1.5; fast $20 / $100 |
 | `gpt-6-astra` | $10 | $1 | $12.50 | $50 | from 2026-10-20; 1-hour cache write $25; over 272K prompt tokens: input x2, output x1.5; fast $20 / $100 |
 | `gpt-6.1-sol` | $2 | $0.10 | $2.50 | $10 | until 2026-10-20; over 272K prompt tokens: input x2, output x1.5; fast $4 / $20 |
@@ -96,11 +100,15 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 27 Oct 2
 | `o3-mini` | $1.10 | $0.55 | - | $4.40 | retirement 2026-10-23, kept at the last published price |
 | `o1` | $15 | $7.50 | - | $60 | retirement 2026-10-23, kept at the last published price |
 | `o1-pro` | $150 | - | - | $600 | retirement 2026-10-23, kept at the last published price |
+| `gpt-6-cyber` | $20 | $2 | $25 | $100 | 1-hour cache write $50; over 272K prompt tokens: input x2, output x1.5 |
 | `gpt-5.6-cyber` | $12.50 | $1.25 | $15.625 | $75 | until 2026-10-20; also gpt-daybreak-red-latest |
 | `gpt-5.6-cyber` | $12.50 | $1.25 | $15.625 | $75 | from 2026-10-20; 1-hour cache write $31.25; also gpt-daybreak-red-latest |
-| `gpt-5.5-cyber` | $12.50 | $1.25 | - | $75 |  |
-| `gpt-6-rosalind` | $15 | $1.50 | $18.75 | $75 | 1-hour cache write $37.50; over 272K prompt tokens: input x2, output x1.5 |
-| `gpt-6-astra-law` | $10 | $1 | - | $50 |  |
+| `gpt-5.5-cyber-preview` | $12.50 | $1.25 | - | $75 | also gpt-5.5-cyber |
+| `gpt-6-rosalind` | $15 | $1.50 | $18.75 | $75 | until 2026-11-19; 1-hour cache write $37.50; over 272K prompt tokens: input x2, output x1.5 |
+| `gpt-6-rosalind` | $10 | $1 | $12.50 | $50 | from 2026-11-19; 1-hour cache write $25; over 272K prompt tokens: input x2, output x1.5 |
+| `gpt-6.2-astra-law` | $8 | $0.40 | $10 | $40 | 1-hour cache write $20; over 272K prompt tokens: input x2, output x1.5 |
+| `gpt-6-astra-law` | $10 | $1 | - | $50 | until 2026-11-19 |
+| `gpt-6-astra-law` | $10 | $1 | - | $50 | from 2026-11-19; over 272K prompt tokens: input x2, output x1.5 |
 | `gpt-rosalind-research` | $5 | $0.50 | - | $25 |  |
 | `gpt-rosalind-discovery` | $5 | $0.50 | - | $25 |  |
 | `chat-latest` | $5 | $0.50 | - | $30 |  |
@@ -133,12 +141,16 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 27 Oct 2
 
 ## Google
 
-Source: <https://aistudio.google.com/docs/pricing>. Last verified 2 Nov 2026, checked against the published page; not yet against a real bill.
+Source: <https://aistudio.google.com/docs/pricing>. Last verified 19 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `gemini-4-carbon` | $2 | $0.10 | - | $10 | until 2026-12-01; fast $3.60 / $18 |
+| `gemini-4-carbon` | $4 | $0.20 | - | $20 | from 2026-12-01; fast $7.20 / $36 |
 | `gemini-4-argon` | $2 | $0.10 | - | $10 | until 2026-12-01; fast $3.60 / $18 |
 | `gemini-4-argon` | $4 | $0.20 | - | $20 | from 2026-12-01; fast $7.20 / $36 |
+| `gemini-4-neon` | $3 | $0.15 | - | $15 | fast $5.40 / $27 |
+| `gemini-4-hydrogen` | $1.50 | $0.075 | - | $7.50 | fast $2.70 / $13.50 |
 | `gemini-3.8-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; fast $1.35 / $6.75 |
 | `gemini-3.8-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01; fast $2.70 / $13.50 |
 | `gemini-3.7-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; fast $1.35 / $6.75; retirement 2026-10-08, kept at the last published price |
@@ -216,7 +228,7 @@ Source: <https://docs.mistral.ai/inference/pricing>. Last verified 2 Nov 2026, c
 
 ## Moonshot
 
-Source: <https://platform.kimi.ai/docs/pricing/chat>. Last verified 27 Oct 2026, checked against the published page; not yet against a real bill.
+Source: <https://platform.kimi.ai/docs/pricing/chat>. Last verified 19 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|

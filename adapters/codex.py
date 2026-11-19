@@ -112,7 +112,7 @@ import shutil
 import subprocess
 
 from .claude_code import project_matches
-from .common import parse_time, usage, whole
+from .common import left_out, parse_time, texts, usage, whole
 
 NAME = "codex"
 LABEL = "Codex"
@@ -519,17 +519,26 @@ def records(path: str):
         if not isinstance(payload, dict):
             continue
         if kind == "session_meta":
+            if not texts(payload, "id", "session_id", "cwd", "model_provider"):
+                left_out(NAME)
+                continue
             session = payload.get("id") or session
             root = payload.get("session_id") or session
             project = payload.get("cwd") or project
             if payload.get("model_provider"):
                 provider = PROVIDERS.get(payload["model_provider"], payload["model_provider"])
         elif kind == "turn_context":
+            if not texts(payload, "model", "cwd"):
+                left_out(NAME)
+                continue
             model = payload.get("model") or model
             project = payload.get("cwd") or project
             anchor = (payload["model"], provider, speed) if payload.get("model") else None
             switched = False
         elif kind == "token_usage_record":
+            if not texts(payload, "response_id"):
+                left_out(NAME)
+                continue
             if isinstance(payload.get("usage"), dict):
                 recorded.append(_counts(payload["usage"]))
                 if payload.get("response_id") and any(recorded[-1]):
@@ -539,6 +548,9 @@ def records(path: str):
             # with no move in the running total; a local one's total has
             # moved by then, so its response is settled and counted. Taken
             # out of `recorded`, it cannot be read as a file's first call.
+            if not texts(payload, "compaction_response_id"):
+                left_out(NAME)
+                continue
             response = payload.get("compaction_response_id")
             if response in unsettled:
                 got, when = unsettled.pop(response)
@@ -556,6 +568,9 @@ def records(path: str):
             ptype = payload.get("type")
             if ptype == "thread_settings_applied":
                 ts = payload.get("thread_settings") or {}
+                if not isinstance(ts, dict) or not texts(ts, "model", "model_provider_id"):
+                    left_out(NAME)
+                    continue
                 model = ts.get("model") or model
                 if ts.get("model_provider_id"):
                     provider = PROVIDERS.get(ts["model_provider_id"], ts["model_provider_id"])

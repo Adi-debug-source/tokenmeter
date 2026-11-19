@@ -28,6 +28,19 @@ same markdown page fetched again at 17:30 UTC (HTTP 200, 23,508 bytes,
 the same sha256) and from the page a person opens, fetched at the same
 time, which prints the same three figures.
 
+On 19 November 2026 the markdown page was fetched at 00:15 UTC and again
+at 00:28 UTC (HTTP 200, 24,045 bytes each, byte for byte the same, sha256
+427698a0...f0b590ac5114) and read once; the pinned tests were typed from
+it, not from this table. By then the page had been rebuilt: the Cyber,
+Life Sciences and Legal tables, and the specialised models table, are one
+"Specialized models" table, headed Category and Model, with a Standard tab
+and a Fast tab. gpt-6.2-astra and gpt-6.2-sol (released 17 November 2026,
+the changelog), gpt-6-cyber (5 November 2026, the changelog) and
+gpt-6.2-astra-law were added from it, gpt-5.5-cyber became
+gpt-5.5-cyber-preview, gpt-6-rosalind took a dated row for its cut, and
+the ten models still printed on 27 October 2026 though shut down on 23
+October had left it.
+
 **Published, not measured.** Nobody has yet checked these figures against a
 real OpenAI bill or against a harness's own cost report, the way the Anthropic
 table was checked against Claude Code. The rates are the published ones; what
@@ -37,33 +50,47 @@ please compare a month against your bill and open an issue either way.
 Rules the page states, modelled here:
 
   - Cached input is a fixed fraction of input: 0.1x on GPT-5 and GPT-6,
-    0.05x on GPT-6.1 Sol and GPT-6.1 Terra, 0.25x or 0.5x on older models. A
+    0.05x on GPT-6.1 Sol, GPT-6.1 Terra, GPT-6.2 Astra, GPT-6.2 Sol and
+    gpt-6.2-astra-law, 0.25x or 0.5x on older models. A
     "-" in the cached column means no cached rate, recorded as 1.0x (the
     ordinary input rate), as on the pro models.
   - Cache writes. A 30-minute write is 1.25x input (write_mult) on the GPT-6,
-    GPT-6.1 and GPT-5.6 families, gpt-6-rosalind and gpt-5.6-cyber. Since
+    GPT-6.1, GPT-6.2 and GPT-5.6 families, gpt-6-rosalind, gpt-6-cyber,
+    gpt-5.6-cyber and gpt-6.2-astra-law. Since
     20 October 2026 (the changelog's date for 12-hour prompt caching) the
     page also prints a 12-hour write at 2.5x input, which is held in the
     write_1h_mult slot: the engine's two write lifetimes are named after
     Anthropic's 5 minutes and 1 hour, and for OpenAI the short slot holds
     the 30-minute write and the long slot the 12-hour write. For every model
     sold before that day it is a dated row from 20 October 2026, so no
-    earlier call is priced at it; gpt-6.1-terra and gpt-6-rosalind, released
-    after it, have one row that carries it. No OpenAI log reader records
+    earlier call is priced at it; gpt-6.1-terra, gpt-6-rosalind, gpt-6-cyber
+    and the GPT-6.2 models, released after it, have rows that carry it from
+    their first. No OpenAI log reader records
     cache writes today, so this moves no logged figure yet; it lets
     --check-prices compare the page's 12-hour column. Older models have no
     write charge: the tokens are ordinary input.
   - Long context: a prompt of more than 272K input tokens is priced at 2x
     input and cache rates and 1.5x output for the whole request (the
-    gpt-6-astra and gpt-5.6-sol model pages say "for the full request"). The
-    page never says whether K is 1,000 or 1,024; 272,000 is used.
+    gpt-6-astra, gpt-5.6-sol, gpt-6.2-astra and gpt-6.2-sol model pages say
+    "for the full request"). The page never says whether K is 1,000 or
+    1,024; 272,000 is used. The Specialized models table prints the higher
+    tier as a "(long context)" row under the model's "(short context)" one.
   - Fast mode, called Priority processing until 30 July 2026, has its own
     published rates, used when a call is recorded as fast. They are a typed
     pair, never a multiple: 2x Standard on most rows, but 2.5x on gpt-5.5
     ($12.50 / $75 against $5 / $30), 1.8x on gpt-5-mini, 1.75x on gpt-4.1
     and o3 and 1.7x on gpt-4o, among others.
   - Dated price cuts: gpt-5.6-terra (20% less) and gpt-5.6-luna (80% less) on
-    30 July 2026, and gpt-5.6-sol on 21 August 2026, each a dated row.
+    30 July 2026, gpt-5.6-sol on 21 August 2026 and gpt-6-rosalind on 19
+    November 2026, each a dated row. gpt-6-rosalind's cut ($15 / $75 to
+    $10 / $50, promotional "at least through December 31, 2026") is dated
+    from the day it was first read: the page of 2 November 2026 printed
+    the old rate, no OpenAI page that could be fetched on 19 November 2026
+    (the changelog, the deprecations page, the model index; it has no model
+    page) gives the day it changed, and the Internet Archive could not be
+    reached from the sandbox that day. Calls before it, if the cut began
+    earlier, are overstated; an archive capture that dates the cut is the
+    evidence to correct the row's start with.
   - Web search is $10 per 1,000 calls; gpt-5-search-api bills its searches on
     top of its token rates.
 
@@ -89,9 +116,21 @@ Rules deliberately not modelled, and what is charged instead:
   - Flex: half of Standard on every figure ("Batch and Flex are priced at 50%
     of Standard rates", gpt-6-astra model page). A row has no key for it, so
     a flex call is charged at Standard.
-  - Ultrafast (gpt-6-astra and gpt-6.1-sol only, 6x Standard on every
-    figure): no row key either, so Standard is charged unless the call is
-    recorded as fast, when the fast pair is.
+  - Ultrafast (gpt-6-astra and gpt-6.1-sol, 6x Standard on every figure;
+    gpt-6.2-astra and gpt-6.2-sol, 3x "through February 28, 2027, and 6
+    times the Standard rate starting March 1, 2027 (Pacific time)"): no row
+    key either, so Standard is charged unless the call is recorded as fast,
+    when the fast pair is.
+  - Background completion windows (gpt-6.2-astra, gpt-6.2-sol,
+    gpt-6.1-terra and gpt-6-luna, from 17 November 2026): "30% below
+    Standard for the 2-hour completion window and 40% below Standard for
+    the 8-hour completion window" for eligible background requests. A log
+    does not say a call used one, so Standard is charged.
+  - A cache write on a gpt-6-cyber request over 272K: its long row prints
+    "-" in both write columns, and its model page prices only
+    "Short-context cache writes". The row's long rule doubles the write as
+    it does on every other long-context row; no OpenAI log reader records
+    cache writes, so this moves no logged figure.
   - A fast call of more than 272K input tokens on gpt-5.5 or gpt-5.4: the
     Fast table prints "-" in every long column for these two, and the gpt-5.5
     model page gives the long rate "for standard, batch, and flex". The row's
@@ -99,13 +138,15 @@ Rules deliberately not modelled, and what is charged instead:
     such a call is charged 2x fast input and 1.5x fast output.
   - Thinking: the page prints no thinking or non-thinking split; output
     prices include reasoning tokens. Nothing to apply.
-  - gpt-5.6-sol's promotional pricing is "available at least through November
-    21, 2026", with no end date and no regular price printed. It is priced as
-    the page charges now; when it ends, a new dated row.
-  - gpt-6-astra-law's likewise: "GPT-6 Astra for Law promotional pricing is
-    available at least through December 31, 2026", with no regular price
-    printed. One row at the page's current price; when it ends, a new dated
-    row.
+  - gpt-5.6-sol's promotional pricing was "available at least through
+    November 21, 2026"; on 19 November 2026 the page says it "is available
+    until November 30, 2026", still with no regular price printed. It is
+    priced as the page charges now; when it ends, a new dated row.
+  - gpt-6-astra-law's, gpt-6.2-astra-law's and gpt-6-rosalind's likewise:
+    "GPT-6 Astra for Law, GPT-6.2 Astra for Law, and GPT-6 Rosalind
+    promotional pricing is available at least through December 31, 2026",
+    with no regular price printed. Each is at the page's current price;
+    when it ends, a new dated row.
   - gpt-rosalind-research: "Billing for gpt-rosalind-research begins on
     October 5, 2026." Its row has no date, since a first row dated 5 October
     would price earlier calls the same anyway.
@@ -117,19 +158,49 @@ Rules deliberately not modelled, and what is charged instead:
     not say which endpoint served a call), and container, file-search and
     other tool fees.
 
-Access: gpt-5.6-cyber and gpt-5.5-cyber need Daybreak approval, and the
-Rosalind models, gpt-6-rosalind included, the trusted-access programme;
-chat-latest points to the latest ChatGPT Instant model, so the model behind
-it changes.
+Access: gpt-6-cyber, gpt-5.6-cyber and gpt-5.5-cyber-preview need Daybreak
+approval, and the Rosalind models, gpt-6-rosalind included, the
+trusted-access programme; chat-latest points to the latest ChatGPT Instant
+model, so the model behind it changes.
 
-gpt-6-astra-law: since at least 1 November 2026 the page prints it under
-"Legal model configurations", headed "Model configuration", at $10 in, $50
-out and $1 cached, and nothing else: no fast, flex, ultrafast, cache-write
-or long-context figure. It has no model page (HTTP 404 on 2 November 2026)
-and no changelog entry. The maintainer decided on 2 November 2026 to price
-it as an API model id, so its row holds those three figures alone: no
-write charge (the page prints no write column, which the reader takes as
-the ordinary input rate), no long-context tier and no fast pair.
+gpt-5.5-cyber-preview is the model this table called gpt-5.5-cyber, under
+a new name, not a different model. The pages of 27 October and 2 November
+2026 print gpt-5.5-cyber in the Cyber table at $12.50 in, $75 out and $1.25
+cached, with "-" for writes and long context; the page of 19 November 2026
+prints gpt-5.5-cyber-preview in the Cyber group at exactly those figures,
+and gpt-5.5-cyber nowhere. The deprecations page, fetched that day, lists
+only gpt-5.5-cyber-preview (shutdown 1 February 2027, notice 5 November
+2026, replacement "The most capable cyber model available to you"), and
+the Daybreak guide (guides/daybreak.md) says "Only organizations with
+existing access can use `gpt-5.5-cyber-preview`" and names it
+"GPT-5.5-Cyber (existing access only)" in its model table. Neither id has
+a model page (HTTP 404) or a changelog entry. Whether the API ever took
+gpt-5.5-cyber as a model id no reachable page says, so the row moved to
+the name OpenAI now prints, with its figures unchanged, and ALIASES keeps
+gpt-5.5-cyber priced at it, so a call logged under either name costs the
+same. When it shuts down, it goes in RETIRED.
+
+gpt-6-astra-law: from at least 1 to at least 2 November 2026 the page
+printed it under "Legal model configurations", headed "Model
+configuration", at $10 in, $50 out and $1 cached, and nothing else. It has
+no model page (HTTP 404 on 2 and 19 November 2026) and no changelog entry.
+The maintainer decided on 2 November 2026 to price it as an API model id,
+so its row holds those three figures alone: no write charge, no
+long-context tier and no fast pair. On 19 November 2026 the page prints a
+"(long context)" row for it too: $20 in, $75 out and $2 cached, with "-"
+for writes, which is the table's usual long rule (2x input and cache, 1.5x
+output). A row dated 19 November 2026, the day it was first read, carries
+it; earlier calls keep the row with no long tier. If the long row was
+printed before that day (it was not on 2 November), earlier calls over
+272K are understated, as gpt-6-rosalind's date overstates its earlier
+calls; an archive capture that dates it is the evidence to correct the
+row's start with.
+
+gpt-6.2-astra-law is printed beside it, Legal model configurations, with
+the full set of figures gpt-6.2-astra has but the fast pair. Like its
+sibling it has no model page (HTTP 404 on 19 November 2026) and no
+changelog entry; it is priced as an API model id on the same terms the
+maintainer set for gpt-6-astra-law, at the page's figures.
 
 Left out on purpose: gpt-5.4-cyber (retired 1 October 2026; every copy that
 lists it prints "-" in every column, so no price was ever published);
@@ -161,7 +232,7 @@ NAME = "OpenAI"
 SOURCE = "https://developers.openai.com/api/docs/pricing"
 SOURCE_MD = "https://developers.openai.com/api/docs/pricing.md"
 MODEL_PAGE_MD = "https://developers.openai.com/api/docs/models/{model}.md"
-VERIFIED_ON = "2026-10-27"
+VERIFIED_ON = "2026-11-19"
 MEASURED = False
 
 # Table defaults: no write charge. Rows that bill writes override them.
@@ -196,6 +267,11 @@ def _row(inp, out, cached_mult, fast=None, write_mult=1.0, long=None,
 _12H = {"write_1h_mult": 2.5, "frm": "2026-10-20"}
 
 PRICES = {
+    # Added 19 November 2026; released 17 November 2026 (the changelog), so
+    # each has one row carrying the 12-hour write. Cached input is 5% of
+    # input, as on gpt-6.1-sol.
+    "gpt-6.2-astra":      [_row( 8.00, 40.00, 0.05, (16.00,  80.00), 1.25, _LONG, 2.5)],
+    "gpt-6.2-sol":        [_row( 2.00, 10.00, 0.05, ( 4.00,  20.00), 1.25, _LONG, 2.5)],
     # GPT-6. Cache writes billed at 1.25x; long context above 272K.
     "gpt-6-astra":        [_row(10.00, 50.00, 0.1, (20.00, 100.00), 1.25, _LONG),
                            _row(10.00, 50.00, 0.1, (20.00, 100.00), 1.25, _LONG, **_12H)],
@@ -212,8 +288,9 @@ PRICES = {
                            _row( 0.10,  0.50, 0.1, ( 0.20,   1.00), 1.25, _LONG, **_12H)],
     # GPT-5.6. The undated rows hold the pre-cut figures (see the docstring),
     # from the markdown page as captured on 29 July and 12 August 2026. Sol
-    # is on promotional pricing "at least through November 21, 2026". When
-    # that ends, add a dated entry; do not edit this one.
+    # is on promotional pricing, "available until November 30, 2026" on the
+    # page of 19 November 2026. When that ends, add a dated entry; do not
+    # edit this one.
     "gpt-5.6-sol":        [_row( 5.00, 30.00, 0.1, (10.00,  60.00), 1.25, _LONG),
                            _row( 4.00, 20.00, 0.1, ( 8.00,  40.00), 1.25, _LONG, frm="2026-08-21"),
                            _row( 4.00, 20.00, 0.1, ( 8.00,  40.00), 1.25, _LONG, **_12H)],
@@ -264,22 +341,34 @@ PRICES = {
     "o3-mini":            [_row( 1.10,  4.40, 0.5)],
     "o1":                 [_row(15.00, 60.00, 0.5)],
     "o1-pro":             [_row(150.00, 600.00, 1.0)],
+    # Added 19 November 2026; released 5 November 2026 (the changelog), so
+    # its one row carries the 12-hour write. No fast row.
+    "gpt-6-cyber":        [_row(20.00, 100.00, 0.1, None, 1.25, _LONG, 2.5)],
     # Added 27 October 2026: text models sold per token, from the page.
     # Cyber: "-" in every long column and no fast row. The page of 12 August
     # 2026, the first to list it, prints one cache writes column ($15.625);
     # the 12-hour write ($31.25) is a dated row, as for the families above.
     "gpt-5.6-cyber":      [_row(12.50, 75.00, 0.1, None, 1.25),
                            _row(12.50, 75.00, 0.1, None, 1.25, **_12H)],
-    "gpt-5.5-cyber":      [_row(12.50, 75.00, 0.1)],
+    # Printed as gpt-5.5-cyber until at least 2 November 2026; that name is
+    # in ALIASES (see the docstring).
+    "gpt-5.5-cyber-preview": [_row(12.50, 75.00, 0.1)],
     # Added 2 November 2026; released 30 October 2026, after 12-hour caching
-    # began, so its one row carries the 12-hour write. No fast row.
-    "gpt-6-rosalind":     [_row(15.00, 75.00, 0.1, None, 1.25, _LONG, 2.5)],
+    # began, so its one row carries the 12-hour write. No fast row. The
+    # promotional cut is dated from the day it was first read (see the
+    # docstring).
+    "gpt-6-rosalind":     [_row(15.00, 75.00, 0.1, None, 1.25, _LONG, 2.5),
+                           _row(10.00, 50.00, 0.1, None, 1.25, _LONG, 2.5, frm="2026-11-19")],
+    # Added 19 November 2026. Promotional, like gpt-6-astra-law below.
+    "gpt-6.2-astra-law":  [_row( 8.00, 40.00, 0.05, None, 1.25, _LONG, 2.5)],
     # Added 2 November 2026, read off the page that day. Promotional: "GPT-6
     # Astra for Law promotional pricing is available at least through
     # December 31, 2026." When it ends, add a dated row; do not edit this
-    # one. The page prints input, output and cached input only, so there is
-    # no write charge, no long tier and no fast pair (see the docstring).
-    "gpt-6-astra-law":    [_row(10.00, 50.00, 0.1, None, 1.0)],
+    # one. The page printed input, output and cached input only, so there
+    # is no write charge and no fast pair; from 19 November 2026 it prints a
+    # long-context row too (see the docstring).
+    "gpt-6-astra-law":    [_row(10.00, 50.00, 0.1, None, 1.0),
+                           _row(10.00, 50.00, 0.1, None, 1.0, _LONG, frm="2026-11-19")],
     # "Cache-write pricing does not apply to this model."
     "gpt-rosalind-research":  [_row(5.00, 25.00, 0.1)],
     "gpt-rosalind-discovery": [_row(5.00, 25.00, 0.1)],
@@ -317,14 +406,15 @@ PRICES = {
 
 # {model id: retirement date}, each date from OpenAI's deprecation page,
 # https://developers.openai.com/api/docs/deprecations (read 27 October 2026),
-# under the notice quoted. The first ten are still printed on the pricing
-# page and are checked against it like any other row; the rest are priced
-# from the Internet Archive capture named, the last copy of OpenAI's pricing
-# page to carry the row.
+# under the notice quoted. The first ten were read off the pricing page on
+# 27 October 2026 (the archive copy named in the docstring) and are no
+# longer on it by 19 November 2026; the rest are priced from the Internet
+# Archive capture named, the last copy of OpenAI's pricing page to carry the
+# row.
 _C20260730 = "https://web.archive.org/web/20260730195107/https://developers.openai.com/api/docs/pricing"
 RETIRED = {
     # notice "2026-04-22: Legacy GPT model snapshots", shut down 23 October
-    # 2026; still on the page.
+    # 2026; price from the page of 27 October 2026.
     "gpt-4.1-nano":           "2026-10-23",
     "gpt-4o-2024-05-13":      "2026-10-23",
     "o4-mini":                "2026-10-23",
@@ -405,6 +495,8 @@ ALIASES = {
     "gpt-4-32k-0314": "gpt-4-32k",
     "gpt-daybreak-blue-latest": "gpt-5.6-sol",
     "gpt-daybreak-red-latest": "gpt-5.6-cyber",
+    # The pricing page's name for it until at least 2 November 2026.
+    "gpt-5.5-cyber": "gpt-5.5-cyber-preview",
 }
 
 # The flagship, so an unknown id errs towards overstating. It is flagged in
@@ -426,7 +518,13 @@ COLUMNS = {"input": "in", "output": "out", "cached input": "cached",
            "30m write": "write", "12h write": "write_1h"}
 _LONG_FIELD = {"in": "long_in", "out": "long_out", "cached": "long_cached",
                "write": "long_write_5m", "write_1h": "long_write_1h"}
+# A Fast table's figures. Its write columns have no field to go to.
+_FAST_FIELD = {"in": "fast_in", "out": "fast_out", "cached": "fast_cached",
+               "long_in": "fast_long_in", "long_out": "fast_long_out",
+               "long_cached": "fast_long_cached"}
 _FOOTNOTE = re.compile(r">\s*(\d+)K input tokens")
+# The page's tab labels, each printed alone on its line above a heading.
+_TAB = re.compile(r"Standard|Batch|Flex|Fast|Ultrafast")
 
 
 def _model(cell: str) -> str:
@@ -447,6 +545,38 @@ def _fields(header: list) -> dict:
         if field:
             at[_LONG_FIELD[field] if long else field] = i
     return at
+
+
+def _tabbed(text: str, tables) -> list:
+    """Every table as (tab, heading, header, rows). The tab is the label
+    printed above a heading, lower-cased, or "" if none was. A label line
+    ends the section above it, so a lost label or a lost heading leaves its
+    tables unread, never taken for the tab above them."""
+    out, tab, label, section = [], "", "", []
+    for line in text.splitlines() + ["#"]:
+        s = line.strip()
+        if s.startswith("#") or _TAB.fullmatch(s):
+            out += [(tab, *t) for t in tables("\n".join(section))]
+            section = []
+            if s.startswith("#"):
+                tab, label = label, ""
+            else:
+                tab, label = "", s.lower()
+        section.append(line)
+    return out
+
+
+def _merge(into: dict, mid: str, figures: dict) -> None:
+    """A row's figures added to those already read for its model. A field
+    the page has already given at another figure fails the read, naming
+    both: the page does not say which applies, so neither is taken."""
+    def show(v):
+        return "-" if v is None else f"${v:g}"
+    for field, value in figures.items():
+        if field in into and into[field] != value:
+            raise ValueError(f"{mid} {field}: the page prints both {show(into[field])} "
+                             f"and {show(value)}")
+        into[field] = value
 
 
 def _fill(r: dict) -> dict:
@@ -471,23 +601,29 @@ def page_rates(fetch, tables, want=None):
 
     Reads the markdown form of the page (SOURCE_MD), every pipe table with
     its nearest heading as `tables` gives them, cells by header name, never
-    by position. Tables headed "Standard pricing data" give the standard
-    figures, ten-column (short and long context, two write lifetimes) and
-    four-column (input, output, cached input) alike: on the page of 2
-    November 2026 the flagship pair, then a three-row ten-column table each
-    for the Cyber and the Life sciences (Rosalind) models. Tables headed
-    "Fast pricing data" give fast_in and fast_out. Of the "Grouped Pricing
-    Table data" tables, one headed Model or Model configuration, then Input,
-    Output and Cached input, is standard (the Rosalind models on 27 October
-    2026, the Legal model configurations since), and of those headed
-    Category, Model and the same three, the first is standard and the second
-    fast. Batch, Flex, Ultrafast, fine-tuning, audio, image and tool tables
-    are not read for rates. The model ids in them, and in any table this
-    reader does not recognise, are still checked against the table, so a
-    model printed only in a new layout is named rather than dropped; a dated
-    snapshot of a row (fine-tuning lists o4-mini-2025-04-16) is not new. The
-    long-context threshold is read from the page's footnote (">272K input
-    tokens"), else LONG_OVER.
+    by position, and each table's tier from the tab label the page prints
+    on its own line above the heading ("Standard", "Fast"), never from its
+    place on the page. On the page of 19 November 2026 the Flagship models
+    have a "Standard pricing data" heading under the Standard label and a
+    "Fast pricing data" one under Fast, each over a ten-column table (short
+    and long context, two write lifetimes) and a four-column one (input,
+    output, cached input). The Specialized models have a "Grouped Pricing
+    Table data" heading under each label, over a table headed Category,
+    Model, then Input, Output and Cached input, the Standard one with a
+    30m and a 12h write column too, where a model priced by prompt length
+    has a "(short context)" row and a "(long context)" row. A long row, or
+    a long column, gives the long_ fields; a Fast table gives fast_in,
+    fast_out and fast_cached and, from its long columns, fast_long_in,
+    fast_long_out and fast_long_cached. Batch, Flex, Ultrafast,
+    fine-tuning, audio, image and tool tables, and any table under no
+    label or no heading, are not read for rates. The model ids in them, and
+    in any table this reader does not recognise, are still checked against
+    the table, so a model printed only in a new layout is named rather than
+    dropped; a dated snapshot of a row (o4-mini-2025-04-16, as fine-tuning
+    listed it on 2 November 2026) is not new. A model the page gives two
+    different figures for one field fails the read. The long-context
+    threshold is read from
+    the page's footnote (">272K input tokens"), else LONG_OVER.
 
     With want=None (--check-prices, which reports differences and never
     edits this file) only the main page is fetched: every current model is
@@ -496,26 +632,20 @@ def page_rates(fetch, tables, want=None):
     read from its own model page; one that answers with an HTTP error, such
     as a 404, is skipped, so it cannot fail the rest."""
     text = fetch(SOURCE_MD)
-    rates, fast, seen, unread, grouped = {}, {}, [], [], 0
-    for title, header, rows in tables(text):
+    rates, fast, seen, unread = {}, {}, [], []
+    for tab, title, header, rows in _tabbed(text, tables):
         t = title.strip().lower()
         h = [c.strip().lower() for c in header]
         at = _fields(header)
-        kind = ""
-        if "in" in at and "out" in at:
-            if t.startswith("standard") and h[0] == "model":
-                kind, name_at = "standard", 0
-            elif t.startswith("fast") and h[0] == "model":
-                kind, name_at = "fast", 0
-            elif (t == "grouped pricing table data" and h[0] in ("model", "model configuration")
-                  and h[1:] == ["input", "output", "cached input"]):
-                kind, name_at = "standard", 0
-            elif t == "grouped pricing table data" and h[:2] == ["category", "model"] and len(h) == 5:
-                grouped += 1
-                if grouped <= 2:
-                    kind, name_at = ("standard" if grouped == 1 else "fast"), 1
-        if not kind:
-            unread.extend(_model(r[0]) for r in rows if r)
+        name_at = None
+        if "in" in at and "out" in at and tab in ("standard", "fast"):
+            if h[0] == "model" and t == tab + " pricing data":
+                name_at = 0
+            elif h[:2] == ["category", "model"] and t == "grouped pricing table data":
+                name_at = 1
+        if name_at is None:
+            i = h.index("model") if "model" in h else 0
+            unread.extend(_model(r[i]) for r in rows if len(r) > i)
             continue
         for r in rows:
             if len(r) != len(h):
@@ -523,13 +653,14 @@ def page_rates(fetch, tables, want=None):
             mid = _model(r[name_at])
             seen.append(mid)
             figures = {field: money(r[i]) for field, i in at.items()}
-            if kind == "fast":
-                fast[mid] = (figures["in"], figures["out"])
-            else:
-                rates.setdefault(mid, {}).update(figures)
-    for mid, (fin, fout) in fast.items():
+            if "(long context)" in r[name_at].lower():
+                figures = {_LONG_FIELD[f]: v for f, v in figures.items() if f in _LONG_FIELD}
+            if tab == "fast":
+                figures = {_FAST_FIELD[f]: v for f, v in figures.items() if f in _FAST_FIELD}
+            _merge((fast if tab == "fast" else rates).setdefault(mid, {}), mid, figures)
+    for mid, figures in fast.items():
         if mid in rates:
-            rates[mid]["fast_in"], rates[mid]["fast_out"] = fin, fout
+            rates[mid].update(figures)
     m = _FOOTNOTE.search(text)
     over = int(m.group(1)) * 1000 if m else LONG_OVER
     for r in rates.values():

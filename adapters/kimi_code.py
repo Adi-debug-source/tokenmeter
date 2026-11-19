@@ -129,7 +129,7 @@ import os
 import re
 
 from .claude_code import project_matches
-from .common import home_note, usage, whole
+from .common import home_note, left_out, texts, usage, whole
 
 NAME = "kimi-code"
 LABEL = "Kimi Code"
@@ -333,7 +333,10 @@ def records(path: str):
         if kind == "llm.request":
             alias = rec.get("modelAlias")
             if isinstance(alias, str) and isinstance(rec.get("model"), str):
-                requests[(agent, alias, rec.get("kind"))] = rec
+                if texts(rec, "kind", "provider"):
+                    requests[(agent, alias, rec.get("kind"))] = rec
+                else:
+                    left_out(NAME)
             continue
         if kind != "usage.record" or not isinstance(rec.get("usage"), dict):
             continue
@@ -352,6 +355,9 @@ def records(path: str):
                 yield key, done[key]
             continue
         done[key] = None
+        if not texts(rec, "usageScope"):
+            left_out(NAME)
+            continue
         req = requests.pop((agent, alias, KIND_OF_SCOPE.get(rec.get("usageScope"))), None)
         if req is None or not req["model"]:
             _STATE["no_model"].add(key)

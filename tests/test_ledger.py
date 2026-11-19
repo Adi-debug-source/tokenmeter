@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import re
+import stat
 import unittest
 
 from helpers import GOOD_IMPORT, Base, cli, cost_of, noon, record, slurp, tm, usage
@@ -534,6 +535,61 @@ class TestLedgerProviders(Base):
         evs = list(tm.iter_events([], ledger=True))
         self.assertEqual((evs[0]["provider"], evs[0]["source"], evs[0]["model"]),
                          ("openai", "codex", "gpt-6-sol"))
+
+    def test_a_row_whose_names_are_not_text_is_left_out(self):
+        """A transcript line whose model was a number, or whose project or
+        session was an object, reached the ledger before it ended the run, so
+        every report after that ended in the same traceback. Such a row is
+        left out; the rows around it still count."""
+        good = {"i": "msg_ok", "t": "2026-08-01T12:00:00Z", "m": "claude-opus-5",
+                "p": "-proj", "c": "sess", "o": 1000}
+        bad = [dict(good, i="msg_m", m=5), dict(good, i="msg_p", p={"a": 1}),
+               dict(good, i="msg_c", c=["s"]), dict(good, i="msg_pv", pv=7)]
+        with open(self.ledger, "w") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in [good] + bad))
+        self.assertEqual(json.loads(cli("--json"))["calls"], 1)
+        self.assertIn("1 API call", cli("--sessions", "--by", "project"))
+        # Clean names come through exactly as they were written.
+        evs = list(tm.iter_events([], ledger=True))
+        self.assertEqual((evs[0]["model"], evs[0]["project"], evs[0]["session"]),
+                         ("claude-opus-5", "-proj", "sess"))
+
+
+class TestPrivateFiles(Base):
+    """The ledger, the new one a rebuild writes and the backup it keeps were
+    created with the process's umask, 0644 on a Mac, so any other account on
+    it could read every project, session and token count. Each is now its
+    owner's alone, and a ledger an older version left readable is tightened
+    the next time a call is appended to it."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(os.umask, os.umask(0o022))
+
+    def mode(self, path):
+        return stat.S_IMODE(os.stat(path).st_mode)
+
+    def test_a_new_ledger_is_the_owners_alone(self):
+        self.write("a.jsonl", record("msg_1", out=1000))
+        tm.collect(tm.transcripts(), ledger=True)
+        self.assertEqual(self.mode(self.ledger), 0o600)
+
+    def test_a_readable_ledger_is_tightened_by_the_next_append(self):
+        self.write("a.jsonl", record("msg_1", out=1000))
+        tm.collect(tm.transcripts(), ledger=True)
+        os.chmod(self.ledger, 0o644)
+        self.write("b.jsonl", record("msg_2", out=1000))
+        tm.collect(tm.transcripts(), ledger=True)
+        self.assertEqual(len(tm.read_ledger(self.ledger)), 2)
+        self.assertEqual(self.mode(self.ledger), 0o600)
+
+    def test_a_rebuild_leaves_the_ledger_and_its_backup_private(self):
+        self.write("a.jsonl", record("msg_1", out=1000))
+        tm.collect(tm.transcripts(), ledger=True)
+        os.chmod(self.ledger, 0o644)
+        cli("--rebuild-ledger")
+        self.assertEqual(self.mode(self.ledger), 0o600)
+        self.assertEqual(self.mode(self.ledger + ".old"), 0o600)
 
 
 if __name__ == "__main__":

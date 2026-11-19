@@ -82,6 +82,23 @@ def whole(v) -> int:
     return int(v)
 
 
+def texts(d: dict, *keys) -> bool:
+    """Whether each of these fields of a log record is text or absent. A
+    number or an object where a name or an id goes is the wrong shape to
+    read, and the record is left out (left_out())."""
+    return all(d.get(k) is None or isinstance(d.get(k), str) for k in keys)
+
+
+# Records each reader left out of this scan because a field in them was the
+# wrong shape, by reader name, for the report's notes. The engine empties it
+# as each scan starts.
+LEFT_OUT: dict = {}
+
+
+def left_out(name: str) -> None:
+    LEFT_OUT[name] = LEFT_OUT.get(name, 0) + 1
+
+
 def usage(input=0, output=0, cache_read=0, cache_write_5m=0, cache_write_1h=0,
           thinking=0, web_searches=0, speed="standard") -> dict:
     """Normalised token counts as the usage block the engine prices.

@@ -140,19 +140,19 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 27 models, 20 read from its current page and 7 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on seven of those 20.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models, 21 read from its current page and 8 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on eight of those 21.
 2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; every report rereads the live page once a day, and `--check-prices` re-confirms it at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot, Z.ai, MiniMax and Xiaomi MiMo.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
-| Anthropic | 27 (11 retired) | 27 Oct 2026 | **yes** |
-| OpenAI | 73 (37 retired) | 27 Oct 2026 | not yet |
-| Google (Gemini API) | 29 (19 retired) | 2 Nov 2026 | not yet |
+| Anthropic | 29 (11 retired) | 19 Nov 2026 | **yes** |
+| OpenAI | 77 (37 retired) | 19 Nov 2026 | not yet |
+| Google (Gemini API) | 32 (19 retired) | 19 Nov 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
 | DeepSeek | 2 | 2 Nov 2026 | not yet |
 | Mistral | 10 (3 retired) | 2 Nov 2026 | not yet |
-| Moonshot (Kimi) | 6 | 27 Oct 2026 | not yet |
+| Moonshot (Kimi) | 6 | 19 Nov 2026 | not yet |
 | Z.ai (GLM) | 17 | 27 Oct 2026 | not yet |
 | MiniMax | 2 | 2 Nov 2026 | not yet |
 | Xiaomi MiMo | 3 | 2 Nov 2026 | not yet |
@@ -176,7 +176,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 **Other providers are best-effort.** Their tables were read from each provider's own pricing pages, figure by figure, and `--check-prices` confirms they still match those pages. What has not been done is comparing them with a real bill from someone who uses those models daily. If you do, please check a month against your invoice and open an issue whether it matches or not.
 
-**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date a person last read every figure off its page, shown in every report, with a warning once it is more than 90 days old. **The live pages are checked once a day.** After a report or the menu bar's run has written its output, Tokenmeter rereads the pricing page of each provider not yet checked that day and compares it with the table, using the same comparison as `tokenmeter --check-prices`. The pages are read side by side, and the whole check gives up after 8 seconds, so a run is held at most once a day, and for no longer than one lookup's timeout. The report's note then adds the day the live page last matched ("live page matched 2 Nov 2026"). If the page differs, the note becomes a warning that names the models whose rates differ, or that the page lists and the table lacks, and says to run `--check-prices`. If the page could not be read on two days in a row, the warning says since when; one failed fetch on a bad connection is not taken as evidence that a price moved. The outcome is saved in the price cache, with the looked-up prices. Neither the daily check nor `--check-prices` ever changes a table or its hand-checked date: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The status line never fetches, and offline nothing is read. The one price that is fetched and used automatically is for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; the tables' prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
+**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date a person last read every figure off its page, shown in every report, with a warning once it is more than 90 days old. **The live pages are checked once a day.** After a report or the menu bar's run has written its output, Tokenmeter rereads the pricing page of each provider not yet checked that day and compares it with the table, using the same comparison as `tokenmeter --check-prices`. The pages are read side by side, and the whole check gives up after 8 seconds, so a run is held at most once a day, and for no longer than one lookup's timeout. The report's note then adds the day the live page last matched ("live page matched 2 Nov 2026"). If the page differs, the note becomes a warning that names the models whose rates differ, that the page no longer lists, or that it lists and the table lacks, and says to run `--check-prices`. If the page could not be read on two days in a row, the warning says since when; one failed fetch on a bad connection is not taken as evidence that a price moved. The outcome is saved in the price cache, with the looked-up prices. Neither the daily check nor `--check-prices` ever changes a table or its hand-checked date: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The status line never fetches, and offline nothing is read. The one price that is fetched and used automatically is for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; the tables' prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 

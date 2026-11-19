@@ -58,7 +58,7 @@ import glob
 import json
 import os
 
-from .common import parse_time, usage, whole
+from .common import left_out, parse_time, texts, usage, whole
 
 NAME = "gemini-cli"
 LABEL = "Gemini CLI"
@@ -157,7 +157,10 @@ def records(path: str):
     session = os.path.basename(path).rsplit(".", 1)[0]
     for m in _messages(path):
         if m.get("_meta"):
-            session = m.get("sessionId") or session
+            if texts(m, "sessionId"):
+                session = m.get("sessionId") or session
+            else:
+                left_out(NAME)
             continue
         if m.get("type") != "gemini" or not isinstance(m.get("tokens"), dict):
             continue

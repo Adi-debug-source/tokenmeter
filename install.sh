@@ -131,6 +131,15 @@ chmod +x "$TARGET/tokenmeter.py" "$TARGET/statusline.py"
 python3 "$TARGET/tokenmeter.py" --version >/dev/null || { echo "  the engine will not run under this python3"; exit 1; }
 say "engine installed in $TARGET"
 
+# The ledger and the caches name projects, sessions, models and spend. The
+# engine writes them for their owner alone; ones an older version left
+# readable by every account are tightened here.
+LEDGER="${TOKENMETER_LEDGER:-$HOME/.claude/cost-ledger.jsonl}"
+for f in "$TARGET/.fx_rates.json" "${TOKENMETER_PRICE_CACHE:-$TARGET/.fetched_prices.json}" \
+         "$TARGET/.today_cost.json" "$LEDGER" "$LEDGER".old*; do
+    if [ -f "$f" ]; then chmod 600 "$f" 2>/dev/null || true; fi
+done
+
 # 3. Claude Code extras: the /tokenmeter command and the status line
 if [ -d "$CLAUDE_DIR" ]; then
     mkdir -p "$CLAUDE_DIR/commands"

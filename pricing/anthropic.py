@@ -1,6 +1,6 @@
 """Anthropic's first-party API rates, in dollars per million tokens.
 
-Verified three ways, most recently on 27 October 2026.
+Verified three ways, most recently on 19 November 2026.
 
 1. By measurement, 10 September 2026, against Claude Code's own
    `total_cost_usd`: controlled calls through `claude -p --output-format json`,
@@ -18,7 +18,11 @@ Verified three ways, most recently on 27 October 2026.
    $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
    Haiku 5.5, and Sonnet 5.5's cheaper cache reads, both from 7 October
    2026, come from the page and the release notes, and are not yet measured
-   against Claude Code.
+   against Claude Code. Fable 5.2 was added on 19 November 2026 and matched
+   the same summaries the same day: 16 sessions, each exact to the seven
+   places Claude Code writes, between them base input, output, the 0.025x
+   cache read and the 1-hour write. Its fast rate and Mythos 5.2 come from
+   the page alone.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
@@ -32,7 +36,10 @@ Verified three ways, most recently on 27 October 2026.
    once more wherever they differed: every figure of the twenty current
    models, both Haiku 5.5 tiers, the three fast-mode rates, the 1.25x and 2x
    write multiples, the 0.1x, 0.025x and 0.05x read multiples and web search
-   at $10 per 1,000 agreed with this table, and no row was changed.
+   at $10 per 1,000 agreed with this table, and no row was changed. On 19
+   November 2026 the page had gained Claude Fable 5.2 and Claude Mythos 5.2
+   and lost Haiku 3.5's row; both new rows and the fast-mode table were read
+   by hand, and --check-prices matched all twenty-one models the page lists.
 
 3. By the test suite. TestPublishedRates holds the published figure for every
    model and fails if this table drifts from it.
@@ -44,12 +51,14 @@ of a typical total. The retired models below were never measured.
 Retired models. Every retirement date comes from Anthropic's deprecation
 page, https://platform.claude.com/docs/en/about-claude/model-deprecations
 (its "Model status" table and the notice named beside each entry in
-RETIRED). Four retired models are still printed on the pricing page with a
-"retired, except on ..." label (Opus 4.1, Opus 4, Sonnet 4, Haiku 3.5), so
-they are priced and checked from the page today. Seven the page no longer
-lists are priced at their last published rate, read on 27 October 2026 from
-the Internet Archive's raw copy of Anthropic's own pricing page, the last
-capture to carry each row (named in RETIRED):
+RETIRED). Three retired models are still printed on the pricing page with a
+"retired, except on ..." label (Opus 4.1, Opus 4, Sonnet 4), so they are
+priced and checked from the page today. Haiku 3.5 was printed the same way
+until its row left the page, between 27 October and 19 November 2026; it
+keeps the figures read from the page on 27 October. Seven more the page no
+longer lists are priced at their last published rate, read on 27 October
+2026 from the Internet Archive's raw copy of Anthropic's own pricing page,
+the last capture to carry each row (named in RETIRED):
 
   - Sonnet 3.7 and Sonnet 3.5 (one row for both of 3.5's snapshots): $3 in,
     $3.75 and $6 cache writes, $0.30 a hit, $15 out. Opus 3: $15, $18.75,
@@ -150,7 +159,7 @@ NAME = "Anthropic"
 SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
 # The markdown form of the same page, which --check-prices reads.
 SOURCE_MD = "https://platform.claude.com/docs/en/about-claude/pricing.md"
-VERIFIED_ON = "2026-10-27"
+VERIFIED_ON = "2026-11-19"
 # "measured" means checked against real bills or the harness's own cost
 # figures, not only against the pricing page.
 MEASURED = True
@@ -163,6 +172,9 @@ WEB_SEARCH_PER_1K = 10.0
 SNAPSHOT = r"-\d{8}$"
 
 PRICES = {
+    # Added 19 November 2026.
+    "claude-fable-5-2":  [{"from": "", "in":  8.0, "out": 40.0, "cache_read_mult": 0.025, "fast": (16.0, 80.0)}],
+    "claude-mythos-5-2": [{"from": "", "in":  8.0, "out": 40.0, "cache_read_mult": 0.025, "fast": (16.0, 80.0)}],
     "claude-fable-5-1":  [{"from": "", "in": 10.0, "out": 50.0, "cache_read_mult": 0.025, "fast": None}],
     "claude-mythos-5-1": [{"from": "", "in": 10.0, "out": 50.0, "cache_read_mult": 0.025, "fast": None}],
     "claude-fable-5":    [{"from": "", "in": 10.0, "out": 50.0, "cache_read_mult": 0.1,   "fast": None}],
@@ -237,7 +249,9 @@ RETIRED = {
     "claude-opus-4-1":   "2026-08-05",  # notice "2026-06-05: Claude Opus 4.1 model"; still on the page
     "claude-opus-4":     "2026-06-15",  # notice "2026-04-14: Claude Sonnet 4 and Claude Opus 4 models"; still on the page
     "claude-sonnet-4":   "2026-06-15",  # the same notice; still on the page
-    "claude-haiku-3-5":  "2026-02-19",  # notice "2025-12-19: Claude Haiku 3.5 model"; still on the page
+    # notice "2025-12-19: Claude Haiku 3.5 model"; price from the page itself
+    # on 27 October 2026, its row gone by 19 November 2026
+    "claude-haiku-3-5":  "2026-02-19",
     # notice "2025-10-28: Claude Sonnet 3.7 model"; price from
     # https://web.archive.org/web/20260513172300/https://platform.claude.com/docs/en/about-claude/pricing
     "claude-3-7-sonnet": "2026-02-19",
@@ -280,6 +294,8 @@ FALLBACK_MODEL = "claude-opus-5"
 
 # How the pricing page names each model, for --check-prices.
 PAGE_NAMES = {
+    "Claude Fable 5.2": "claude-fable-5-2",
+    "Claude Mythos 5.2": "claude-mythos-5-2",
     "Claude Fable 5.1": "claude-fable-5-1",
     "Claude Mythos 5.1": "claude-mythos-5-1",
     "Claude Fable 5": "claude-fable-5",
@@ -299,7 +315,6 @@ PAGE_NAMES = {
     "Claude Sonnet 4": "claude-sonnet-4",
     "Claude Haiku 5.5": "claude-haiku-5-5",
     "Claude Haiku 4.5": "claude-haiku-4-5",
-    "Claude Haiku 3.5": "claude-haiku-3-5",
 }
 
 

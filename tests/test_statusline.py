@@ -283,6 +283,25 @@ class TestStatusLine(Base):
                     want.format(D=D, R=R, cost=tm.money(today_usd), saved=tm.money(999.0)) + R),
                     done.stdout)
 
+    def test_its_day_cache_is_the_owners_alone(self):
+        """.today_cost.json, today's spend, was written with the umask, 0644
+        on a Mac, so any other account could read it. It is its owner's alone
+        now, and one an older version left readable is tightened when it is
+        next written."""
+        import stat
+        path = self.write("sess.jsonl", record("msg_1", out=1000))
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        self.addCleanup(os.umask, os.umask(0o022))
+        for cache in (None, {"day": yesterday, "total": 1.0}):
+            with self.subTest(cache=cache):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline({"model": {"display_name": "Opus"},
+                                            "transcript_path": path}, day_cache=cache)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                saved = os.path.join(self.tmp, "statusline", ".today_cost.json")
+                self.assertEqual(json.loads(slurp(saved))["day"], dt.date.today().isoformat())
+                self.assertEqual(stat.S_IMODE(os.stat(saved).st_mode), 0o600)
+
     def test_the_command_line_names_where_a_bad_code_came_from(self):
         """A typo in TOKENMETER_CURRENCY read as if it had been typed on the
         command line, which had no --currency on it."""

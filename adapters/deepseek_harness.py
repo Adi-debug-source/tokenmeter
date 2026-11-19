@@ -107,7 +107,7 @@ import re
 
 from . import codex as _codex
 from .claude_code import project_matches
-from .common import usage, whole
+from .common import left_out, usage, whole
 
 NAME = "deepseek-harness"
 LABEL = "DeepSeek Harness"
@@ -448,7 +448,10 @@ def records(path: str):
         elif kind == "request/context":
             route = (str(data.get("provider") or ""), str(data.get("model") or ""))
         elif kind == "session/end-seed" and data.get("inherited") is True:
-            cut = seq
+            if seq is None or isinstance(seq, int):
+                cut = seq
+            else:
+                left_out(NAME)
         elif kind in _UNMETERED:
             _STATE["unmetered"].add(f"{kind}:{obj.get('time')}")
         elif kind == "subagent/catalog" and data.get("mode") == "external":

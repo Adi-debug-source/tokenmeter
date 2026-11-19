@@ -189,6 +189,26 @@ class TestCheckPricesOutput(Pages):
         self.assertEqual(code, 0)
         self.assertIn("Everything matches. The tables were not touched.", out)
 
+    def test_a_current_model_missing_from_the_page_fails_the_check(self):
+        """A current model the page does not list was printed dim while the
+        check exited 0, said "Everything matches" and recorded the day as
+        matched, so a table the reader could no longer see passed quietly.
+        It now exits 1 and the day is recorded as differing for that model,
+        which the note warns about; the retired alpha-old, also missing,
+        still passes (test_a_clean_check_exits_0_with_its_closing_line)."""
+        for key in ("beta", "gamma", "delta", "omega"):
+            del tm.TABLES[key]
+        tm.TABLES["alpha"].PRICES["alpha-small"] = [row(1, 2)]
+        code, out = self.run_check()
+        self.assertIn("not found on the page: alpha-small", out)
+        self.assertEqual(code, 1)
+        self.assertNotIn("Everything matches", out)
+        state = self.state()
+        self.assertEqual((state["matched"], state["differs"]), ("", ["alpha-small"]))
+        level, text = self.note()
+        self.assertEqual(level, "warn")
+        self.assertIn("alpha-small", text)
+
     def test_it_records_what_it_found_for_the_note(self):
         """The warning says "run --check-prices"; a check that then finds
         the page agreeing must clear it, or the warning would stand until the
@@ -196,7 +216,7 @@ class TestCheckPricesOutput(Pages):
         self.run_check()
         self.assertEqual(self.state("alpha")["matched"], TODAY.isoformat())
         beta = self.state("beta")
-        self.assertEqual(beta["differs"], ["beta-dated", "beta-one"])
+        self.assertEqual(beta["differs"], ["beta-dated", "beta-gone", "beta-one"])
         self.assertEqual(beta["unlisted"], ["beta-new"])
         self.assertEqual(self.state("gamma")["error"], "OSError: no network")
 
