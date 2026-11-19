@@ -22,11 +22,17 @@ Verified three ways, most recently on 19 November 2026.
    sessions, 16 of them with cache reads at 0.05x. Haiku 5.5, priced record
    by record, matched in 24 sessions: 61 calls, between them input, output,
    the 0.1x cache read and both cache writes, every one a prompt under
-   100,000 tokens, so its higher tier comes from the page alone. Fable 5.2
-   was added on 19 November 2026 and matched the same summaries the same
-   day: 16 sessions, each exact to the seven places Claude Code writes,
-   between them base input, output, the 0.025x cache read and the 1-hour
-   write. Its fast rate and Mythos 5.2 come from the page alone.
+   100,000 tokens. Its higher tier was measured the same day in five older
+   sessions holding 26 calls of 102,109 to 160,911 tokens, nearly all of
+   each prompt a cache read or a 5-minute write, beside calls of up to
+   97,616 at the lower tier: in each session the recorded calls priced
+   here, plus the web calls Claude Code keeps no record of, priced at base
+   rates, equal its cost to seven places, where base rates for the 26 would
+   fall 3 to 13 cents short. Fable 5.2 was added on 19 November 2026 and
+   matched the same summaries the same day: 16 sessions, each exact to the
+   seven places Claude Code writes, between them base input, output, the
+   0.025x cache read and the 1-hour write. Its fast rate and Mythos 5.2
+   come from the page alone.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
