@@ -1305,6 +1305,55 @@ class TestGooglePageReaderOnTheSavedPage(Base):
         self.assertEqual(unknown, ["gemini-4.5-flash-lite"])
         self.assertEqual(rates["gemini-4.5-flash-lite"]["in"], 0.30)
 
+    def test_a_model_whose_section_has_gone_is_not_read_off_another(self):
+        """The reader took ids from a section's deprecation notice as well as
+        from the ids listed under its heading, so with Gemini 3.5 Flash-Lite's
+        own section gone it read that model off the 2.5 Flash section, whose
+        notice names it, and --check-prices matched every model with nothing
+        missing. A model is priced only by a section that lists it under its
+        heading; one whose section has gone is missing, on the check and on
+        the startup lookup alike."""
+        page = re.sub(r'^## Gemini 3\.5 Flash-Lite  \{% id="gemini-3\.5-flash-lite" %\}.*?(?=^## )',
+                      "", self.html, flags=re.S | re.M)
+        self.assertNotIn('{% id="gemini-3.5-flash-lite" %}', page)
+        self.assertIn("`gemini-3.5-flash-lite`", page)
+        rates, unknown = self.read(page)
+        self.assertNotIn("gemini-3.5-flash-lite", rates)
+        self.assertEqual(rates["gemini-2.5-flash"], GOOGLE_ON_THE_PAGE["gemini-2.5-flash"])
+        self.assertEqual(unknown, [])
+        rates, _ = self.table.page_rates(lambda url: page, tm.md_tables, want=("gemini-3.5-flash-lite",))
+        self.assertNotIn("gemini-3.5-flash-lite", rates)
+        whole = tm.compare_with_page(self.table, lambda url: self.html)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertEqual(sorted(c["absent"]), sorted(whole["absent"] + ["gemini-3.5-flash-lite"]))
+        self.assertEqual((c["matched"], c["diffs"]), (whole["matched"] - 1, []))
+
+    def test_a_model_priced_differently_by_two_sections_fails_the_read(self):
+        """The first section to name a model kept it and a later one with
+        other figures was dropped unseen, so with Gemini 4 Hydrogen also
+        listed under Gemini 4 Neon's heading, Hydrogen took Neon's figures.
+        The page does not say which applies, so the read fails and names the
+        model."""
+        page = self.html.replace("*[`gemini-4-neon`]", "*[`gemini-4-hydrogen`]")
+        self.assertNotEqual(page, self.html)
+        with self.assertRaisesRegex(ValueError, "gemini-4-hydrogen"):
+            self.read(page)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertIn("gemini-4-hydrogen", c["error"])
+
+    def test_a_new_model_whose_section_cannot_be_read_is_named(self):
+        """A section whose tables the reader could not read was skipped
+        before its ids were noted, so a new text model written in a changed
+        layout was neither priced nor named as missing from the table, and
+        --check-prices passed."""
+        page = self.html.replace("gemini-3.5-flash-lite", "gemini-4.5-flash-lite")
+        start = page.index('## Gemini 3.5 Flash-Lite')
+        end = page.index("\n## ", start)
+        page = page[:start] + page[start:end].replace("Input price", "Input") + page[end:]
+        rates, unknown = self.read(page)
+        self.assertNotIn("gemini-4.5-flash-lite", rates)
+        self.assertEqual(unknown, ["gemini-4.5-flash-lite"])
+
 
 # Mistral: why --check-prices stopped finding Mistral Large 3 and Mistral
 # Medium 3.5, and the page reader in pricing/mistral.py run on a saved copy of

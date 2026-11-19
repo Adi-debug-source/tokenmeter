@@ -420,9 +420,11 @@ def page_rates(fetch, tables, want=None):
     page moved to aistudio.google.com (by 2 November 2026) it is rendered in
     the browser from Markdoc source, which the HTML carries verbatim in a
     <pre> block and which Google also serves alone at SOURCE_MD; that plain
-    copy is what is read. It has one "## " heading per model, its ids in
-    backticks above the tables (a section can name two ids, as 3.1 Pro
-    Preview's does), then one {% tab title=... %} per tier, each with a
+    copy is what is read. It has one "## " heading per model, its ids in an
+    italic list of links in backticks under the heading (a section can name
+    two ids, as 3.1 Pro Preview's does; an id in any other place, such as a
+    deprecation notice, is not the section's), then one
+    {% tab title=... %} per tier, each with a
     {% table %} of three-cell rows (label, Free Tier, Paid Tier). The page
     names models by id, so PAGE_NAMES is not needed; the tables are Markdoc,
     not markdown, so `tables` is unused; every id is returned, so `want`
@@ -435,13 +437,23 @@ def page_rates(fetch, tables, want=None):
     `fast_in` and `fast_out`, in each dated entry too. Flex, Contributor and
     Batch are not read, nor audio and storage prices, none of which the table
     models.
+
+    A section whose tables cannot be read gives no figures, but its ids are
+    still named, so a new text model in it is reported as unlisted. A model
+    two sections price differently raises, as the page does not say which
+    applies.
     """
     text = fetch(SOURCE_MD)
     rates, seen = {}, []
     for block in re.split(r"^## ", text, flags=re.M)[1:]:
-        # The ids are named above the first tab or table, not in its prose.
+        # A section's own ids are the italic list of linked ids under its
+        # heading. A notice below it can name another model, such as the one
+        # a deprecated model routes to, which must not take this section's
+        # figures.
         head = re.split(r"\{% (?:tabs|table) %\}", block, maxsplit=1)[0]
-        ids = re.findall(r"`(gemini-[a-z0-9.\-]+)`", head)
+        own = re.search(r"^[ \t]*\*(\[`.*?)\*[ \t]*$", head, re.M | re.S)
+        ids = re.findall(r"`(gemini-[a-z0-9.\-]+)`", own.group(1)) if own else []
+        seen += ids
         # The Standard table, or a model's only table when it has just one.
         std = _tier(block, "Standard")
         if not std:
@@ -485,8 +497,10 @@ def page_rates(fetch, tables, want=None):
             r["in"], r["out"] = later["in"], later["out"]
             r["cached"] = later.get("cached", r["cached"])
         for mid in ids:
-            seen.append(mid)
-            rates.setdefault(mid, dict(r))
+            had = rates.setdefault(mid, dict(r))
+            if had != r:
+                k = next(k for k in sorted(set(had) | set(r)) if had.get(k) != r.get(k))
+                raise ValueError(f"{mid} {k}: the page prints both {had.get(k)} and {r.get(k)}")
     # Only text models a coding harness would call are worth flagging; the page
     # also lists live, speech, image and robotics models on purpose left out.
     # A text model is named gemini-<version>-<word>, with -lite or -preview
