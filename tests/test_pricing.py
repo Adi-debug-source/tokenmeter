@@ -386,13 +386,16 @@ class TestOpenAIRules(Base):
         """Guards gpt-6-astra-law, priced on the maintainer's decision of 2
         November 2026 at the page's promotional rates ("available at least
         through December 31, 2026"), being charged anything else: $10 a
-        million in, $50 out, $1 cached. The page prints no other column for
-        it, so a cache write of either lifetime is ordinary input ($10), a
-        prompt over 272K stays at those rates (no long tier), a call
-        recorded as fast is charged Standard (no fast pair), and the call
-        is priced from the table, not the lookup."""
-        self.assertEqual([r["from"] for r in self.table().PRICES["gpt-6-astra-law"]], [""])
-        for day in ("2026-10-27", "2026-11-02", "2026-12-31"):
+        million in, $50 out, $1 cached. The page prints no write or fast
+        column for it, so a cache write of either lifetime is ordinary input
+        ($10), a call recorded as fast is charged Standard (no fast pair),
+        and the call is priced from the table, not the lookup. Until 19
+        November 2026 the page printed no long-context row either, so a
+        prompt over 272K before that day stays at those rates; from that day
+        it pays the row the page prints, $20 in, $75 out and $2 cached."""
+        self.assertEqual([r["from"] for r in self.table().PRICES["gpt-6-astra-law"]],
+                         ["", "2026-11-19"])
+        for day in ("2026-10-27", "2026-11-02", "2026-11-18"):
             for speed in ("standard", "fast"):
                 with self.subTest(day=day, speed=speed):
                     c = tm.price_record("gpt-6-astra-law",
@@ -408,6 +411,16 @@ class TestOpenAIRules(Base):
         self.assertAlmostEqual(over["input"], 300_000 * 10 / M, places=12)
         self.assertAlmostEqual(over["cache_read"], K * 1 / M, places=12)
         self.assertAlmostEqual(over["output"], 50, places=9)
+        over = tm.price_record("gpt-6-astra-law", usage(inp=300_000, read=K, out=M),
+                               when=noon("2026-11-19"), provider="openai")
+        self.assertAlmostEqual(over["input"], 300_000 * 20 / M, places=12)
+        self.assertAlmostEqual(over["cache_read"], K * 2 / M, places=12)
+        self.assertAlmostEqual(over["output"], 75, places=9)
+        under = tm.price_record("gpt-6-astra-law", usage(inp=K, read=K, out=M),
+                                when=noon("2026-12-31"), provider="openai")
+        self.assertAlmostEqual(under["input"], 10 * K / M, places=12)
+        self.assertAlmostEqual(under["cache_read"], 1 * K / M, places=12)
+        self.assertAlmostEqual(under["output"], 50, places=9)
 
     def test_no_row_has_an_off_peak_price(self):
         """Guards an invented time-of-day price: the page publishes none, so

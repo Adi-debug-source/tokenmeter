@@ -822,34 +822,36 @@ class TestAnthropicPageReader(Base):
 # page with a faked fetch, and each rule the table models.
 #
 # The saved page, fixtures/pages/openai_page.md, is lines cut verbatim from
-# https://developers.openai.com/api/docs/pricing.md as fetched on 2 November
-# 2026 at 00:03 UTC (sha256 56e3da9bb29246cad60003e01f3fdc6b536149a09f5effe5e79af020a4922cfc):
-# the two Standard tables, the Flex tables, the two Fast tables, the
-# Ultrafast table with the long-context footnote under it, the Cyber and the
-# Life sciences Standard tables, the Legal model configurations table, the
-# two specialised (Category) tables and one fine-tuning table. Nothing in it
-# was typed by hand. The same cut of the page of 27 October 2026 differs only
-# in the Life sciences and Legal tables. A test that needs a different page
-# builds it from that copy.
+# https://developers.openai.com/api/docs/pricing.md as fetched on 19 November
+# 2026 at 00:28 UTC (HTTP 200, 24,045 bytes, sha256
+# 427698a0c4f1cf4abb2569cb0f9a4ca7fcacfa2f45d61a75f221f0b590ac5114): the
+# Flagship models' Standard, Batch, Flex, Fast and Ultrafast tabs, each with
+# the tab label printed on its own line above it, the long-context footnote
+# and the notes under them; the Images Standard tab; the Specialized models'
+# Standard and Fast tabs; and the fine-tuning Standard tab. Runs of blank
+# lines are cut to one. Nothing in it was typed by hand. A test that needs a
+# different page builds it from that copy.
 
 OPENAI_PAGE_FILE = os.path.join(FIXTURES, "pages", "openai_page.md")
 
 
-# Typed from the page on 27 October 2026 (gpt-6-rosalind and gpt-6-astra-law
-# on 2 November 2026), not copied from the table: input, output, cached
-# input (Standard).
+# Typed from the page on 19 November 2026, not copied from the table: input,
+# output, cached input (Standard, short context).
 OPENAI_ON_THE_PAGE = {
+    "gpt-6.2-astra": (8, 40, 0.40),
+    "gpt-6.2-sol": (2, 10, 0.10),
     "gpt-6-astra": (10, 50, 1.00),
     "gpt-6.1-terra": (1, 5, 0.05),
     "gpt-5.6-sol": (4, 20, 0.40),
     "gpt-5.5": (5, 30, 0.50),
     "gpt-5.5-pro": (30, 180, 30),
     "gpt-5.4-mini": (0.75, 4.50, 0.075),
-    "gpt-4o-2024-05-13": (5, 15, 5),
-    "gpt-3.5-turbo-0125": (0.50, 1.50, 0.50),
+    "gpt-6-cyber": (20, 100, 2.00),
     "gpt-5.6-cyber": (12.50, 75, 1.25),
+    "gpt-5.5-cyber-preview": (12.50, 75, 1.25),
+    "gpt-6-rosalind": (10, 50, 1.00),
     "gpt-rosalind-discovery": (5, 25, 0.50),
-    "gpt-6-rosalind": (15, 75, 1.50),
+    "gpt-6.2-astra-law": (8, 40, 0.40),
     "gpt-6-astra-law": (10, 50, 1.00),
     "chat-latest": (5, 30, 0.50),
     "gpt-5.3-codex": (1.75, 14, 0.175),
@@ -857,8 +859,10 @@ OPENAI_ON_THE_PAGE = {
 }
 
 
-# The models the saved page does not list, all in RETIRED.
+# The models the saved page does not list: every one in RETIRED.
 OPENAI_OFF_THE_PAGE = [
+    "gpt-4.1-nano", "gpt-4o-2024-05-13", "o4-mini", "o3-mini", "o1", "o1-pro",
+    "gpt-4-turbo-2024-04-09", "gpt-4-0613", "gpt-3.5-turbo", "gpt-3.5-turbo-0125",
     "gpt-4-1106-preview", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex",
     "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-5-chat-latest", "gpt-5.1-chat-latest",
     "o3-deep-research", "o4-mini-deep-research", "computer-use-preview",
@@ -887,9 +891,11 @@ class TestOpenAIPageReader(Base):
         four-column tables, so 27 models fell through to their own model
         pages and one of those answered 404, failing the whole check. Now
         one fetch of the markdown page gives every model, and a "-" cached
-        cell (pro and legacy rows) reads as the ordinary input rate. No id
-        is named: gpt-6-astra-law, the one named until the maintainer
-        decided on 2 November 2026 to price it, now has a row."""
+        cell (pro rows) reads as the ordinary input rate. Also guards the
+        eight models of the Specialized models table, which since about 5
+        November 2026 has seven columns and "(short context)" rows, being
+        reported as not found on the page: each is read at its figures, and
+        no id is named as missing from the table."""
         rates, unknown = self.read(self.page)
         self.assertEqual(self.urls, [self.table.SOURCE_MD])
         self.assertEqual(unknown, [])
@@ -902,12 +908,16 @@ class TestOpenAIPageReader(Base):
         """Guards the old nine-column order being applied to the page's ten
         columns, which read gpt-6-astra's output as its cache write and its
         long output as $2: every figure of the row, both write lifetimes and
-        the long tier, comes from the column that names it."""
+        the long tier, comes from the column that names it. The Fast table's
+        cached and long-context columns give the fast_ fields --check-prices
+        compares, and its write columns, which no field holds, give none."""
         rates, _ = self.read(self.page)
         astra = rates["gpt-6-astra"]
         want = {"in": 10, "out": 50, "cached": 1, "write": 12.50, "write_1h": 25,
                 "long_in": 20, "long_out": 75, "long_cached": 2, "long_write_5m": 25,
-                "long_write_1h": 50, "fast_in": 20, "fast_out": 100, "long_over": 272_000}
+                "long_write_1h": 50, "fast_in": 20, "fast_out": 100, "fast_cached": 2,
+                "fast_long_in": 40, "fast_long_out": 150, "fast_long_cached": 4,
+                "long_over": 272_000}
         self.assertEqual(set(astra), set(want))
         for field, value in want.items():
             self.assertAlmostEqual(astra[field], value, places=9, msg=field)
@@ -934,35 +944,81 @@ class TestOpenAIPageReader(Base):
     def test_flex_batch_and_ultrafast_are_not_read_as_standard_or_fast(self):
         """Guards the tiers a row cannot hold overwriting Standard or Fast:
         the Flex tables print gpt-5.4-mini at $0.375 and gpt-6-astra at $5,
-        and Ultrafast prints gpt-6-astra at $60 in; the reader keeps the
-        Standard $0.75 and $10 and the Fast $20."""
+        Batch prints gpt-6.2-astra at $4, and the Ultrafast tables print
+        gpt-6-astra at $60 in and gpt-6.2-astra at $24 (promotion) and $48
+        (list); the reader keeps the Standard $0.75, $10 and $8 and the Fast
+        $20 and $16."""
         rates, _ = self.read(self.page)
         self.assertAlmostEqual(rates["gpt-5.4-mini"]["in"], 0.75, places=9)
         self.assertAlmostEqual(rates["gpt-6-astra"]["in"], 10, places=9)
         self.assertAlmostEqual(rates["gpt-6-astra"]["fast_in"], 20, places=9)
+        self.assertAlmostEqual(rates["gpt-6.2-astra"]["in"], 8, places=9)
+        self.assertAlmostEqual(rates["gpt-6.2-astra"]["fast_in"], 16, places=9)
 
-    def test_specialised_tables_give_standard_then_fast(self):
-        """Guards the specialised (Category) tables, whose columns moved to
-        Input, Output, Cached input: the first is Standard, the second Fast,
-        so gpt-5.3-codex is $1.75 / $14 with fast $3.50 / $28, and chat-latest,
-        on the first only, has no fast rate."""
+    def test_the_specialised_tabs_are_told_apart_by_their_label(self):
+        """Guards the false "differs" every online user of 1.3.0 saw from
+        about 5 November 2026: the Specialized models' Standard tab gained
+        two write columns, and the old reader, which took the first
+        five-column Category table for Standard, read the Fast tab's
+        gpt-5.3-codex ($3.50 / $28 / $0.35) as its Standard rate. A table
+        now takes its tier from the tab label the page prints above its
+        heading, never from its place or its width: gpt-5.3-codex is $1.75 /
+        $14 / $0.175 with fast $3.50 / $28 / $0.35, and chat-latest has no
+        fast rate. The same holds with the Fast tab moved above the Standard
+        one, and with the Fast label gone that table is not read at all,
+        rather than taken for the tab above it."""
+        def check(page, fast):
+            rates, _ = self.read(page)
+            codex = rates["gpt-5.3-codex"]
+            self.assertEqual((codex["in"], codex["out"], codex["cached"]), (1.75, 14, 0.175))
+            self.assertEqual(tuple(codex.get(f) for f in ("fast_in", "fast_out", "fast_cached")),
+                             fast)
+            self.assertNotIn("fast_in", rates["chat-latest"])
+        check(self.page, (3.50, 28, 0.35))
+        lines = self.page.splitlines(True)
+        std = lines.index("Standard\n", lines.index("Specialized models\n"))
+        fast = lines.index("Fast\n", std)
+        end = lines.index("Fine-tuning\n", fast)
+        check("".join(lines[:std] + lines[fast:end] + lines[std:fast] + lines[end:]),
+              (3.50, 28, 0.35))
+        check("".join(lines[:fast] + lines[fast + 1:]), (None, None, None))
+
+    def test_short_and_long_context_rows_fill_the_two_tiers(self):
+        """Guards the Specialized models table's "(short context)" and "(long
+        context)" rows, one model on two rows, being read as two models or
+        the long row overwriting the short: the short row gives the Standard
+        fields and the long row the long_ ones, as the ten-column tables'
+        columns do, and a "-" in a long cell gives no figure. gpt-6-cyber is
+        $20 / $100 / $2 with writes of $25 and $50, and over the line $40 /
+        $150 / $4 with no long write (the page prints "-"); gpt-5.6-cyber
+        prints "-" across its long row, so has no long tier;
+        gpt-rosalind-research prints "-" for both writes, the ordinary input
+        rate; gpt-6.2-astra-law's long row is $16 / $60 / $0.80 / $20 / $40."""
         rates, _ = self.read(self.page)
-        codex = rates["gpt-5.3-codex"]
-        self.assertEqual((codex["in"], codex["out"], codex["fast_in"], codex["fast_out"]),
-                         (1.75, 14, 3.50, 28))
-        self.assertNotIn("fast_in", rates["chat-latest"])
+        self.assertEqual([m for m in rates if "context" in m or "(" in m], [])
+        self.assertEqual(rates["gpt-6-cyber"],
+                         {"in": 20, "out": 100, "cached": 2, "write": 25, "write_1h": 50,
+                          "long_in": 40, "long_out": 150, "long_cached": 4, "long_over": 272_000})
+        self.assertNotIn("long_in", rates["gpt-5.6-cyber"])
+        research = rates["gpt-rosalind-research"]
+        self.assertEqual((research["write"], research["write_1h"]), (5, 5))
+        self.assertNotIn("long_in", research)
+        law = rates["gpt-6.2-astra-law"]
+        self.assertEqual(tuple(law[f] for f in ("long_in", "long_out", "long_cached",
+                                                "long_write_5m", "long_write_1h")),
+                         (16, 60, 0.80, 20, 40))
 
     def test_the_saved_page_agrees_with_the_table(self):
         """Guards a table row drifting from the page, and a retired model the
         page no longer lists being reported as missing: --check-prices's own
-        comparison finds all 46 models the page prints that the table holds
-        matching in every column, gpt-6-astra-law (added on 2 November
-        2026) among them, the 27 archive-priced ones retired, and none
-        unlisted."""
+        comparison finds the 40 current models the page prints, all 37
+        retired ones off it, and none unlisted, and every current model
+        matches in every column."""
         r = tm.compare_with_page(self.table, lambda url: self.page)
         self.assertEqual(r["error"], "")
-        self.assertEqual((r["matched"], r["expected"]), (46, 46))
-        self.assertEqual((r["diffs"], r["absent"]), ([], []))
+        self.assertEqual((r["matched"], r["expected"]), (40, 40))
+        self.assertEqual(r["diffs"], [])
+        self.assertEqual(r["absent"], [])
         self.assertEqual(r["unlisted"], [])
         self.assertEqual(sorted(r["retired"]), sorted(OPENAI_OFF_THE_PAGE))
 
@@ -981,32 +1037,33 @@ class TestOpenAIPageReader(Base):
 
     def test_a_model_new_on_the_page_is_named(self):
         """Guards a new model going unnoticed: a row the table lacks, added
-        to the saved page's four-column Standard table, is named as unlisted,
-        while fine-tuning ids such as o4-mini-2025-04-16 never are."""
+        to the saved page's four-column Standard table, is named as unlisted
+        and read."""
         row = "| gpt-5.4-mini | $0.75 | $4.50 | $0.075 |"
         self.assertIn(row, self.page)
         page = self.page.replace(row, row + "\n| gpt-9-nova | $0.75 | $4.50 | $0.075 |")
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gpt-9-nova"])
         self.assertAlmostEqual(rates["gpt-9-nova"]["in"], 0.75, places=9)
-        self.assertIn("o4-mini-2025-04-16", self.page)
 
     def test_a_table_it_does_not_price_from_still_names_its_models(self):
         """Guards a model printed only in a table the reader does not
         recognise being dropped without a word, as the Legal model
-        configurations table was: its header starts "Model configuration",
-        and gpt-6-astra-law was neither read nor named. Now that table is
-        read as Standard ($10 / $50 / $1, which gpt-6-astra-law's row has
-        held since 2 November 2026, so it is no longer named), and an id in
-        a table of a layout
-        the reader has never seen is still named, while a dated snapshot of
-        a row there (o4-mini-2025-04-16, as fine-tuning lists it) is not."""
-        rates, unknown = self.read(self.page)
-        law = rates["gpt-6-astra-law"]
-        self.assertEqual((law["in"], law["out"], law["cached"]), (10, 50, 1))
-        self.assertEqual(unknown, [])
+        configurations table once was (gpt-6-astra-law was neither read nor
+        named): an id in a table of a layout the reader has never seen is
+        named, while a dated snapshot of a row there (o4-mini-2025-04-16, as
+        fine-tuning once listed it) is not. In a Category table under no
+        tab label the id is taken from the Model column, not the Category
+        one, which named "Codex" in its place."""
         page = self.page + ("\n### Some new tier\n\n| Model | Price per call |\n| --- | --- |\n"
                             "| gpt-9-nova | $1.00 |\n| o4-mini-2025-04-16 | $1.00 |\n")
+        rates, unknown = self.read(page)
+        self.assertEqual(unknown, ["gpt-9-nova"])
+        self.assertNotIn("gpt-9-nova", rates)
+        page = self.page + ("\n### Grouped Pricing Table data\n\n"
+                            "| Category | Model | Input | Output | Cached input |\n"
+                            "| --- | --- | --- | --- | --- |\n"
+                            "| Codex | gpt-9-nova | $1.00 | $2.00 | $0.10 |\n")
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gpt-9-nova"])
         self.assertNotIn("gpt-9-nova", rates)

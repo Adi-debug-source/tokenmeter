@@ -147,7 +147,7 @@ There are three levels of confidence, and every report says which one each figur
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
 | Anthropic | 29 (11 retired) | 19 Nov 2026 | **yes** |
-| OpenAI | 73 (37 retired) | 27 Oct 2026 | not yet |
+| OpenAI | 77 (37 retired) | 19 Nov 2026 | not yet |
 | Google (Gemini API) | 29 (19 retired) | 2 Nov 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
 | DeepSeek | 2 | 2 Nov 2026 | not yet |

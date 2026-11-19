@@ -328,6 +328,9 @@ class TestAnthropicPublishedRates(Base):
 
 # The day the page was read. Lookups are made on this day, so every row the
 # table dates (the 12-hour cache writes from 20 October 2026) is in force.
+# The models added on 19 November 2026 have one undated row each, so they
+# price the same on this day; gpt-6-rosalind's cut of that day has its own
+# test.
 OPENAI_READ_ON = noon("2026-10-27")
 
 
@@ -353,6 +356,15 @@ class TestOpenAIPublishedRates(Base):
     Legal model configurations, which prints input, output and cached
     input only.
 
+    gpt-6.2-astra, gpt-6.2-sol, gpt-6-cyber, gpt-6.2-astra-law, the new name
+    gpt-5.5-cyber-preview and gpt-6-rosalind's promotional cut are typed
+    from the same address fetched on 19 November 2026 at 00:28 UTC (HTTP
+    200, 24,045 bytes, sha256
+    427698a0c4f1cf4abb2569cb0f9a4ca7fcacfa2f45d61a75f221f0b590ac5114): the
+    Flagship Standard and Fast tables, and the Standard tab of the
+    Specialized models table, whose "(short context)" rows give OFFICIAL
+    and WRITES and whose "(long context)" rows give LONG.
+
     Retired models, each from the copy of the maker's page cited beside it:
       https://web.archive.org/web/20260730195107/https://developers.openai.com/api/docs/pricing
         sha256 47fc2f9d0436f0e2761c28bfb0965a75119bc04fa7217a53b5666e1247101b09
@@ -374,6 +386,8 @@ class TestOpenAIPublishedRates(Base):
     """
 
     OFFICIAL = {
+        # Flagship models, Standard, short context (19 November 2026).
+        "gpt-6.2-astra": (8.00, 40.00, 0.40), "gpt-6.2-sol": (2.00, 10.00, 0.10),
         # Flagship models, Standard, short context (27 October 2026).
         "gpt-6-astra": (10.00, 50.00, 1.00), "gpt-6.1-sol": (2.00, 10.00, 0.10),
         "gpt-6.1-terra": (1.00, 5.00, 0.05), "gpt-6-luna": (0.10, 0.50, 0.01),
@@ -390,14 +404,17 @@ class TestOpenAIPublishedRates(Base):
         "gpt-4.1-mini": (0.40, 1.60, 0.10), "gpt-4o": (2.50, 10.00, 1.25),
         "gpt-4o-mini": (0.15, 0.60, 0.075), "o3-pro": (20.00, 80.00, 20.00),
         "o3": (2.00, 8.00, 0.50),
-        # Cyber models, Standard.
-        "gpt-5.6-cyber": (12.50, 75.00, 1.25), "gpt-5.5-cyber": (12.50, 75.00, 1.25),
+        # Cyber models, Standard (gpt-6-cyber and the name
+        # gpt-5.5-cyber-preview from the page of 19 November 2026).
+        "gpt-6-cyber": (20.00, 100.00, 2.00),
+        "gpt-5.6-cyber": (12.50, 75.00, 1.25), "gpt-5.5-cyber-preview": (12.50, 75.00, 1.25),
         # Life sciences models (gpt-6-rosalind from the page of 2 November 2026).
         "gpt-6-rosalind": (15.00, 75.00, 1.50),
         "gpt-rosalind-research": (5.00, 25.00, 0.50),
         "gpt-rosalind-discovery": (5.00, 25.00, 0.50),
-        # Legal model configurations, from the page of 2 November 2026.
-        "gpt-6-astra-law": (10.00, 50.00, 1.00),
+        # Legal model configurations, from the page of 2 November 2026
+        # (gpt-6.2-astra-law from that of 19 November 2026).
+        "gpt-6-astra-law": (10.00, 50.00, 1.00), "gpt-6.2-astra-law": (8.00, 40.00, 0.40),
         # Specialised models, Standard tab.
         "chat-latest": (5.00, 30.00, 0.50), "gpt-5.3-codex": (1.75, 14.00, 0.175),
         "gpt-5-search-api": (1.25, 10.00, 0.125),
@@ -436,6 +453,7 @@ class TestOpenAIPublishedRates(Base):
     # input, listed at its fast input rate. Every other model is absent from
     # the Fast tables and its copy, so it has no fast rate.
     FAST = {
+        "gpt-6.2-astra": (16.00, 80.00, 0.80), "gpt-6.2-sol": (4.00, 20.00, 0.20),
         "gpt-6-astra": (20.00, 100.00, 2.00), "gpt-6.1-sol": (4.00, 20.00, 0.20),
         "gpt-6.1-terra": (2.00, 10.00, 0.10), "gpt-6-luna": (0.20, 1.00, 0.02),
         "gpt-6-sol": (4.00, 20.00, 0.40), "gpt-5.6-sol": (8.00, 40.00, 0.80),
@@ -457,9 +475,12 @@ class TestOpenAIPublishedRates(Base):
         "gpt-5.1-codex": (2.50, 20.00, 0.25), "gpt-5-codex": (2.50, 20.00, 0.25),
     }
 
-    # The ten-column tables, short context: (30m write, 12h write), for the
-    # rows that print both. Every other row prints "-" or has no such column.
+    # The ten-column tables and the Specialized models' Standard tab, short
+    # context: (30m write, 12h write), for the rows that print both. Every
+    # other row prints "-" or has no such column.
     WRITES = {
+        "gpt-6.2-astra": (10.00, 20.00), "gpt-6.2-sol": (2.50, 5.00),
+        "gpt-6-cyber": (25.00, 50.00), "gpt-6.2-astra-law": (10.00, 20.00),
         "gpt-6-astra": (12.50, 25.00), "gpt-6.1-sol": (2.50, 5.00),
         "gpt-6.1-terra": (1.25, 2.50), "gpt-6-luna": (0.125, 0.25),
         "gpt-6-sol": (2.50, 5.00), "gpt-5.6-sol": (5.00, 10.00),
@@ -467,6 +488,7 @@ class TestOpenAIPublishedRates(Base):
         "gpt-5.6-cyber": (15.625, 31.25), "gpt-6-rosalind": (18.75, 37.50),
     }
     FAST_WRITES = {
+        "gpt-6.2-astra": (20.00, 40.00), "gpt-6.2-sol": (5.00, 10.00),
         "gpt-6-astra": (25.00, 50.00), "gpt-6.1-sol": (5.00, 10.00),
         "gpt-6.1-terra": (2.50, 5.00), "gpt-6-luna": (0.25, 0.50),
         "gpt-6-sol": (5.00, 10.00), "gpt-5.6-sol": (10.00, 20.00),
@@ -476,6 +498,10 @@ class TestOpenAIPublishedRates(Base):
     # Long context, "Long context: >272K input tokens": (input, output,
     # cached input, 30m write, 12h write). None where the page prints "-".
     LONG = {
+        "gpt-6.2-astra": (16.00, 60.00, 0.80, 20.00, 40.00),
+        "gpt-6.2-sol": (4.00, 15.00, 0.20, 5.00, 10.00),
+        "gpt-6-cyber": (40.00, 150.00, 4.00, None, None),
+        "gpt-6.2-astra-law": (16.00, 60.00, 0.80, 20.00, 40.00),
         "gpt-6-astra": (20.00, 75.00, 2.00, 25.00, 50.00),
         "gpt-6.1-sol": (4.00, 15.00, 0.20, 5.00, 10.00),
         "gpt-6.1-terra": (2.00, 7.50, 0.10, 2.50, 5.00),
@@ -491,6 +517,8 @@ class TestOpenAIPublishedRates(Base):
         "gpt-5.4-pro": (60.00, 270.00, None, None, None),
     }
     FAST_LONG = {
+        "gpt-6.2-astra": (32.00, 120.00, 1.60, 40.00, 80.00),
+        "gpt-6.2-sol": (8.00, 30.00, 0.40, 10.00, 20.00),
         "gpt-6-astra": (40.00, 150.00, 4.00, 50.00, 100.00),
         "gpt-6.1-sol": (8.00, 30.00, 0.40, 10.00, 20.00),
         "gpt-6.1-terra": (4.00, 15.00, 0.20, 5.00, 10.00),
@@ -532,7 +560,7 @@ class TestOpenAIPublishedRates(Base):
         """Guards against an OpenAI rate typed wrongly into pricing/openai.py,
         a model on the page or in the archive missing from the table, or a
         table row no reading accounts for: the table must hold exactly these
-        73 ids (36 current, 37 retired), each at the Standard input, output
+        77 ids (40 current, 37 retired), each at the Standard input, output
         and cached input price on the day the page was read."""
         self.assertEqual(set(tm.TABLES["openai"].PRICES), set(self.OFFICIAL),
                          "openai table and the page's model list differ")
@@ -583,8 +611,9 @@ class TestOpenAIPublishedRates(Base):
 
     def test_cache_writes_by_lifetime(self):
         """The ten-column tables print a 30-minute and a 12-hour cache write
-        for the GPT-6, GPT-6.1, GPT-5.6, gpt-6-rosalind and gpt-5.6-cyber
-        rows. The table
+        for the GPT-6.2, GPT-6, GPT-6.1 and GPT-5.6 rows, and the
+        Specialized models' Standard tab for gpt-6-cyber, gpt-5.6-cyber,
+        gpt-6-rosalind and gpt-6.2-astra-law. The table
         holds the 30-minute write in its shorter write lifetime and the
         12-hour write in its longer one (the slot named for Anthropic's one
         hour). Guards against either write billed at the wrong multiple, or
@@ -655,6 +684,22 @@ class TestOpenAIPublishedRates(Base):
                     if l_w30 is not None:
                         self.assertAlmostEqual(c["cache_write"], 0.01 * (l_w30 + l_w12), places=9)
 
+    def test_gpt_6_astra_law_long_context_row_from_19_november_2026(self):
+        """The page of 19 November 2026 prints "gpt-6-astra-law (long
+        context)" at $20 in, $75 out and $2 cached, with "-" for both
+        writes; the page of 2 November 2026 printed no long row for it. No
+        OpenAI page dates the change, so it takes effect on the day it was
+        first read. Guards against a request over 272K before that day
+        paying the long row, or one from it paying the short one."""
+        over = usage(inp=200_000, read=80_000, out=1_000_000)
+        for day, (l_in, l_out, l_hit) in (("2026-11-18", (10.00, 50.00, 1.00)),
+                                          ("2026-11-19", (20.00, 75.00, 2.00))):
+            with self.subTest(day=day):
+                c = tm.price_record("gpt-6-astra-law", over, when=noon(day), provider="openai")
+                self.assertAlmostEqual(c["input"], 0.2 * l_in, places=9)
+                self.assertAlmostEqual(c["cache_read"], 0.08 * l_hit, places=9)
+                self.assertAlmostEqual(c["output"], l_out, places=9)
+
     def test_gpt_5_6_terra_and_luna_cut_on_30_july_2026(self):
         """The changelog, 30 July 2026: "Starting July 30, GPT-5.6 Luna costs
         80% less, while GPT-5.6 Terra costs 20% less." The 29 July 2026 copy
@@ -706,6 +751,54 @@ class TestOpenAIPublishedRates(Base):
                 c = tm.price_record("gpt-5.6-sol", usage(w5=100_000), when=noon(day),
                                     provider="openai")
                 self.assertAlmostEqual(c["cache_write"], w30 / 10, places=9)
+
+    def test_gpt_6_rosalind_promotional_cut_read_on_19_november_2026(self):
+        """The page of 19 November 2026 prints gpt-6-rosalind at $10 in, $1
+        cached, $12.50 and $25 writes and $50 out, and over 272K $20, $2,
+        $25, $50 and $75, under "GPT-6 Rosalind promotional pricing is
+        available at least through December 31, 2026". The page of 2
+        November 2026 printed $15, $1.50, $18.75, $37.50 and $75, and over
+        272K $30, $3, $37.50, $75 and $112.50. No OpenAI page that could be
+        fetched on 19 November 2026 dates the cut, so it takes effect on the
+        day it was first read. Guards against calls before that day being
+        priced at the cut rate, or calls from it at the old one."""
+        short = usage(inp=100_000, read=100_000, out=100_000)
+        over = usage(inp=200_000, read=60_000, w5=10_000, w1=10_000, out=1_000_000)
+        for day, (inp, out, hit, w30, w12), (l_in, l_out, l_hit, l_w30, l_w12) in (
+                ("2026-11-18", (15.00, 75.00, 1.50, 18.75, 37.50),
+                 (30.00, 112.50, 3.00, 37.50, 75.00)),
+                ("2026-11-19", (10.00, 50.00, 1.00, 12.50, 25.00),
+                 (20.00, 75.00, 2.00, 25.00, 50.00))):
+            with self.subTest(day=day):
+                def cost(u):
+                    return tm.price_record("gpt-6-rosalind", u, when=noon(day), provider="openai")
+                c = cost(short)
+                self.assertAlmostEqual(c["input"], inp / 10, places=9)
+                self.assertAlmostEqual(c["cache_read"], hit / 10, places=9)
+                self.assertAlmostEqual(c["output"], out / 10, places=9)
+                self.assertAlmostEqual(cost(usage(w5=100_000))["cache_write"], w30 / 10, places=9)
+                self.assertAlmostEqual(cost(usage(w1=100_000))["cache_write"], w12 / 10, places=9)
+                c = cost(over)
+                self.assertAlmostEqual(c["input"], 0.2 * l_in, places=9)
+                self.assertAlmostEqual(c["cache_read"], 0.06 * l_hit, places=9)
+                self.assertAlmostEqual(c["cache_write"], 0.01 * (l_w30 + l_w12), places=9)
+                self.assertAlmostEqual(c["output"], l_out, places=9)
+
+    def test_gpt_5_5_cyber_is_the_pages_earlier_name_for_gpt_5_5_cyber_preview(self):
+        """The page printed gpt-5.5-cyber until at least 2 November 2026, and
+        on 19 November 2026 prints gpt-5.5-cyber-preview in the same Cyber
+        group at the same $12.50 in, $1.25 cached and $75 out; the
+        deprecations page and the Daybreak guide name only
+        gpt-5.5-cyber-preview. Guards a call logged under either name going
+        to the startup lookup or the fallback instead of this row."""
+        for name in ("gpt-5.5-cyber", "gpt-5.5-cyber-preview"):
+            with self.subTest(name=name):
+                c = tm.price_record(name, usage(inp=100_000, read=100_000, out=100_000),
+                                    when=OPENAI_READ_ON, provider="openai")
+                self.assertFalse(c["_unknown_model"])
+                self.assertAlmostEqual(c["input"], 1.25, places=9)
+                self.assertAlmostEqual(c["cache_read"], 0.125, places=9)
+                self.assertAlmostEqual(c["output"], 7.5, places=9)
 
     def test_retired_models_and_their_shutdown_dates(self):
         """The deprecations page's shutdown date for each of the 37 retired

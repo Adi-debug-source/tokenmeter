@@ -14,6 +14,30 @@
   2026, and `--check-prices` counts it among the retired models.
 - `--check-prices` reads all 21 models on Anthropic's page as matching, so
   the table is marked verified on 19 November 2026.
+- Fixed: since OpenAI rebuilt its pricing page in November 2026,
+  `--check-prices` and the daily check warned that gpt-5.3-codex differs
+  ($3.50 in, $28 out): the reader took the specialised models' Fast table
+  for their Standard one. Each table now takes its tier from the tab label
+  the page prints above it, and the Specialized models table's
+  "(short context)" and "(long context)" rows are read into the standard
+  and long-context figures, so the eight models on it are found again. The
+  Fast tables' cached and long-context columns are now compared too.
+- Prices: OpenAI's gpt-6.2-astra ($8 in, $40 out, cached $0.40, fast $16 /
+  $80), gpt-6.2-sol ($2, $10, $0.10, fast $4 / $20), gpt-6-cyber ($20,
+  $100, $2) and gpt-6.2-astra-law ($8, $40, $0.40), each with 30-minute
+  and 12-hour cache writes and the 272K long-context tier, read off the page
+  on 19 November 2026 and pinned in the tests.
+- gpt-6-rosalind is $10 in and $50 out from 19 November 2026, the day the
+  cut was first read (it was $15 and $75); the page calls it promotional,
+  "at least through December 31, 2026". Earlier calls keep the old rate.
+- OpenAI's page now prints gpt-5.5-cyber as gpt-5.5-cyber-preview, at the
+  same price. The row takes the new name, and a call logged under the old
+  one is still priced by it.
+- gpt-6-astra-law pays the long-context row OpenAI's page now prints for
+  it ($20 in, $75 out and $2 cached over 272K) from 19 November 2026, the
+  day it was first read. Earlier calls keep the flat rate.
+- `--check-prices` reads all 40 models on OpenAI's page as matching, so the
+  table is marked verified on 19 November 2026.
 
 ## 1.3.0, 3 November 2026
 
