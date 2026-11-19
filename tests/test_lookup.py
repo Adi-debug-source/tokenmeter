@@ -1522,8 +1522,8 @@ class TestMistralPageReader(Base):
 # verbatim from https://platform.kimi.ai/docs/pricing/chat as fetched on 19
 # November 2026 at 00:46 UTC (145,640 bytes, md5
 # 455ee37b09f55fdb3703573b09be8f26): lines 401 to 410, the rendered "K3
-# Series Models" and "K2 Series Models" sections, whose tables are empty, and
-# line 424, the page's manifest, a JSON object in <template
+# Series Models" and "K2 Series Models" sections, which hold no table, only
+# <!-- --> where each would be, and line 424, the page's manifest, a JSON object in <template
 # data-mint="manifest"> that holds the compiled page with both price tables.
 # Nothing in it was typed by hand. A test that needs a different page builds
 # it from that copy.
@@ -1623,9 +1623,54 @@ class TestMoonshotPageReader(Base):
         self.assertNotIn("kimi-k2.6", rates)
         self.assertEqual(len(rates), 5)
 
+    def test_a_table_with_other_rows_does_not_swallow_the_next(self):
+        """A table's columns ran to the first `],rows:[[` after `columns:[`,
+        so an earlier table whose rows are not written as `rows:[[` took the
+        next price table's columns into its own, and every K3 model went
+        unread."""
+        p = moonshot_source(self.html)
+        k3 = p.index("_jsx(Heading,{level:`3`,id:`k3-series-models`")
+        other = "_jsx(DocTable,{columns:[{title:`Model`},{title:`Input`}],rows:[]}),`\n`,"
+        rates, _ = self.read(moonshot_with_source(self.html, p[:k3] + other + p[k3:]))
+        self.assertEqual(rates, MOONSHOT_ON_THE_PAGE)
+
+    def test_a_row_the_reader_cannot_read_fails_the_read(self):
+        """A row in a price table written in markup the row pattern does not
+        know was skipped quietly, so a new model on the page was never named
+        as one the table lacks and the check passed. It must fail the read,
+        which --check-prices reports as a page it could not read."""
+        p = moonshot_source(self.html)
+        k3 = p.index("_jsx(_components.a,{href:`/guide/kimi-k3-quickstart`")
+        new = ("[_jsx(_components.a,{href:`/g`,className:`x`,children:`kimi-k3.2`}),`$1.00 / MTok`,"
+               "`$5.00 / MTok`,`$0.10 / MTok`,`$1.00 / MTok`,`$2.00 / MTok`],[")
+        page = moonshot_with_source(self.html, p[:k3] + new + p[k3:])
+        with self.assertRaises(ValueError):
+            self.read(page)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertTrue(c["error"].startswith("ValueError: "), c["error"])
+
+    def test_a_model_given_two_figures_fails_the_read(self):
+        """A second table with the same column titles, a batch table at 60%
+        say, overwrote the first table's figures for any model in both, and
+        the check reported a rate change that was never made. The page does
+        not say which figure applies, so the read must fail naming both; the
+        same row twice at the same figures still reads."""
+        p = moonshot_source(self.html)
+        k2 = p.index("`kimi-k2.7-code`")
+        start = p.rindex("_jsx(_MdxComponentBoundary", 0, k2)
+        end = p.index("]]})})", k2) + len("]]})})")
+        twice = p[:end] + ",`\n`," + p[start:end] + p[end:]
+        rates, _ = self.read(moonshot_with_source(self.html, twice))
+        self.assertEqual(rates, MOONSHOT_ON_THE_PAGE)
+        batch = p[start:end].replace("`$0.95 / MTok`,`$4.00 / MTok`,`$0.16 / MTok`",
+                                     "`$0.57 / MTok`,`$2.40 / MTok`,`$0.096 / MTok`")
+        with self.assertRaisesRegex(ValueError, r"kimi-k2\.6 in: the page prints both \$0\.95 and \$0\.57"):
+            self.read(moonshot_with_source(self.html, p[:end] + ",`\n`," + batch + p[end:]))
+
     def test_the_empty_tables_give_no_rates(self):
-        """The markdown copy and the HTML rendered for browsers without
-        JavaScript print both tables empty. Read alone, either must give no
+        """The markdown copy prints both tables empty, and the HTML rendered
+        for browsers without JavaScript holds no table, only <!-- --> where
+        each would be. Read alone, either must give no
         rates, so --check-prices says the page was read but no rates were
         found, never that every model matched."""
         markdown = "## K3 Series Models\n\n<table><thead><tr /></thead><tbody /></table>\n"

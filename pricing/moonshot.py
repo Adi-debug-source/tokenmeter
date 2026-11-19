@@ -9,9 +9,9 @@ effective date for any rate. The first four rows were first read off the
 page's markdown form on 26 September 2026 and are unchanged.
 
 Read again on 19 November 2026, from two fetches at about 00:15 and at 00:46
-UTC that were byte for byte the same (145,640 bytes), after the site was rebuilt on
-Mintlify: every model and every figure as on 27 October. The page's metadata
-now says it was last modified on 12 November 2026.
+UTC that were byte for byte the same (145,640 bytes), after the site was
+rebuilt on Mintlify: every model and every figure as on 27 October. The
+page's metadata now says it was last modified on 12 November 2026.
 
 **Published, not measured.** Nobody has yet compared these with a real Kimi
 bill. Please do, and open an issue either way.
@@ -140,6 +140,7 @@ def _tables(source):
         end = source.find("]]", mid) if mid >= 0 else -1
         if end < 0:
             return found
+        start = source.rfind("columns:[", start, mid)
         found.append((source[start + len("columns:["):mid], source[mid + len("],rows:[["):end]))
         pos = end
 
@@ -147,9 +148,10 @@ def _tables(source):
 def page_rates(fetch, tables, want=None):
     """Rates from the page's HTML, for every model it lists.
 
-    The figures are in no HTML table and not in the markdown form: both
-    print the tables empty. They are in embedded data, the page's manifest,
-    a JSON object in <template data-mint="manifest">, whose
+    The figures are in no HTML table and not in the markdown form: the
+    markdown prints the tables empty, and the HTML holds no table, only
+    <!-- --> where each would be. They are in embedded data, the page's
+    manifest, a JSON object in <template data-mint="manifest">, whose
     page.mdx.mdxSource.compiledSource is the compiled page. There each table
     is written as columns:[{title:`Input`}, ...],rows:[[the model,
     `$2.00 / MTok`, ...], ...]; a cache column's title sits in a tooltip as
@@ -163,10 +165,13 @@ def page_rates(fetch, tables, want=None):
     without the compiled page raises, and --check-prices reports the page
     unreadable. A table with a column title not in COLUMNS, or not led by
     Model, is skipped whole; a row whose cells are not all dollars per MTok,
-    or do not match the columns in number, is skipped. A changed layout
-    therefore reads as models not found on the page, never as a wrong
-    figure. `tables` (the markdown tables) and `want` are not used: the page
-    is one fetch and every row is read."""
+    or do not match the columns in number, is skipped. A row in a kept table
+    that names no model in a form read here, or a model given two different
+    figures for one column, raises, as the page does not say which applies.
+    A changed layout therefore reads as models not found on the page or as
+    a page that could not be read, never as a wrong figure. `tables` (the
+    markdown tables) and `want` are not used: the page is one fetch and
+    every row is read."""
     html = fetch(SOURCE)
     start = html.find(_MANIFEST)
     end = html.find("</template>", start) if start >= 0 else -1
@@ -185,10 +190,14 @@ def page_rates(fetch, tables, want=None):
         for row in body.split("],["):
             m = _ROW.fullmatch(row)
             if not m:
-                continue
+                raise ValueError(f"a row in a price table the reader cannot read: {row[:80]!r}")
             model, cells = m.group(1) or m.group(2), _CELL.findall(m.group(3))
             if len(cells) != len(keys) or not all(_PER_MILLION.fullmatch(c) for c in cells):
                 continue
             seen.append(model)
-            rates[model] = {k: money(c) for k, c in zip(keys, cells)}
+            into = rates.setdefault(model, {})
+            for k, v in zip(keys, map(money, cells)):
+                if into.get(k, v) != v:
+                    raise ValueError(f"{model} {k}: the page prints both ${into[k]:g} and ${v:g}")
+                into[k] = v
     return rates, sorted(m for m in set(seen) if m not in PRICES)
