@@ -44,9 +44,13 @@ Verified three ways, most recently on 19 November 2026.
 3. By the test suite. TestPublishedRates holds the published figure for every
    model and fails if this table drifts from it.
 
-One assumption remains: the 5-minute cache write at 1.25x is published but not
-measured, because Claude Code gives no way to force one. It carries about 3.6%
-of a typical total. The retired models below were never measured.
+The 5-minute cache write at 1.25x, which Claude Code gives no way to force,
+was measured on 19 November 2026 against the per-model `costUSD` summaries in
+Claude Code's transcripts: 53 sessions that made such writes (Opus 5.5 in 32,
+Sonnet 5.5 in 14, Fable 5.2 in 5, Opus 4.8 in 2), 29 of them with no other
+kind of cache write. With every other component priced from this table, each
+session's recorded cost gives a multiple of 1.25 to thirteen decimal places.
+The retired models below were never measured.
 
 Retired models. Every retirement date comes from Anthropic's deprecation
 page, https://platform.claude.com/docs/en/about-claude/model-deprecations

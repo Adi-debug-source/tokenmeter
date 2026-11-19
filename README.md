@@ -180,7 +180,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
-**One known assumption:** Anthropic's 5-minute cache write multiplier (1.25x) is taken from the documentation and has not been measured, because Claude Code gives no way to force one. It carries roughly 3.6% of a typical total.
+**The 5-minute cache write is measured.** Anthropic's 5-minute cache write multiplier (1.25x) was checked on 19 November 2026 against the per-model cost Claude Code records in its transcripts: 53 sessions that made such writes, on Opus 5.5, Sonnet 5.5, Fable 5.2 and Opus 4.8, 29 of them with no other kind of cache write. With every other component priced from the table, each session's recorded cost gives a multiplier of 1.25 to thirteen decimal places.
 
 **Not modelled, by design:** batch and flex discounts (coding harnesses are interactive), regional or data-residency uplifts, cache storage fees billed by the hour, and search-grounding fees that depend on a monthly free allowance. Qwen has no table because its price depends on region, tier, thinking mode and cache type, which logs do not record; its models are priced by the online lookup and labelled.
 

@@ -114,10 +114,24 @@ Take `total_cost_usd` from the result and price the same `usage` block through
 model exercises base input and output, cache reads at each multiplier, and the
 1-hour cache write. The table was confirmed this way on 10 September 2026.
 
-**Still unverified:** the 5-minute cache write at 1.25x. The CLI gives no way
-to force one, so it remains documentation-only. It carries roughly 3.6% of a
-typical total. If a way to force a 5-minute write appears, this is the first
-thing to check.
+**The 5-minute cache write at 1.25x** cannot be forced from the CLI, so it was
+measured from transcripts instead, on 19 November 2026. The last
+`"type": "cost-state"` line of a transcript holds `modelUsage`: one entry per
+model with its token totals, both cache write lifetimes and `costUSD`. Turn
+each entry into a usage block, price it through `price_record()` and compare.
+53 sessions with 5-minute writes agreed, 29 of them with no other kind of
+cache write, and the multiple each implies is 1.25 to thirteen decimal places.
+Before repeating it:
+
+- Claude Code 2.1.309 wrote no lifetime split and 2.1.317 does. A session
+  resumed across that change keeps writes that are in
+  `cacheCreationInputTokens` and in neither lifetime field, so price it from
+  its records, not its summary.
+- A summary is not always the session's total: it leaves out a reply that was
+  cut off and any call made after it was written, and a continued or forked
+  session carries an earlier session's figure.
+- Haiku 5.5's price tier is set per request, so its entry cannot be priced
+  from a total.
 
 ### The online lookup
 
@@ -559,4 +573,3 @@ none of the arithmetic moves.
   remove it.
 - **Only what is on this Mac.** Usage on a phone or in a browser leaves no
   local log and goes uncounted without saying so.
-- **The 5-minute cache write multiplier is assumed**, see above.
