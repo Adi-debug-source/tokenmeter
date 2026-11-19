@@ -49,7 +49,7 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 PROJECTS_DIR = claude_code.default_roots()[0]
 

@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.3.2, 19 November 2026
+
+No figure changes. Three rates in Anthropic's table that had been taken from
+its pricing page alone are now measured against the cost Claude Code records
+in its own transcripts: the 5-minute cache write, Haiku 5.5 at both tiers
+and Sonnet 5.5's cheaper cache reads. The documents say what was measured in
+place of calling the first an assumption. The same check found calls Claude
+Code bills and keeps no record of, which the README now lists.
+
+### Prices
+
+- The 5-minute cache write at 1.25x is measured. It was the one figure
+  described as an assumption, because Claude Code gives no way to force such
+  a write. In 53 sessions that made them, on Opus 5.5, Sonnet 5.5, Fable 5.2
+  and Opus 4.8, 29 with no other kind of cache write, the multiplier Claude
+  Code's recorded cost implies is 1.25 to thirteen decimal places.
+- Haiku 5.5 is measured at both of its tiers: 61 calls under 100,000 tokens
+  in 24 sessions, and 26 calls of 102,109 to 160,911 tokens in five more,
+  which show its higher tier on cache reads, 5-minute writes and output.
+  Each session equals Claude Code's cost to seven decimal places, in those
+  five with the web calls it keeps no record of priced at base rates.
+- Sonnet 5.5's cache reads at 0.05x, in force since 7 October 2026, are
+  measured in 16 sessions. README's count of models measured against Claude
+  Code goes from eight to nine.
+
+### Documents
+
+- README's limits name Claude Code's WebSearch calls and some of its
+  WebFetch calls: it runs them through a second, smaller model and keeps
+  them only in a session's running cost total, so they are not counted.
+  They came to under 1% of the cost recorded on the history measured.
+- MAINTENANCE.md says how to repeat the check from a transcript's
+  `cost-state` lines, and when a session's summary cannot be used for it.
+
 ## 1.3.1, 19 November 2026
 
 Claude Fable 5.2 and Mythos 5.2, the models OpenAI and Google have released
