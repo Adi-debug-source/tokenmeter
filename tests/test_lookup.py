@@ -307,6 +307,127 @@ class TestPageRows(Base):
         self.assertNotIn("write_mult", row)
 
 
+class TestLookedUpFigures(Base):
+    """A looked-up rate was saved for seven days whatever its figures: a NaN,
+    an infinite or a negative figure in LiteLLM's list or on a provider's
+    page priced every call to that model as NaN, infinity or a refund. A
+    rate is taken only when every figure is a finite number and not
+    negative, with LiteLLM's input above zero as before; anything else is
+    refused whole, never patched, and the model is treated as found
+    nowhere. Zero stays a price, the one a free model has."""
+
+    ENTRY = {"litellm_provider": "deepseek", "input_cost_per_token": 2.8e-07,
+             "output_cost_per_token": 4.2e-07, "cache_read_input_token_cost": 2.8e-08,
+             "cache_creation_input_token_cost": 3.5e-07,
+             "cache_creation_input_token_cost_above_1hr": 5.6e-07,
+             "input_cost_per_token_above_128k_tokens": 5.6e-07,
+             "output_cost_per_token_above_128k_tokens": 8.4e-07}
+    PAGE = {"in": 2.0, "out": 12.0, "cached": 0.2, "write_5m": 2.5, "write_1h": 4.0,
+            "long_in": 4.0, "long_out": 18.0, "long_over": 128_000, "fast_in": 4.0, "fast_out": 24.0,
+            "_history": [{"from": "", "in": 1.0, "out": 6.0, "cached": 0.1},
+                         {"from": "2027-01-01", "in": 2.0, "out": 12.0, "cached": 0.2}]}
+    NONSENSE = (float("nan"), float("inf"), float("-inf"), -0.5, "0.5", True)
+
+    def test_a_list_entry_with_a_figure_out_of_range_is_refused(self):
+        self.assertEqual(tm._row_from_litellm(self.ENTRY)["in"], 0.28)
+        for field in self.ENTRY:
+            if field == "litellm_provider":
+                continue
+            refused = {"input_cost_per_token": (0, None),
+                       "output_cost_per_token": (None,)}.get(field, ())
+            for bad in self.NONSENSE + refused:
+                with self.subTest(field=field, value=bad):
+                    self.assertIsNone(tm._row_from_litellm(dict(self.ENTRY, **{field: bad})))
+            for fine in (0, None):
+                if fine not in refused:
+                    with self.subTest(field=field, value=fine):
+                        self.assertIsNotNone(tm._row_from_litellm(dict(self.ENTRY, **{field: fine})))
+
+    def test_a_page_figure_out_of_range_is_refused(self):
+        table = tm.TABLES["google"]
+        self.assertEqual(len(tm.rows_from_page(self.PAGE, table)), 2)
+        for field in [k for k in self.PAGE if k != "_history"] + ["history in", "history cached"]:
+            for bad in self.NONSENSE:
+                with self.subTest(field=field, value=bad):
+                    if field.startswith("history"):
+                        k = field.split()[1]
+                        h = [dict(self.PAGE["_history"][0], **{k: bad}), self.PAGE["_history"][1]]
+                        r = dict(self.PAGE, _history=h)
+                    else:
+                        r = dict(self.PAGE, **{field: bad})
+                    self.assertEqual(tm.rows_from_page(r, table), [])
+        # A model the page lists as free is priced at nothing, not refused.
+        free = tm.rows_from_page({"in": 0, "out": 0, "cached": 0}, table)
+        self.assertEqual([(r["in"], r["out"]) for r in free], [(0, 0)])
+
+    def test_a_bad_figure_is_never_saved(self):
+        """Through the whole lookup: LiteLLM's list as text, where the bare
+        words NaN and Infinity are read as numbers, and a page reader."""
+        tm.ONLINE_LOOKUP[0] = True
+        self.addCleanup(tm.ONLINE_LOOKUP.__setitem__, 0, False)
+        good = json.dumps({"deepseek/deepseek-chat": self.ENTRY})
+        for text in (good.replace("2.8e-07", "NaN", 1), good.replace("4.2e-07", "Infinity"),
+                     good.replace("2.8e-08", "-2.8e-08")):
+            with self.subTest(text=text[40:110]):
+                self.forget()
+                tm.resolve_prices([("deepseek", "deepseek-chat")], fetch=lambda url: text)
+                self.assertEqual(tm._price_cache()["fetched"], {})
+                self.assertFalse(tm.lookup("deepseek-chat", provider="deepseek")[1])
+        page = dict(self.PAGE, long_out=-18.0)
+        with unittest.mock.patch.object(tm.TABLES["google"], "page_rates",
+                                        lambda fetch, tables, want=None: ({"gemini-9-pro": page}, [])):
+            self.assertIsNone(tm._from_provider_page("google", "gemini-9-pro", lambda url: ""))
+
+    def forget(self):
+        """No saved lookups, on disk or in memory, as on a first run."""
+        if os.path.exists(tm.PRICE_CACHE):
+            os.remove(tm.PRICE_CACHE)
+        tm._PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
+
+    def test_a_saved_lookup_cannot_bring_nan_or_infinity_in(self):
+        """A cache an older version saved could hold a NaN or an infinite
+        rate, which json reads back as a number. Such a file is read as a
+        damaged one: nothing saved in it is used."""
+        entry = {"rows": [{"from": "", "in": 0.28, "out": 0.42, "cache_read_mult": 0.1, "fast": None}],
+                 "via": tm.LITELLM_NAME, "url": tm.LITELLM_URL,
+                 "checked": dt.date.today().isoformat(), "first": dt.date.today().isoformat()}
+        text = json.dumps({"fetched": {"deepseek:deepseek-chat": entry}, "misses": {}})
+        for word in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(word=word):
+                self.forget()
+                with open(tm.PRICE_CACHE, "w") as f:
+                    f.write(text.replace("0.42", word))
+                self.assertIsNone(tm.fetched_row("deepseek", "deepseek-chat"))
+        self.forget()
+        with open(tm.PRICE_CACHE, "w") as f:
+            f.write(text)
+        self.assertEqual(tm.fetched_row("deepseek", "deepseek-chat")["out"], 0.42)
+
+
+class TestPrivateCaches(Base):
+    """.fetched_prices.json and .fx_rates.json, which name the models used
+    and when they were looked up, were written with the umask, 0644 on a
+    Mac, so any other account could read them. Each is its owner's alone
+    now, and one an older version left readable is tightened when it is
+    next written."""
+
+    def test_the_caches_are_the_owners_alone(self):
+        import stat
+        self.addCleanup(os.umask, os.umask(0o022))
+        for path, save in ((tm.PRICE_CACHE, tm._save_price_cache),
+                           (tm.FX_CACHE, lambda: tm._save_fx({"failed": time.time()}))):
+            for existing in (False, True):
+                with self.subTest(path=os.path.basename(path), existing=existing):
+                    if os.path.exists(path):
+                        os.remove(path)
+                    if existing:
+                        with open(path, "w") as f:
+                            f.write("{}")
+                        os.chmod(path, 0o644)
+                    save()
+                    self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+
+
 class TestGooglePageReader(Base):
     """pricing/google.py reads Google's page in Markdoc: one "## " heading per
     model, its id in backticks, then a Standard tab holding a table of
@@ -601,6 +722,42 @@ class TestExchangeRates(Base):
         old = time.time() - 48 * 3600
         os.utime(tm.FX_CACHE, (old, old))
         self.assertEqual(self.new_run()[1], f"cached, {self.WHEN}")
+
+    def test_a_saved_file_cannot_bring_nan_or_infinity_in(self):
+        """json reads the bare words Infinity and NaN as numbers, so a fetch
+        time of Infinity in the saved file kept its rates fresh for ever and
+        a failure time of Infinity stopped every later fetch. Such a file is
+        read as a damaged one."""
+        for field in ("fetched", "failed"):
+            with self.subTest(field=field):
+                with open(tm.FX_CACHE, "w") as f:
+                    f.write('{"rates": {"USD": 1.0, "GBP": 0.5}, "when": "%s", "live": true, '
+                            '"%s": Infinity}' % (self.WHEN, field))
+                rates, when, live = self.new_run()
+                self.assertEqual(rates, tm.FALLBACK_RATES)
+                self.assertFalse(live)
+
+    def test_the_rate_date_reaches_no_terminal_with_its_controls(self):
+        """The service's time_last_update_utc, and the date saved from it,
+        were printed as they came, so a reply could retitle the terminal or
+        recolour the report. Their control characters are stripped."""
+        import io
+        from unittest import mock
+        control = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+        reply = {"result": "success", "rates": {"GBP": 0.5},
+                 "time_last_update_utc": "Fri\x1b]0;PWNED\x07, 02 Oct 2026 00:02:31 +0000"}
+        tm.ONLINE_LOOKUP[0] = True
+        with mock.patch("urllib.request.urlopen",
+                        return_value=io.BytesIO(json.dumps(reply).encode())):
+            rates, when, live = self.new_run()
+        self.assertTrue(live)
+        self.assertEqual(when, "Fri]0;PWNED, 02 ")
+        tm.ONLINE_LOOKUP[0] = False
+        self.save(48, when="Fri\x9b2J, 02 Oct 2026")
+        rates, when, live = self.new_run()
+        self.assertEqual(when, "cached, Fri2J, 02 Oct 2026")
+        tm.set_currency("GBP")
+        self.assertNotRegex(tm.DISPLAY["when"], control)
 
     def test_a_failed_fetch_is_tried_once_and_not_again_for_an_hour(self):
         """A failed fetch was forgotten at once, so every call in a run, and

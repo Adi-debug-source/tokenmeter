@@ -1764,5 +1764,123 @@ class TestRunState(Base):
         self.assertNotIn("ledger", cli("--no-ledger"))
 
 
+class TestControlCharacters(Base):
+    """An import line whose model was claude-x ESC ]0;PWNED BEL ESC [31m
+    retitled the terminal and turned the report red: names read from a log,
+    an import file or a provider's page reached the terminal with their
+    control characters. They are stripped where the names come in, so the
+    terminal, --json and the dashboard carry the same printable name; the
+    report's own colours, and a name in any script, are untouched."""
+
+    CONTROL = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")    # every one but the newline
+    SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+    def raw(self, *argv, colour=False):
+        """main()'s output as printed, its colour codes kept when asked for."""
+        import contextlib, io
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("NO_COLOR", "FORCE_COLOR", "CLICOLOR_FORCE")}
+        if colour:
+            env["FORCE_COLOR"] = "1"
+        buf = io.StringIO()
+        with unittest.mock.patch.dict(os.environ, env, clear=True), as_a_new_run(), \
+                contextlib.redirect_stdout(buf):
+            tm.main([*argv, "--currency", "USD"])
+        return buf.getvalue()
+
+    def assert_printable(self, out, colour=False):
+        if colour:
+            self.assertIn("\x1b[1m", out)
+            out = self.SGR.sub("", out)
+        self.assertNotRegex(out, self.CONTROL)
+
+    def test_names_from_an_import_are_printable_everywhere(self):
+        trial = os.path.join(self.tmp, "trial.jsonl")
+        lines = [dict(GOOD_IMPORT, id="e1", model="gpt-6-sol\x1b]0;PWNED\x07\x1b[31m",
+                      project="/Users/sam/café\x9b2J", session="s\x1b[2Jone"),
+                 dict(GOOD_IMPORT, id="e2", provider="acme\x1b[5m", model="acme-1\x7f"),
+                 dict(GOOD_IMPORT, id="e3", project="/Users/sam/日本語 app", session="two")]
+        with open(trial, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(l) + "\n" for l in lines))
+        for by in tm.BY_CHOICES:
+            for colour in (False, True):
+                with self.subTest(by=by, colour=colour):
+                    out = self.raw("--import", trial, "--no-ledger", "--by", by, "--sessions",
+                                   colour=colour)
+                    self.assert_printable(out, colour)
+        out = self.raw("--import", trial, "--no-ledger", "--by", "project")
+        self.assertIn("/Users/sam/café2J", out)
+        self.assertIn("/Users/sam/日本語 app", out)
+        self.assertIn("gpt-6-sol]0;PWNED[31m", self.raw("--import", trial, "--no-ledger", "--by", "model"))
+        self.assertIn("acme[5m", self.raw("--import", trial, "--no-ledger", "--by", "provider"))
+        # --json, --summary-json and the dashboard carry the same names.
+        for argv in (["--json", "--by", "model"], ["--json", "--sessions"], ["--summary-json"]):
+            with self.subTest(argv=argv):
+                text = self.raw("--import", trial, "--no-ledger", *argv)
+                self.assertNotRegex(json.dumps(json.loads(text), ensure_ascii=False), self.CONTROL)
+        page = os.path.join(self.tmp, "dash.html")
+        cli("--html", page, "--no-open", "--no-ledger", "--import", trial)
+        html = slurp(page, encoding="utf-8")
+        self.assertNotRegex(json.dumps(payload_of(html), ensure_ascii=False), self.CONTROL)
+        self.assertIn("gpt-6-sol]0;PWNED[31m", html)
+        self.assertIn("日本語 app", html)
+
+    def test_names_from_a_transcript_and_its_folders_are_printable(self):
+        folder = os.path.join(self.tmp, "projects", "-Users-sam-x\x1b]0;T\x07")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "s\x1b[1m.jsonl"), "w") as f:
+            f.write(record("msg_1", model="claude-opus-5\x1b[2J", out=1000) + "\n")
+        for by in ("project", "model", "session"):
+            with self.subTest(by=by):
+                self.assert_printable(self.raw("--no-ledger", "--by", by, "--sessions"))
+        self.assertIn("claude-opus-5[2J", self.raw("--no-ledger", "--by", "model"))
+        # A ledger an older version wrote, with the names as they were read.
+        shutil.rmtree(folder)
+        with open(self.ledger, "w") as f:
+            f.write(json.dumps({"i": "msg_old", "t": "2026-09-01T12:00:00Z", "m": "claude-x\x1b[2J",
+                                "p": "-Users-sam-y\x1b]0;T\x07", "c": "s\x9bold", "o": 1000}) + "\n")
+        for by in ("project", "model", "session"):
+            with self.subTest(by=by, ledger=True):
+                self.assert_printable(self.raw("--by", by, "--sessions"))
+
+    def test_a_pages_model_ids_are_printable(self):
+        import contextlib, io, types
+        table = types.SimpleNamespace(
+            NAME="Alphaco", SOURCE="https://pricing.example/alpha", MEASURED=False,
+            VERIFIED_ON=(dt.date.today() - dt.timedelta(days=10)).isoformat(),
+            CACHE_WRITE_5M_MULT=1.25, CACHE_WRITE_1H_MULT=2.0, SNAPSHOT=r"-\d{8}$", RETIRED={},
+            PRICES={"alpha-big": [{"from": "", "in": 3, "out": 15, "cache_read_mult": 0.1,
+                                   "fast": None}]})
+        table.page_rates = lambda fetch, tables, want=None: (
+            {"alpha-big": {"in": 3, "out": 15, "cached": 0.3}}, ["alpha-new\x1b]0;PWNED\x07"])
+
+        def note():
+            tm._PRICE_STATE["loaded"] = False
+            return " ".join(t for _, t in tm.report_notes({"provider": {"alpha": {}}}, []))
+
+        with unittest.mock.patch.dict(tm.TABLES, {"alpha": table}, clear=True):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                tm.check_prices(fetch=lambda url: "")
+            self.assert_printable(buf.getvalue(), colour=True)
+            self.assertIn("alpha-new]0;PWNED", buf.getvalue())
+            self.assertIn("lists alpha-new]0;PWNED, which the table lacks", note())
+            self.assertNotRegex(note(), self.CONTROL)
+            # A state saved before the ids were cleaned.
+            with open(tm.PRICE_CACHE) as f:
+                saved = json.load(f)
+            saved[tm.DAILY_CHECK_KEY]["alpha"]["unlisted"] = ["alpha-old\x1b[31m\x9b"]
+            with open(tm.PRICE_CACHE, "w") as f:
+                json.dump(saved, f)
+            self.assertIn("lists alpha-old[31m, which the table lacks", note())
+            # A failure's own words, which can carry a server's text.
+            table.page_rates = unittest.mock.Mock(side_effect=ValueError("bad\x1b]0;PWNED\x07"))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                tm.check_prices(fetch=lambda url: "")
+            self.assert_printable(buf.getvalue(), colour=True)
+            self.assertIn("ValueError: bad]0;PWNED", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

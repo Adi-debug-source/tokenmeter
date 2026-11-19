@@ -3265,5 +3265,193 @@ class TestKiloCodeFiles(KiloBase):
         self.assertGreater(len(lines), 20)
         self.assertFalse(any(kilo_code.looks_like(line) for line in lines))
 
+
+class TestWrongShapes(Base):
+    """A log line that is valid JSON of the wrong shape (an array, a model
+    that is a number, an object where an id goes, a count written as text)
+    ended every report in a traceback: in Claude Code's reader, in the
+    engine for a name that was not text, and inside the Codex, Gemini CLI,
+    Kimi Code, OpenCode and DeepSeek Harness readers for some of their
+    fields. Such a record is skipped and the rest of the log still counts.
+    A reader that falls back to another key for a malformed id (DeepSeek
+    Harness, its line number) may count that line on its own, as it did."""
+
+    BAD = {"a": 1}
+
+    def report_runs(self):
+        """Every report a crafted line once ended, run in turn; the calls
+        --json counts."""
+        calls = json.loads(cli("--no-ledger", "--json"))["calls"]
+        cli("--no-ledger", "--sessions")
+        cli("--no-ledger", "--by", "model")
+        cli("--no-ledger", "--by", "project")
+        return calls
+
+    def test_claude_code_skips_a_badly_typed_line(self):
+        good = json.loads(record("msg_ok", out=1000))
+        u = good["message"]["usage"]
+
+        def line(n, **change):
+            d = json.loads(json.dumps(good))
+            d["message"]["id"] = d["uuid"] = d["requestId"] = f"msg_{n}"
+            for k, v in change.items():
+                if k in ("cwd", "timestamp"):
+                    d[k] = v
+                elif k in u or k in ("cache_creation", "server_tool_use", "output_tokens_details"):
+                    d["message"]["usage"][k] = v
+                else:
+                    d["message"][k] = v
+            return json.dumps(d)
+
+        bad = ['["usage"]', '"usage"', json.dumps({"message": ["usage"]}),
+               line(1, model=5), line(2, model=self.BAD), line(3, id=self.BAD), line(4, id=7),
+               line(5, input_tokens="lots"), line(6, output_tokens=[1]),
+               line(7, cache_read_input_tokens=True),
+               line(8, cache_creation=5), line(9, cache_creation={"ephemeral_5m_input_tokens": "x"}),
+               line(10, server_tool_use=[1]), line(11, output_tokens_details=5),
+               line(12, output_tokens_details={"thinking_tokens": self.BAD}),
+               line(13, usage=["usage"]), line(14, cwd=5),
+               line(15, input_tokens=10 ** 400),
+               line(16).replace('"output_tokens": 1000', '"output_tokens": Infinity'),
+               line(17).replace('"output_tokens": 1000', '"output_tokens": NaN')]
+        # A count that is null, or a block that is absent, reads as none, as before.
+        fine = line(18, input_tokens=None, cache_creation=None)
+        path = self.write("sess.jsonl", record("msg_ok", out=1000), *bad, fine)
+        self.assertEqual(self.report_runs(), 2)
+        cost, _ = tm.session_totals(path)
+        alone, *_ = tm.collect([self.write("alone.jsonl", record("msg_ok", out=1000))], ledger=False)
+        self.assertAlmostEqual(cost, 2 * alone["total"], places=12)
+
+    def test_the_report_says_how_many_records_were_left_out(self):
+        """A record skipped for its shape left the total short with nothing
+        in the report to say so, against the rule that every report names
+        what it could not count. The notes, which every face shows, give
+        how many records each reader and the ledger left out, and a clean
+        history gets no such note."""
+        def notes():
+            return [n["text"] for n in json.loads(cli("--summary-json"))["notes"]]
+
+        self.write("sess.jsonl", record("msg_ok", out=1000))
+        self.assertFalse([n for n in notes() if "left out" in n])
+        good = json.loads(record("msg_x", out=1000))
+        bad_model = dict(good, message=dict(good["message"], id="msg_m", model=5))
+        bad_id = dict(good, message=dict(good["message"], id={"a": 1}))
+        self.write("bad.jsonl", json.dumps(bad_model), json.dumps(bad_id))
+        with open(self.ledger, "a") as f:
+            f.write(json.dumps({"i": "msg_old", "t": "2026-08-01T12:00:00Z", "m": "claude-opus-5",
+                                "p": {"a": 1}, "c": "sess", "o": 1000}) + "\n")
+        said = notes()
+        self.assertIn("2 records in Claude Code transcripts were left out: a name or a count "
+                      "in each was the wrong type", said)
+        self.assertIn("1 record in the ledger was left out: a name or a count in it was the "
+                      "wrong type", said)
+
+    def lay_out(self, name):
+        """name's fixture in the temp folder, read as the engine reads it:
+        the JSONL files to change, or the database."""
+        if name == "codex":
+            day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
+            os.makedirs(day)
+            for n, f in enumerate(sorted(glob.glob(os.path.join(FIXTURES, "codex", "*.jsonl")))):
+                shutil.copy(f, os.path.join(day, f"rollout-2026-09-24T14-07-3{n}-thread-{n}.jsonl"))
+            root = os.path.join(self.tmp, "codex-home", "sessions")
+        elif name in ("opencode", "kilo-code"):
+            root = os.path.join(self.tmp, name + "-data", name.split("-")[0])
+            os.makedirs(root)
+            db = os.path.join(root, "opencode.db" if name == "opencode" else "kilo.db")
+            con = sqlite3.connect(db)
+            con.executescript(slurp(os.path.join(FIXTURES, name, "build_db.sql")))
+            con.commit()
+            con.close()
+            tm.ADAPTER_ROOTS[name] = [root]
+            return db
+        else:
+            home, sub = {"gemini-cli": ("home", (".gemini", "tmp")),
+                         "kimi-code": ("home", (".kimi-code", "sessions")),
+                         "deepseek-harness": ("dsh-home", ("sessions",))}[name]
+            shutil.copytree(os.path.join(FIXTURES, name, home), os.path.join(self.tmp, name))
+            root = os.path.join(self.tmp, name, *sub)
+        tm.ADAPTER_ROOTS[name] = [root]
+        return sorted(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
+
+    @staticmethod
+    def changed(obj, path, value):
+        """obj with path set to value, or None when obj has no such path."""
+        o = obj
+        for k in path[:-1]:
+            o = o.get(k) if isinstance(o, dict) else None
+        if not isinstance(o, dict) or path[-1] not in o:
+            return None
+        o[path[-1]] = value
+        return obj
+
+    def spoil(self, laid, path, value):
+        """Every record of the laid-out fixture that has path given value
+        there; path None puts a line that is a JSON array in each file, or
+        makes one row of each table one."""
+        def spoilt(text):
+            try:
+                got = self.changed(json.loads(text), path, value)
+            except ValueError:
+                return text
+            return text if got is None else json.dumps(got)
+
+        if isinstance(laid, str):
+            con = sqlite3.connect(laid)
+            for table in ("message", "part", "session_message"):
+                rows = con.execute(f"SELECT id, data FROM {table}").fetchall()
+                for rid, data in rows[:1] if path is None else rows:
+                    data = '["usage", "step-finish"]' if path is None else spoilt(data)
+                    con.execute(f"UPDATE {table} SET data = ? WHERE id = ?", (data, rid))
+            con.commit()
+            con.close()
+            return
+        for f in laid:
+            lines = slurp(f).splitlines()
+            if path is None:
+                lines.insert(0, '["usage"]')
+            else:
+                lines = [spoilt(l) for l in lines]
+            with open(f, "w", encoding="utf-8") as out:
+                out.write("\n".join(lines) + "\n")
+
+    # Each field the readers crashed on, and the audit's four shapes in each.
+    CASES = {
+        "codex": [None, (("payload", "model"), 5), (("payload", "model"), BAD),
+                  (("payload", "id"), BAD), (("payload", "id"), 5), (("payload", "cwd"), BAD),
+                  (("payload", "cwd"), 5), (("payload", "model_provider"), BAD),
+                  (("payload", "response_id"), BAD), (("payload", "compaction_response_id"), BAD),
+                  (("payload", "thread_settings"), 5),
+                  (("payload", "thread_settings", "model"), BAD),
+                  (("payload", "thread_settings", "model_provider_id"), BAD),
+                  (("payload", "info", "last_token_usage", "input_tokens"), "lots")],
+        "gemini-cli": [None, (("sessionId",), BAD), (("sessionId",), 5), (("model",), 5),
+                       (("model",), BAD), (("id",), BAD), (("tokens", "input"), "lots")],
+        "kimi-code": [None, (("kind",), BAD), (("usageScope",), BAD), (("provider",), BAD),
+                      (("model",), 5), (("usage", "output"), "lots")],
+        "deepseek-harness": [None, (("seq",), BAD), (("data", "model"), 5),
+                             (("data", "message", "id"), BAD), (("data", "usage", "inputTokens"), "lots")],
+        "opencode": [None, (("providerID",), BAD), (("providerID",), 5), (("modelID",), 5),
+                     (("modelID",), BAD), (("path", "cwd"), 5), (("path", "cwd"), BAD), (("path",), 5),
+                     (("tokens", "cache"), 5), (("time",), 5), (("model",), 5), (("id",), BAD),
+                     (("tokens", "input"), "lots")],
+        "kilo-code": [None, (("modelID",), 5), (("model",), 5), (("id",), BAD),
+                      (("tokens", "input"), "lots")],
+    }
+
+    def test_every_reader_skips_a_badly_typed_record(self):
+        for name, cases in self.CASES.items():
+            for case in cases:
+                with self.subTest(reader=name, case=case), \
+                        unittest.mock.patch.dict(tm.ADAPTERS, {kilo_code.NAME: kilo_code}), \
+                        unittest.mock.patch.dict(tm.ALL_SOURCES, {kilo_code.NAME: kilo_code}):
+                    shutil.rmtree(self.tmp)
+                    os.makedirs(self.projects)
+                    laid = self.lay_out(name)
+                    tm._ONLY[:] = [name]
+                    self.assertGreater(self.report_runs(), 0)
+                    self.spoil(laid, *(case or (None, None)))
+                    self.report_runs()
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

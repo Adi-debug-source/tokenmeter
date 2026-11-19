@@ -62,6 +62,39 @@
 - `--check-prices` reads all 13 current models on Google's page as
   matching, with no other rate changed, so the table is marked verified on
   19 November 2026.
+- Fixed: the ledger, the backup a rebuild keeps, the exchange-rate and
+  price caches and the status line's day total were written readable by
+  every account on the Mac (0644), though they name projects, sessions,
+  models and spend. Each is now its owner's alone (0600); a file an older
+  version left readable is tightened the next time it is written, and
+  `install.sh` tightens those already there.
+- Fixed: a model, project or session name read from a log, an import file
+  or the ledger reached the terminal with its control characters, so a
+  crafted name could retitle the window or recolour the report. The same
+  went for the model ids and error text from a provider's pricing page and
+  for the exchange rate's date. They are now removed as each name comes in,
+  so the terminal, `--json`, `--summary-json` and the dashboard show the
+  same printable name; a clean name is unchanged.
+- Fixed: a rate looked up online was saved for seven days whatever its
+  figures, so a NaN, an infinite or a negative figure in LiteLLM's list or
+  on a provider's page priced every call to that model as NaN, infinity or
+  a refund. Such a rate is now refused whole and the model treated as found
+  nowhere. A model a provider's page lists as free is still priced at
+  nothing. A saved price cache or exchange-rate file holding NaN or
+  Infinity is read as damaged.
+- Fixed: one log line of the wrong shape (an array, a model that is a
+  number, an object where an id goes, a count written as text) ended every
+  report in a traceback, in Claude Code's reader, in the Codex, Gemini CLI,
+  Kimi Code, OpenCode and DeepSeek Harness readers, and, once written to
+  the ledger, in every report after it. Such a record is left out, and the
+  report's notes say how many were, per harness and for the ledger.
+- `/tokenmeter` now runs without asking only for the report commands it
+  lists, each exactly as written. Before, it pre-approved the engine with
+  any arguments, `--rebuild-ledger` and `--html` to any file included; any
+  other run now asks first.
+- `SECURITY.md` names every request Tokenmeter makes, the daily reread of
+  each provider's pricing page and the OpenAI lookup whose address names
+  the model included, as the README already did.
 
 ## 1.3.0, 3 November 2026
 

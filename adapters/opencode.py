@@ -78,7 +78,7 @@ import shutil
 import sqlite3
 import tempfile
 
-from .common import usage, whole
+from .common import left_out, usage, whole
 
 NAME = "opencode"
 LABEL = "OpenCode"
@@ -181,9 +181,12 @@ def _connect(path: str):
 
 
 def _event(key, when_ms, model, provider, project, session, tokens):
+    if not all(v is None or isinstance(v, str) for v in (model, provider)):
+        left_out(NAME)
+        return None
     if not isinstance(tokens, dict) or provider in HANDED_OVER:
         return None
-    cache = tokens.get("cache") or {}
+    cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
     # A negative count is read as none.
     inp, out, reasoning, read, write = (max(0, whole(v)) for v in (
         tokens.get("input"), tokens.get("output"), tokens.get("reasoning"),
@@ -231,6 +234,8 @@ def records(path: str):
                     messages[mid] = json.loads(data)
                 except (ValueError, TypeError):
                     messages[mid] = {}
+                if not isinstance(messages[mid], dict):
+                    messages[mid] = {}
 
         if "session_message" in tables:
             for mid, sid, created, data in con.execute(
@@ -244,8 +249,11 @@ def records(path: str):
                     d = json.loads(data)
                 except (ValueError, TypeError):
                     continue
-                model = d.get("model") or {}
-                ev = _event(f"opencode:{mid}", (d.get("time") or {}).get("created") or created,
+                if not isinstance(d, dict):
+                    continue
+                model = d.get("model") if isinstance(d.get("model"), dict) else {}
+                timing = d.get("time") if isinstance(d.get("time"), dict) else {}
+                ev = _event(f"opencode:{mid}", timing.get("created") or created,
                             model.get("id"), model.get("providerID"),
                             directory.get(sid, ""), sid, d.get("tokens"))
                 if ev:
@@ -259,10 +267,11 @@ def records(path: str):
                     d = json.loads(data)
                 except (ValueError, TypeError):
                     continue
-                if d.get("type") != "step-finish":
+                if not isinstance(d, dict) or d.get("type") != "step-finish":
                     continue
                 m = messages.get(msg_id) or {}
-                cwd = (m.get("path") or {}).get("cwd") or directory.get(sid, "")
+                where = m.get("path") if isinstance(m.get("path"), dict) else {}
+                cwd = where.get("cwd") or directory.get(sid, "")
                 ev = _event(f"opencode:{pid}", created, m.get("modelID"), m.get("providerID"),
                             cwd, sid, d.get("tokens"))
                 if ev:

@@ -1,11 +1,15 @@
 # Security
 
 Tokenmeter reads the logs your coding harness writes on your Mac and prices
-them. Nothing about your usage leaves the machine: the only requests it makes
-are for exchange rates and, for a model no table has, published price lists,
-and `--offline` or `TOKENMETER_OFFLINE=1` stops both. A report that it sends
-anything else, fetches anything else, or can be made to run something, is a
-security report.
+them. Nothing about your usage leaves the machine. The only requests it makes
+are these: exchange rates, which send only the string "USD"; published price
+lists for a model no table has, where an OpenAI model is looked up on its own
+page, whose address names the model, the one case in which a model name is
+sent; and each provider's pricing page, reread at most once a day after a
+report to check it still agrees with the table. `--offline` or
+`TOKENMETER_OFFLINE=1` stops all three (`--check-prices` still reads the pages
+it is asked to check). A report that it sends anything else, fetches anything
+else, or can be made to run something, is a security report.
 
 ## Reporting a vulnerability
 

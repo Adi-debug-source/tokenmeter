@@ -32,6 +32,7 @@ import datetime as dt
 import functools
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -43,7 +44,7 @@ from collections import defaultdict
 
 from adapters import ADAPTERS, ALL as ALL_SOURCES
 from adapters import claude_code, codex, importer
-from adapters.common import parse_time
+from adapters.common import LEFT_OUT, left_out, parse_time
 from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
@@ -145,6 +146,37 @@ def adapter_for(path: str):
     return claude_code
 
 
+def open_private(path: str, mode: str = "w"):
+    """path opened for writing ("w") or appending ("a") as a file its owner
+    alone can read: the ledger and the caches name projects, sessions,
+    models and spend, and the umask, 0644 on a Mac, let any other account
+    read them. A file left readable by an older version is tightened too,
+    which a umask never does. A file someone else owns keeps its mode,
+    since recording the usage matters more."""
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if mode == "a" else os.O_TRUNC)
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    return os.fdopen(fd, mode, encoding="utf-8")
+
+
+def _no_constant(word: str):
+    """json's parse_constant for a file this tool saved: the bare words NaN
+    and Infinity, which json reads as numbers, make it a damaged file."""
+    raise ValueError(f"{word} in a saved file")
+
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def printable(text: str) -> str:
+    """text without its C0 and C1 control characters, which a terminal acts
+    on: one name could retitle the window or recolour the report."""
+    return _CONTROL.sub("", text)
+
+
 # Everything is computed in dollars, because every table in pricing/ is in
 # dollars, as each provider publishes its rates. Display happens in whatever
 # currency is selected; only the last step converts. TOKENMETER_CURRENCY
@@ -207,9 +239,11 @@ def _fx_lookup() -> tuple:
     now = time.time()
     try:
         with open(FX_CACHE) as f:
-            saved = json.load(f)
+            saved = json.load(f, parse_constant=_no_constant)
         if not isinstance(saved, dict):
             saved = {}
+        if isinstance(saved.get("when"), str):
+            saved["when"] = printable(saved["when"])
         # A file written before fetch times were recorded is as old as its
         # last write.
         if not isinstance(saved.get("fetched"), (int, float)):
@@ -233,7 +267,7 @@ def _fx_lookup() -> tuple:
                 payload = json.load(r)
             fresh = usable_rates(payload.get("rates")) if payload.get("result") == "success" else None
             if fresh:
-                when = str(payload.get("time_last_update_utc", ""))[:16]
+                when = printable(str(payload.get("time_last_update_utc", "")))[:16]
                 _save_fx({"rates": fresh, "when": when, "live": True, "fetched": now})
                 return fresh, when, True
         except Exception:
@@ -270,7 +304,7 @@ def usable_rates(rates) -> dict | None:
 
 def _save_fx(data: dict) -> None:
     try:
-        with open(FX_CACHE, "w") as f:
+        with open_private(FX_CACHE) as f:
             json.dump(data, f)
     except OSError:
         pass
@@ -535,7 +569,7 @@ def _price_cache() -> dict:
     if not _PRICE_STATE["loaded"]:
         try:
             with open(PRICE_CACHE, encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.load(f, parse_constant=_no_constant)
             data.setdefault("fetched", {})
             data.setdefault("misses", {})
             _PRICE_STATE["data"] = data
@@ -548,7 +582,7 @@ def _price_cache() -> dict:
 def _save_price_cache() -> None:
     try:
         tmp = PRICE_CACHE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open_private(tmp) as f:
             json.dump(_PRICE_STATE["data"], f, indent=1, sort_keys=True)
         os.replace(tmp, PRICE_CACHE)
     except OSError:
@@ -568,6 +602,36 @@ def fetched_row(provider: str, model: str, when=None):
     return row
 
 
+def _figure(v, above_zero: bool = False) -> bool:
+    """Whether a looked-up figure can be priced with: an int or a float, not
+    a bool or text, finite, and above zero or, by default, not negative. A
+    NaN, an infinite or a negative rate priced every call to its model as
+    NaN, infinity or a refund, and was saved for seven days."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        if not math.isfinite(v):
+            return False
+    except OverflowError:
+        return False
+    return v > 0 if above_zero else v >= 0
+
+
+def _usable(row: dict) -> bool:
+    """Whether every figure of a built price row passes _figure(): figures
+    that each passed can still make an infinite ratio or round to nothing."""
+    long = row.get("long") or {}
+    return all(_figure(v) for v in (
+        row["in"], row["out"], row["cache_read_mult"], row.get("write_mult", 0),
+        row.get("write_1h_mult", 0), long.get("over", 0), long.get("in", 0), long.get("out", 0),
+        *(row.get("fast") or ())))
+
+
+# A page reader's figures besides input and output, any of which may be absent.
+PAGE_FIGURES = ("cached", "write", "write_5m", "write_1h", "long_in", "long_out", "long_over",
+                "fast_in", "fast_out")
+
+
 def rows_from_page(r: dict, table) -> list:
     """A provider page's figures (per million) as price rows, oldest first.
 
@@ -577,8 +641,15 @@ def rows_from_page(r: dict, table) -> list:
     is the page's own when its reader gives one (long_over), else the table's
     LONG_OVER; with neither there is no long-context rule to apply. A 1-hour
     cache write is kept when it is not what the row would charge anyway.
+
+    No rows at all when any figure fails _figure(): a page is outside this
+    program, and a row patched up would be a price nobody published. Zero
+    passes, as it is a price: the one a free model has.
     """
     history = r.get("_history") or [r]
+    if not (all(_figure(h.get(k)) for h in [r, *history] for k in ("in", "out"))
+            and all(h.get(k) is None or _figure(h[k]) for h in [r, *history] for k in PAGE_FIGURES)):
+        return []
     inp = r["in"]
     fast = (r["fast_in"], r["fast_out"]) if r.get("fast_in") and r.get("fast_out") else None
     shared = {"fast": fast}
@@ -605,13 +676,22 @@ def rows_from_page(r: dict, table) -> list:
                "cache_read_mult": (cached / h["in"]) if h["in"] and cached is not None else 1.0}
         row.update(shared)
         rows.append(row)
-    return rows
+    return rows if all(_usable(row) for row in rows) else []
 
 
 def _row_from_litellm(e: dict) -> dict | None:
-    """One LiteLLM entry (dollars per token) as a price row (per million)."""
+    """One LiteLLM entry (dollars per token) as a price row (per million).
+
+    None unless input is above zero and every figure the row is built from
+    passes _figure(): a figure that is text, a bool, NaN, infinite or
+    negative is refused with the whole entry, never patched or ignored."""
     inp, out = e.get("input_cost_per_token"), e.get("output_cost_per_token")
-    if not isinstance(inp, (int, float)) or not isinstance(out, (int, float)) or inp <= 0:
+    if not _figure(inp, above_zero=True) or not _figure(out):
+        return None
+    if any(v is not None and not _figure(v) for k, v in e.items()
+           if k in ("cache_read_input_token_cost", "cache_creation_input_token_cost",
+                    "cache_creation_input_token_cost_above_1hr")
+           or re.fullmatch(r"(input|output)_cost_per_token_above_\d+k_tokens", k)):
         return None
     row = {"from": "", "in": round(inp * 1e6, 6), "out": round(out * 1e6, 6),
            "cache_read_mult": 1.0, "fast": None}
@@ -631,7 +711,7 @@ def _row_from_litellm(e: dict) -> dict | None:
             row["long"] = {"over": int(m.group(1)) * 1000, "in": round(v / inp, 6),
                            "out": round(o / out, 6)}
             break
-    return row
+    return row if row["in"] > 0 and _usable(row) else None
 
 
 def _from_provider_page(provider: str, model: str, fetch):
@@ -644,7 +724,10 @@ def _from_provider_page(provider: str, model: str, fetch):
     r = page.get(model) or page.get(base)
     if not r or r.get("in") is None or r.get("out") is None:
         return None
-    return rows_from_page(r, table), f"{table.NAME}'s pricing page", table.SOURCE
+    rows = rows_from_page(r, table)
+    if not rows:
+        return None
+    return rows, f"{table.NAME}'s pricing page", table.SOURCE
 
 
 @functools.lru_cache(maxsize=1)
@@ -829,7 +912,7 @@ def session_paths(path: str) -> tuple:
     paths = claude_code.session_files(path) if adapter is claude_code else [path]
     for p in paths:
         _OWNER[p] = adapter.NAME
-    ids = sorted({ev["session"] for _, ev in adapter.records(path) if ev["session"]})
+    ids = sorted({ev["session"] for _, ev in read_records(adapter, path) if ev["session"]})
     return paths, ids or [os.path.basename(path).split(".")[0]]
 
 
@@ -847,7 +930,7 @@ def session_totals(path: str) -> tuple:
     paths = claude_code.session_files(path) if adapter is claude_code else [path]
     ctx, best = 0, {}
     for p in paths:
-        for key, ev in adapter.records(p):
+        for key, ev in read_records(adapter, p):
             if p == path:
                 usage = ev["_usage"]
                 # Synthetic records are already gone: no API call, and an empty
@@ -1226,7 +1309,7 @@ def append_ledger(rows: list, path: str = "") -> int:
     blob = "".join(json.dumps(r, separators=(",", ":"), sort_keys=True) + "\n" for r in rows)
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
+        with open_private(path, "a") as f:
             f.write(blob)
     except OSError:
         return 0
@@ -1433,7 +1516,7 @@ def scan_transcripts(paths) -> dict:
     reset_adapters()
     best = {}
     for path in paths:
-        found = list(adapter_for(path).records(path))
+        found = list(read_records(adapter_for(path), path))
         end = max((ev["when"] for _, ev in found if ev["when"] is not None), default=None)
         for key, ev in found:
             ev["_end"] = end
@@ -1441,8 +1524,42 @@ def scan_transcripts(paths) -> dict:
     return best
 
 
+# The names every event carries, which reach the terminal, the ledger and,
+# for a looked-up model, a request's address.
+EVENT_NAMES = ("model", "provider", "project", "session", "source")
+# Where a ledger row admitted() refused is counted in LEFT_OUT.
+LEDGER_NAME = "ledger"
+
+
+def admitted(ev: dict) -> bool:
+    """Whether a call's names can be read, each of them and its working
+    folder being text or missing; those that can lose their control
+    characters (printable()) here, where they come in, so the terminal, the
+    ledger, --json and the dashboard all carry the same name. A model that
+    was a number or a project that was an object ended every report, and a
+    ledger row holding one ended every report after it. The working folder
+    is only ever matched against a real folder, so it is kept as it is."""
+    if not all(ev.get(k) is None or isinstance(ev[k], str) for k in EVENT_NAMES + ("cwd",)):
+        return False
+    for k in EVENT_NAMES:
+        if ev.get(k):
+            ev[k] = printable(ev[k])
+    return True
+
+
+def read_records(adapter, path: str):
+    """adapter.records(path) without the calls admitted() refuses, each
+    counted for the report's notes."""
+    for key, ev in adapter.records(path):
+        if admitted(ev):
+            yield key, ev
+        else:
+            left_out(adapter.NAME)
+
+
 def reset_adapters() -> None:
     """Clear what each adapter remembers from a scan for its notes."""
+    LEFT_OUT.clear()
     for a in ALL_SOURCES.values():
         if hasattr(a, "reset"):
             a.reset()
@@ -1477,7 +1594,11 @@ def reconcile_ledger(best: dict) -> tuple:
         prev = best.get(mid)
         if prev is not None and prev["_size"] >= row_size(row):
             continue
-        best[mid] = ledger_event(row)
+        ev = ledger_event(row)
+        if not admitted(ev):
+            left_out(LEDGER_NAME)
+            continue
+        best[mid] = ev
         if prev is None:
             # No transcript read this run holds it. The covered line counts
             # these calls and the tokens line adds them up (kept_and_on_disk()),
@@ -2022,6 +2143,14 @@ def report_notes(groups, unknown, fetched=None, only=None) -> list:
         shown = "standard input" if path == "-" else os.path.basename(path)
         notes.append(("warn", f"{p['skipped']:,} line{'' if p['skipped'] == 1 else 's'} "
                               f"skipped in {shown}: " + "; ".join(p["examples"])))
+    for name, n in sorted(LEFT_OUT.items()):
+        if only and name != only:
+            continue
+        where = ("the ledger" if name == LEDGER_NAME
+                 else f"{ALL_SOURCES[name].LABEL} {ALL_SOURCES[name].FILES}")
+        notes.append(("warn", f"{n:,} record{'' if n == 1 else 's'} in {where} "
+                              f"{'was' if n == 1 else 'were'} left out: a name or a count in "
+                              f"{'it' if n == 1 else 'each'} was the wrong type"))
     for (provider, model), via in sorted(fetched.items()):
         row = fetched_row(provider, model) or {}
         checked = row.get("_checked", "")
@@ -2992,7 +3121,7 @@ def rebuild_ledger(paths) -> None:
     lost = set(had) - set(best)
 
     tmp = path + ".new"
-    with open(tmp, "w", encoding="utf-8") as f:
+    with open_private(tmp) as f:
         f.write("".join(json.dumps(r, separators=(",", ":"), sort_keys=True) + "\n"
                         for r in rows))
     backup = ""
@@ -3000,6 +3129,11 @@ def rebuild_ledger(paths) -> None:
         backup = backup_path(path)
         os.replace(path, backup)
     os.replace(tmp, path)
+    if backup:
+        try:
+            os.chmod(backup, 0o600)
+        except OSError:
+            pass
 
     print()
     print(f"  ledger rebuilt: {plural(len(rows), 'call')} from {plural(len(paths), 'transcript')}")
@@ -3199,7 +3333,7 @@ def compare_with_page(table, fetch) -> dict:
     try:
         page, unlisted = table.page_rates(fetch, md_tables)
     except Exception as e:  # no network, a moved page, a changed layout
-        out["error"] = f"{e.__class__.__name__}: {e}"
+        out["error"] = printable(f"{e.__class__.__name__}: {e}")
         return out
     if not page:
         return out
@@ -3236,7 +3370,8 @@ def compare_with_page(table, fetch) -> dict:
                     bad = True
         matched += not bad
     out.update(found=True, matched=matched, expected=len(table.PRICES) - len(retired),
-               retired=retired, diffs=diffs, absent=absent, unlisted=list(unlisted or []))
+               retired=retired, diffs=diffs, absent=absent,
+               unlisted=[printable(m) for m in unlisted or []])
     return out
 
 
@@ -3343,6 +3478,11 @@ def _page_check(provider: str) -> dict | None:
             return None
         if isinstance(value, list) and not all(isinstance(m, str) for m in value):
             return None
+        # A state saved before page ids and errors were cleaned.
+        if isinstance(value, list):
+            value = [printable(m) for m in value]
+        elif isinstance(value, str):
+            value = printable(value)
         out[key] = value
     try:
         for key in ("tried", "matched", "differs_since", "failing_since"):
@@ -3629,7 +3769,7 @@ def any_call_kept(paths, ledger: bool) -> bool:
     with no calls while the filters still match; that report is printed."""
     events = list(scan_transcripts(paths).values())
     if ledger:
-        events += [ledger_event(row) for row in read_ledger().values()]
+        events += [ev for ev in map(ledger_event, read_ledger().values()) if admitted(ev)]
     return any(kept(ev) for ev in events)
 
 
@@ -3658,7 +3798,8 @@ def no_match(args, project: str, ledger: bool, notes=()) -> str:
     lines = ["no calls match " + " ".join(given)]
     if _PROJECT:
         latest = {}
-        for ev in list(scan_transcripts(logs).values()) + [ledger_event(r) for r in rows.values()]:
+        ledger_events = [ev for ev in map(ledger_event, rows.values()) if admitted(ev)]
+        for ev in list(scan_transcripts(logs).values()) + ledger_events:
             name = project_name(ev["project"] or "")
             if not name or (_ONLY and ev["source"] not in _ONLY):
                 continue

@@ -101,7 +101,7 @@ def today_totals(want_tokens=False):
 
     try:
         from tokenmeter import (add_to_row, empty_row, iter_events, local_midnight,
-                                token_totals, transcripts)
+                                open_private, token_totals, transcripts)
 
         # At the day's own UTC offset. now().replace(hour=0) kept the offset
         # in force now, an hour out on the days the clocks change.
@@ -121,7 +121,7 @@ def today_totals(want_tokens=False):
             add_to_row(counted, ev)
         tokens = token_totals(counted["tokens"])["total"]
         try:
-            with open(CACHE, "w") as f:
+            with open_private(CACHE) as f:
                 json.dump({"day": today.isoformat(), "total": total, "tokens": tokens}, f)
         except Exception:
             pass
