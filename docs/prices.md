@@ -7,10 +7,12 @@ online lookup at startup, and labelled as looked up rather than checked.
 
 ## Anthropic
 
-Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 27 Oct 2026, checked against the published page and against real usage.
+Source: <https://platform.claude.com/docs/en/about-claude/pricing>. Last verified 19 Nov 2026, checked against the published page and against real usage.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `claude-fable-5-2` | $8 | $0.20 | $10 | $40 | 1-hour cache write $16; fast $16 / $80 |
+| `claude-mythos-5-2` | $8 | $0.20 | $10 | $40 | 1-hour cache write $16; fast $16 / $80 |
 | `claude-fable-5-1` | $10 | $0.25 | $12.50 | $50 | 1-hour cache write $20 |
 | `claude-mythos-5-1` | $10 | $0.25 | $12.50 | $50 | 1-hour cache write $20 |
 | `claude-fable-5` | $10 | $1 | $12.50 | $50 | 1-hour cache write $20 |

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Prices: Claude Fable 5.2 and Claude Mythos 5.2 ($8 in, $40 out, cache hits
+  $0.20, which is 0.025x input, cache writes $10 and $16, fast mode $16 in
+  and $80 out). Read off Anthropic's page on 19 November 2026 and pinned in
+  the tests. Fable 5.2 also matched the cost Claude Code records for it in
+  16 sessions, to the seven places it writes. Until now both were priced by
+  the online lookup and labelled as such, or at the Opus 5 stand-in rate
+  with no connection.
+- Anthropic's page no longer prints Claude Haiku 3.5, retired since 19
+  February 2026. Its row stays at the price the page gave on 27 October
+  2026, and `--check-prices` counts it among the retired models.
+- `--check-prices` reads all 21 models on Anthropic's page as matching, so
+  the table is marked verified on 19 November 2026.
+
 ## 1.3.0, 3 November 2026
 
 Every price page read again, two new tables (MiniMax and Xiaomi MiMo), and a

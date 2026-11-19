@@ -397,7 +397,7 @@ class TestCheckPrices(Base):
         before = json.dumps(tm.PRICES, sort_keys=True, default=str)
         code, out = self.run_check(lambda url: self.anthropic_page())
         self.assertEqual(code, 0)
-        self.assertIn("20 of 20", out)
+        self.assertIn("21 of 21", out)
         self.assertNotIn("not in the table", out)
         self.assertEqual(before, json.dumps(tm.PRICES, sort_keys=True, default=str))
 
@@ -459,19 +459,20 @@ class TestCheckPrices(Base):
     def test_a_retired_model_missing_from_the_page_is_expected(self):
         """A retired model missing from the page is counted as retired, not
         named as missing, and the check passes. Runs on the real table, which
-        lists Haiku 3.5 as retired since 27 October 2026; the test used to
-        swap the table's RETIRED for its own and then delete it, which took
-        the real one away from every later test in the process."""
+        lists Sonnet 4 as retired and the page still prints (Haiku 3.5, the
+        model here until its row left the page, by 19 November 2026); the test
+        used to swap the table's RETIRED for its own and then delete it, which
+        took the real one away from every later test in the process."""
         retired = tm._anthropic.RETIRED
-        self.assertIn("claude-haiku-3-5", retired)
-        page = "".join(l for l in self.anthropic_page().splitlines(True) if "Claude Haiku 3.5" not in l)
+        self.assertIn("claude-sonnet-4", retired)
+        page = "".join(l for l in self.anthropic_page().splitlines(True) if "| Claude Sonnet 4 |" not in l)
         code, out = self.run_check(lambda url: page)
         self.assertIs(tm._anthropic.RETIRED, retired)
         self.assertEqual(code, 0)
         self.assertNotIn("not found", out)
         on_page = len(tm._anthropic.PAGE_NAMES) - 1
         self.assertIn(f"{on_page} of {on_page}", out)
-        off_page = [m for m in retired if m == "claude-haiku-3-5"
+        off_page = [m for m in retired if m == "claude-sonnet-4"
                     or m not in tm._anthropic.PAGE_NAMES.values()]
         self.assertIn(f"{len(off_page)} retired, kept at the last published price", out)
 
@@ -686,24 +687,24 @@ class TestExchangeRates(Base):
 # the page with a faked fetch, and each rule the table models.
 #
 # The saved page, fixtures/pages/anthropic_page.md, is lines cut verbatim from
-# https://platform.claude.com/docs/en/about-claude/pricing.md as fetched on 27
-# October 2026: the "Model pricing" heading and its table, and the "Fast mode
+# https://platform.claude.com/docs/en/about-claude/pricing.md as fetched on 19
+# November 2026: the "Model pricing" heading and its table, and the "Fast mode
 # pricing" heading and its table. Nothing in it was typed by hand. A test that
 # needs a different page builds it from that copy.
 
 ANTHROPIC_PAGE_FILE = os.path.join(FIXTURES, "pages", "anthropic_page.md")
 
 
-# Typed from the page on 27 October 2026, not copied from the table:
-# base input, 5m write, 1h write, cache hit, output.
+# Typed from the page on 27 October 2026 (Fable 5.2 on 19 November 2026), not
+# copied from the table: base input, 5m write, 1h write, cache hit, output.
 ANTHROPIC_ON_THE_PAGE = {
+    "claude-fable-5-2": (8, 10, 16, 0.20, 40),
     "claude-fable-5-1": (10, 12.50, 20, 0.25, 50),
     "claude-opus-5-5": (4, 5, 8, 0.20, 20),
     "claude-opus-4-1": (15, 18.75, 30, 1.50, 75),
     "claude-sonnet-5-5": (2, 2.50, 4, 0.10, 10),
     "claude-sonnet-5": (2, 2.50, 4, 0.20, 10),
     "claude-haiku-5-5": (0.10, 0.125, 0.20, 0.01, 0.50),
-    "claude-haiku-3-5": (0.80, 1, 1.60, 0.08, 4),
 }
 
 
@@ -743,7 +744,7 @@ class TestAnthropicPageReader(Base):
         """Guards the reader losing a model to a name cell it cannot clean:
         a "retired, except on ..." link, a <sup> footnote marker, a "limited
         availability" link or Haiku 5.5's two prompt-length rows. Every one
-        of the twenty is read, at the figures the page prints, from one fetch
+        of the twenty-one is read, at the figures the page prints, from one fetch
         of the markdown form."""
         rates, unknown = self.read(self.page)
         self.assertEqual(self.urls, [self.table.SOURCE_MD])
@@ -764,7 +765,8 @@ class TestAnthropicPageReader(Base):
             self.assertAlmostEqual(haiku["long_" + field], want, places=9, msg=field)
         self.assertEqual(haiku["long_over"], 100_000)
         self.assertAlmostEqual(haiku["in"], 0.10, places=9)
-        for model, fast in (("claude-opus-5-5", (8, 40)), ("claude-opus-5", (10, 50)),
+        for model, fast in (("claude-fable-5-2", (16, 80)), ("claude-mythos-5-2", (16, 80)),
+                            ("claude-opus-5-5", (8, 40)), ("claude-opus-5", (10, 50)),
                             ("claude-opus-4-8", (10, 50))):
             with self.subTest(model=model):
                 self.assertEqual((rates[model]["fast_in"], rates[model]["fast_out"]), fast)
@@ -773,15 +775,15 @@ class TestAnthropicPageReader(Base):
     def test_the_saved_page_agrees_with_the_table(self):
         """Guards a table row drifting from the page, and a retired model
         the page no longer lists being reported as missing: --check-prices's
-        own comparison finds all twenty current models matching in every
-        column and the seven archive-priced ones retired."""
+        own comparison finds all twenty-one models on the page matching in
+        every column and the eight it no longer lists retired."""
         r = tm.compare_with_page(self.table, lambda url: self.page)
         self.assertEqual(r["error"], "")
-        self.assertEqual((r["matched"], r["expected"]), (20, 20))
+        self.assertEqual((r["matched"], r["expected"]), (21, 21))
         self.assertEqual((r["diffs"], r["absent"], r["unlisted"]), ([], [], []))
         self.assertEqual(sorted(r["retired"]), sorted(
-            ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku",
-             "claude-3-sonnet", "claude-2.1", "claude-2.0"]))
+            ["claude-haiku-3-5", "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-opus",
+             "claude-3-haiku", "claude-3-sonnet", "claude-2.1", "claude-2.0"]))
 
     def test_columns_are_read_by_header_not_position(self):
         """Guards the page's HTML column order (Input, Output, then the cache

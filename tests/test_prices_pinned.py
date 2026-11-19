@@ -22,9 +22,10 @@ UTC = dt.timezone.utc
 # Anthropic (Claude) rates, typed from the maker's own pricing page by a
 # third reader, so a slip in the table, in either earlier reading or here fails.
 #
-# Each figure was read off the page on 27 October 2026, or, for a retired model
-# the page no longer prints, off the Internet Archive copy of Anthropic's own
-# pricing page named beside it. None was copied from pricing/anthropic.py. A
+# Each figure was read off the page on 27 October 2026 (Fable 5.2 and Mythos
+# 5.2 on 19 November 2026), or, for a retired model the page no longer
+# prints, off the Internet Archive copy of Anthropic's own pricing page
+# named beside it. None was copied from pricing/anthropic.py. A
 # rate change is a new dated row in the table and a new figure here; see
 # pricing/README.md.
 
@@ -39,9 +40,12 @@ class TestAnthropicPublishedRates(Base):
     with no figure changed). The page says "All
     prices are in USD." Its "Model pricing" table has the columns Base input
     tokens, 5m cache writes, 1h cache writes, Cache hits and refreshes, and
-    Output tokens, each in dollars per million tokens ("MTok").
+    Output tokens, each in dollars per million tokens ("MTok"). Claude Fable
+    5.2 and Claude Mythos 5.2 were typed from the same address on 19 November
+    2026 at 00:09 UTC (55,859 bytes).
 
     The page names models by display name; the table id for each:
+    Claude Fable 5.2 claude-fable-5-2, Claude Mythos 5.2 claude-mythos-5-2,
     Claude Fable 5.1 claude-fable-5-1, Claude Mythos 5.1 claude-mythos-5-1,
     Claude Fable 5 claude-fable-5, Claude Mythos 5 claude-mythos-5, Claude
     Opus 5.5 claude-opus-5-5, Claude Opus 5 claude-opus-5, Claude Opus 4.8
@@ -51,9 +55,10 @@ class TestAnthropicPublishedRates(Base):
     claude-sonnet-5-5, Claude Sonnet 5 claude-sonnet-5, Claude Sonnet 4.6
     claude-sonnet-4-6, Claude Sonnet 4.5 claude-sonnet-4-5, Claude Sonnet 4
     claude-sonnet-4, Claude Haiku 5.5 claude-haiku-5-5, Claude Haiku 4.5
-    claude-haiku-4-5, Claude Haiku 3.5 claude-haiku-3-5. Opus 4.1, Opus 4,
-    Sonnet 4 and Haiku 3.5 are marked retired on the page and still priced
-    there.
+    claude-haiku-4-5. Opus 4.1, Opus 4 and Sonnet 4 are marked retired on the
+    page and still priced there. Claude Haiku 3.5 claude-haiku-3-5 was too
+    when the page was read on 27 October 2026, the day its figures here were
+    typed; its row had left the page by 19 November 2026.
 
     Retired models the page no longer prints, each from the raw archive copy
     of Anthropic's own pricing page:
@@ -86,6 +91,8 @@ class TestAnthropicPublishedRates(Base):
 
     # model: (base input, output, cache hit $/MTok)
     OFFICIAL = {
+        "claude-fable-5-2": (8, 40, 0.20),
+        "claude-mythos-5-2": (8, 40, 0.20),
         "claude-fable-5-1": (10, 50, 0.25),
         "claude-mythos-5-1": (10, 50, 0.25),
         "claude-fable-5": (10, 50, 1),
@@ -119,6 +126,8 @@ class TestAnthropicPublishedRates(Base):
     # model: (5-minute cache write, 1-hour cache write $/MTok). The three
     # models whose cards print no cache price are absent.
     WRITES = {
+        "claude-fable-5-2": (10, 16),
+        "claude-mythos-5-2": (10, 16),
         "claude-fable-5-1": (12.50, 20),
         "claude-mythos-5-1": (12.50, 20),
         "claude-fable-5": (12.50, 20),
@@ -240,7 +249,8 @@ class TestAnthropicPublishedRates(Base):
         at standard pricing. (A 900k-token request is billed at the same
         per-token rate as a 9k-token request.)" Today's rate, the page's own
         two request sizes."""
-        flat = ("claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5",
+        flat = ("claude-fable-5-2", "claude-mythos-5-2",
+                "claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5",
                 "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
                 "claude-opus-4-6", "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6")
         for model in flat:
@@ -254,10 +264,12 @@ class TestAnthropicPublishedRates(Base):
                     self.assertAlmostEqual(c["output"], 1_000 * out / M, places=12)
 
     def test_fast_mode_rates(self):
-        """Guards the "Fast mode pricing" table: Claude Opus 5.5 $8 in and $40
-        out; "Claude Opus 5 / Claude Opus 4.8" $10 and $50. The page offers
-        fast mode for those three models only, so every other row has none."""
-        fast = {"claude-opus-5-5": (8, 40), "claude-opus-5": (10, 50),
+        """Guards the "Fast mode pricing" table: Claude Fable 5.2 and Claude
+        Mythos 5.2 $16 in and $80 out; Claude Opus 5.5 $8 and $40; "Claude
+        Opus 5 / Claude Opus 4.8" $10 and $50. The page offers fast mode for
+        those five models only, so every other row has none."""
+        fast = {"claude-fable-5-2": (16, 80), "claude-mythos-5-2": (16, 80),
+                "claude-opus-5-5": (8, 40), "claude-opus-5": (10, 50),
                 "claude-opus-4-8": (10, 50)}
         for model in self.OFFICIAL:
             with self.subTest(model=model):

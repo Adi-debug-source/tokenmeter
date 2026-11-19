@@ -140,13 +140,13 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 27 models, 20 read from its current page and 7 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on seven of those 20.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models, 21 read from its current page and 8 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on eight of those 21.
 2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; every report rereads the live page once a day, and `--check-prices` re-confirms it at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot, Z.ai, MiniMax and Xiaomi MiMo.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
 | Provider | Models | Page checked | Against real bills |
 |---|---|---|---|
-| Anthropic | 27 (11 retired) | 27 Oct 2026 | **yes** |
+| Anthropic | 29 (11 retired) | 19 Nov 2026 | **yes** |
 | OpenAI | 73 (37 retired) | 27 Oct 2026 | not yet |
 | Google (Gemini API) | 29 (19 retired) | 2 Nov 2026 | not yet |
 | xAI | 8 | 26 Sep 2026 | not yet |
