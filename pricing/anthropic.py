@@ -17,12 +17,16 @@ Verified three ways, most recently on 19 November 2026.
    Sonnet 5.5 was added on 6 October 2026 and measured the same way:
    $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
    Haiku 5.5, and Sonnet 5.5's cheaper cache reads, both from 7 October
-   2026, come from the page and the release notes, and are not yet measured
-   against Claude Code. Fable 5.2 was added on 19 November 2026 and matched
-   the same summaries the same day: 16 sessions, each exact to the seven
-   places Claude Code writes, between them base input, output, the 0.025x
-   cache read and the 1-hour write. Its fast rate and Mythos 5.2 come from
-   the page alone.
+   2026, came from the page and the release notes, and were measured on 19
+   November 2026 against the same summaries. Sonnet 5.5 matched in 17
+   sessions, 16 of them with cache reads at 0.05x. Haiku 5.5, priced record
+   by record, matched in 24 sessions: 61 calls, between them input, output,
+   the 0.1x cache read and both cache writes, every one a prompt under
+   100,000 tokens, so its higher tier comes from the page alone. Fable 5.2
+   was added on 19 November 2026 and matched the same summaries the same
+   day: 16 sessions, each exact to the seven places Claude Code writes,
+   between them base input, output, the 0.025x cache read and the 1-hour
+   write. Its fast rate and Mythos 5.2 come from the page alone.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
