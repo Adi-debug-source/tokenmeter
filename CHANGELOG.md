@@ -52,6 +52,16 @@
   link; the reader takes them from there, so all six models are found again.
 - `--check-prices` reads all 6 models on Moonshot's page as matching, with
   no rate changed, so the table is marked verified on 19 November 2026.
+- Prices: Google's Gemini 4 Carbon ($2 in, $10 out, cached $0.10, Priority
+  $3.60 / $18 through 30 November 2026, then $4, $20, $0.20 and $7.20 / $36
+  from 1 December), Gemini 4 Neon ($3, $15, $0.15, Priority $5.40 / $27)
+  and Gemini 4 Hydrogen ($1.50, $7.50, $0.075, Priority $2.70 / $13.50),
+  each caching at 0.05x input with no long-context tier. Read off Google's
+  page on 19 November 2026 and pinned in the tests. Until now they were
+  priced by the online lookup and labelled as such.
+- `--check-prices` reads all 13 current models on Google's page as
+  matching, with no other rate changed, so the table is marked verified on
+  19 November 2026.
 
 ## 1.3.0, 3 November 2026
 

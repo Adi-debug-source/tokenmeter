@@ -30,6 +30,14 @@ figure of the ten current text models as this table holds it. The old
 address's own markdown copy (pricing.md.txt) is still served but no longer
 agrees with the page in every tier, so it is not read.
 
+On 19 November 2026 SOURCE_MD was read again in full (fetched at 01:08 UTC,
+115,964 bytes), every tier of every text model. Three models were new and
+are added: Gemini 4 Carbon, Gemini 4 Neon and Gemini 4 Hydrogen, generally
+available on 10, 18 and 12 November 2026 by Google's changelog
+(https://aistudio.google.com/docs/changelog). Each was typed by hand from its
+Standard and Priority tables. The ten text models already here read as
+before in every tier, and --check-prices matched all thirteen.
+
 **Published, not measured.** Nobody has yet compared these with a real Gemini
 bill or a harness's own cost report. Please do, and open an issue either way.
 
@@ -39,8 +47,10 @@ Rules taken from the page and modelled here:
     counts thoughts separately from the answer, so an adapter or import must
     add them into output.
   - Cached input is 0.1x input on every current text model that offers
-    caching, except Gemini 4 Argon, at 0.05x (implicit caching only). The
-    retired models carry their own multiples, as their pages printed them.
+    caching, except the four Gemini 4 models (Carbon, Argon, Neon and
+    Hydrogen), at 0.05x (implicit caching only), on Standard and Priority
+    alike. The retired models carry their own multiples, as their pages
+    printed them.
   - Long context: Gemini 3.1 Pro Preview and 2.5 Pro, and the retired 3 Pro
     Preview and 2.5 Pro Previews, charge 2x input and cache rates and 1.5x
     output for prompts over 200K tokens. The retired 2.5 Computer Use did the
@@ -49,9 +59,11 @@ Rules taken from the page and modelled here:
     cache above 128K tokens.
   - Gemini 3.6 and 3.8 Flash have two published prices, one through 31
     December 2026 and a higher one from 1 January 2027, as 3.7 Flash had
-    before it was retired, and Gemini 4 Argon one through 30 November 2026
-    and double from 1 December. Both are in the table as dated entries, so
-    each call is priced at the rate in force that day.
+    before it was retired, and Gemini 4 Carbon and 4 Argon one through 30
+    November 2026 and double from 1 December. All are in the table as dated
+    entries, so each call is priced at the rate in force that day. Gemini 4
+    Neon and 4 Hydrogen print one price, with no date and no long-context
+    tier.
   - The Priority tier is `fast`: the engine's rate for a call a reader records
     as fast or priority, which is how the Codex reader already maps a
     "priority" service tier. The existing rows had no fast price; filling it
@@ -79,8 +91,9 @@ Not modelled, and why:
     million tokens) is left out for the same kind of reason.
   - The Flex and Contributor tiers. The row has no key for a cheaper tier
     chosen per call, and no reader records one. Flex is half of Standard on
-    input and output (Gemini 4 Argon $1.00 and $5.00 through 30 November,
-    then $2.00 and $10.00; 3.6 and 3.8 Flash $0.375 and $1.875, then $0.75
+    input and output (Gemini 4 Carbon and 4 Argon $1.00 and $5.00 through 30
+    November, then $2.00 and $10.00; 4 Neon $1.50 and $7.50; 4 Hydrogen
+    $0.75 and $3.75; 3.6 and 3.8 Flash $0.375 and $1.875, then $0.75
     and $3.75; 3.5 Flash-Lite $0.15 and $1.25, cached $0.02; 3.1 Flash-Lite
     $0.125 and $0.75; 3.1 Pro Preview $1.00 and $6.00, $2.00 and $9.00 over
     200K; 3 Flash Preview $0.25 and $1.50; 2.5 Pro $0.625 and $5.00, $1.25
@@ -92,7 +105,10 @@ Not modelled, and why:
     updated 30 October 2026 prints Argon's and 3.8 Flash's Contributor
     prices without the dated rise ($1.00, $5.00 and $0.05 cached; $0.375,
     $1.875 and $0.0375), while their Flex prices still rise on 1 December
-    2026 and 1 January 2027.
+    2026 and 1 January 2027. The page of 19 November 2026 prints Contributor
+    for Gemini 4 Argon (as above) and 4 Hydrogen ($0.75, $3.75 and $0.0375)
+    only; 3.8 Flash, 3.5 Flash-Lite and 3.1 Pro Preview no longer have the
+    tab, and 4 Carbon and 4 Neon never had it.
   - The Batch tier.
   - Audio input and audio cache reads, which have their own higher rate
     (for example 2.5 Flash: $1.00 audio input, $0.1 audio cache). Logs
@@ -127,6 +143,18 @@ current models that only the Internet Archive shows (2.5 Pro, 2.5 Flash and
 2.5 Flash-Lite caching before October 2025; 3.6 Flash before 13 August 2026)
 are not in the table: Google gives no date for them, and an archive copy is
 used here only for a retired model.
+
+Not yet in the table: the changelog of 2 November 2026, the deprecations
+page and a notice in each section of the pricing page say that from 1
+December 2026 every request to gemini-2.5-pro routes to gemini-3.8-flash
+"and be billed at Gemini 3.8 Flash rates", and every request to
+gemini-2.5-flash to gemini-3.5-flash-lite at its rates. The two Flash rows
+are the same in every figure a row holds, so 2.5 Flash's price does not
+move. For 2.5 Pro it is a dated price change, but
+the page prints it only as that notice, beside 2.5 Pro's own unchanged
+tables. The reader checks a row's newest entry against those tables, so a
+dated entry here would show as a difference until the reader also takes the
+routed rate from the notice; that change was not made with this reading.
 """
 
 import datetime as dt
@@ -137,7 +165,7 @@ NAME = "Google"
 SOURCE = "https://aistudio.google.com/docs/pricing"
 # The same page's Markdoc source, which the page itself carries verbatim.
 SOURCE_MD = "https://aistudio.google.com/docs/pricing.md"
-VERIFIED_ON = "2026-11-02"
+VERIFIED_ON = "2026-11-19"
 MEASURED = False
 
 # Gemini has no per-token cache write fee; creating a cache bills as input.
@@ -165,12 +193,19 @@ def _row(inp, out, cached_mult=0.1, fast=None, long=None, since=""):
 
 
 PRICES = {
+    # Added 19 November 2026, GA on 10 November 2026: launch prices through
+    # 30 November 2026, then double from 1 December, as Argon's.
+    "gemini-4-carbon":        [_row(2.00, 10.00, 0.05, fast=(3.60, 18.00)),
+                               _row(4.00, 20.00, 0.05, fast=(7.20, 36.00), since="2026-12-01")],
     # Added 16 October 2026: the flagship reasoning model, GA on 13 October
     # 2026. Launch prices through 30 November 2026, then double from 1
     # December; cached input is 0.05x, where every other model's is 0.1x.
     # No long-context tier: the page gives one price whatever the prompt.
     "gemini-4-argon":         [_row(2.00, 10.00, 0.05, fast=(3.60, 18.00)),
                                _row(4.00, 20.00, 0.05, fast=(7.20, 36.00), since="2026-12-01")],
+    # Added 19 November 2026, GA on 18 and 12 November 2026: one price each.
+    "gemini-4-neon":          [_row(3.00, 15.00, 0.05, fast=(5.40, 27.00))],
+    "gemini-4-hydrogen":      [_row(1.50, 7.50, 0.05, fast=(2.70, 13.50))],
     # Launch prices through 31 December 2026, then the published list price.
     "gemini-3.8-flash":       [_row(0.75, 3.75, fast=(1.35, 6.75)),
                                _row(1.50, 7.50, fast=(2.70, 13.50), since="2027-01-01")],

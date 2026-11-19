@@ -834,8 +834,8 @@ class TestOpenAIPublishedRates(Base):
 # third reader, so a slip in the table, in either earlier reading or here fails.
 #
 # Each figure was read off the page, or for a retired model off the Internet
-# Archive's copy of the same page, on 27 October 2026, not copied from
-# pricing/google.py. A rate change is a new dated row in the table and a new
+# Archive's copy of the same page, on 27 October 2026 (Gemini 4 Carbon, Neon
+# and Hydrogen on 19 November 2026), not copied from pricing/google.py. A rate change is a new dated row in the table and a new
 # figure here; see pricing/README.md.
 
 # The day the page was read. Lookups are made on this day, so a launch price
@@ -855,6 +855,11 @@ class TestGooglePublishedRates(Base):
     some Contributor); the "Paid Tier, per 1M tokens in USD" column of the
     Standard tab is what OFFICIAL pins, and the Priority tab is what the
     table's `fast` holds. Batch, Flex and Contributor are not pinned.
+    Gemini 4 Carbon, Gemini 4 Neon and Gemini 4 Hydrogen were typed the same
+    way on 19 November 2026 from the page's markdown form,
+    https://aistudio.google.com/docs/pricing.md, fetched at 01:08 UTC
+    (115,964 bytes). Lookups are still made on GOOGLE_READ_ON; each of the
+    three has its first price from launch, so that day gives it too.
 
     Retired models: the page no longer lists them, so each is read from the
     Internet Archive copy of the same page,
@@ -873,6 +878,9 @@ class TestGooglePublishedRates(Base):
 
     OFFICIAL = {
         # Current, from the live page.
+        "gemini-4-carbon": (2.00, 10.00, 0.10),
+        "gemini-4-neon": (3.00, 15.00, 0.15),
+        "gemini-4-hydrogen": (1.50, 7.50, 0.075),
         "gemini-4-argon": (2.00, 10.00, 0.10),
         "gemini-3.8-flash": (0.75, 3.75, 0.075),
         "gemini-3.6-flash": (0.75, 3.75, 0.075),
@@ -915,6 +923,9 @@ class TestGooglePublishedRates(Base):
     # capture. None where the section has no Priority tab: Standard and Batch
     # only, or a single table.
     PRIORITY = {
+        "gemini-4-carbon": (3.60, 18.00),
+        "gemini-4-neon": (5.40, 27.00),
+        "gemini-4-hydrogen": (2.70, 13.50),
         "gemini-4-argon": (3.60, 18.00),
         "gemini-3.8-flash": (1.35, 6.75),
         "gemini-3.6-flash": (1.35, 6.75),
@@ -954,6 +965,7 @@ class TestGooglePublishedRates(Base):
     # the figure chosen for the table and stated in its docstring, so $0.054
     # is pinned here.
     PRIORITY_CACHE = {
+        "gemini-4-carbon": 0.18, "gemini-4-neon": 0.27, "gemini-4-hydrogen": 0.135,
         "gemini-4-argon": 0.18, "gemini-3.8-flash": 0.135, "gemini-3.6-flash": 0.135,
         "gemini-3.5-flash-lite": 0.054, "gemini-3.1-flash-lite": 0.045,
         "gemini-3.1-pro-preview": 0.36, "gemini-3-flash-preview": 0.09,
@@ -994,10 +1006,11 @@ class TestGooglePublishedRates(Base):
 
     # Launch prices with a published end: (first day of the new price,
     # Standard (input, output, caching), Priority (input, output, caching)).
-    # Argon: "$2.00 through November 30, 2026. $4.00 starting December 1,
-    # 2026." The Flash models: "through December 31, 2026" and "starting
+    # Carbon and Argon: "$2.00 through November 30, 2026. $4.00 starting
+    # December 1, 2026." The Flash models: "through December 31, 2026" and "starting
     # January 1, 2027"; 3.7 Flash from capture 20261008045525.
     DATED = {
+        "gemini-4-carbon": ("2026-12-01", (4.00, 20.00, 0.20), (7.20, 36.00, 0.36)),
         "gemini-4-argon": ("2026-12-01", (4.00, 20.00, 0.20), (7.20, 36.00, 0.36)),
         "gemini-3.8-flash": ("2027-01-01", (1.50, 7.50, 0.15), (2.70, 13.50, 0.27)),
         "gemini-3.7-flash": ("2027-01-01", (1.50, 7.50, 0.15), (2.70, 13.50, 0.27)),
@@ -1014,7 +1027,7 @@ class TestGooglePublishedRates(Base):
         """Guards against a Gemini rate typed wrongly into pricing/google.py,
         a model on the page or in the archive missing from the table, or a
         table row no reading accounts for: the table must hold exactly these
-        29 ids, each at the Standard tab's input, output and caching price on
+        32 ids, each at the Standard tab's input, output and caching price on
         the day the page was read."""
         self.assertEqual(set(tm.TABLES["google"].PRICES), set(self.OFFICIAL),
                          "google table and the page's model list differ")
@@ -1102,8 +1115,8 @@ class TestGooglePublishedRates(Base):
                 self.assertAlmostEqual(c["output"], out, places=9)
 
     def test_launch_prices_end_on_the_published_date(self):
-        """Guards the dated price changes the page prints: Gemini 4 Argon
-        doubles on 1 December 2026 and 3.8, 3.7 and 3.6 Flash double on
+        """Guards the dated price changes the page prints: Gemini 4 Carbon
+        and 4 Argon double on 1 December 2026 and 3.8, 3.7 and 3.6 Flash double on
         1 January 2027, on Standard and Priority alike. A call keeps the
         price of its own day, so the last launch day and the first new day
         are each pinned."""

@@ -141,12 +141,16 @@ Source: <https://developers.openai.com/api/docs/pricing>. Last verified 19 Nov 2
 
 ## Google
 
-Source: <https://aistudio.google.com/docs/pricing>. Last verified 2 Nov 2026, checked against the published page; not yet against a real bill.
+Source: <https://aistudio.google.com/docs/pricing>. Last verified 19 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
+| `gemini-4-carbon` | $2 | $0.10 | - | $10 | until 2026-12-01; fast $3.60 / $18 |
+| `gemini-4-carbon` | $4 | $0.20 | - | $20 | from 2026-12-01; fast $7.20 / $36 |
 | `gemini-4-argon` | $2 | $0.10 | - | $10 | until 2026-12-01; fast $3.60 / $18 |
 | `gemini-4-argon` | $4 | $0.20 | - | $20 | from 2026-12-01; fast $7.20 / $36 |
+| `gemini-4-neon` | $3 | $0.15 | - | $15 | fast $5.40 / $27 |
+| `gemini-4-hydrogen` | $1.50 | $0.075 | - | $7.50 | fast $2.70 / $13.50 |
 | `gemini-3.8-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; fast $1.35 / $6.75 |
 | `gemini-3.8-flash` | $1.50 | $0.15 | - | $7.50 | from 2027-01-01; fast $2.70 / $13.50 |
 | `gemini-3.7-flash` | $0.75 | $0.075 | - | $3.75 | until 2027-01-01; fast $1.35 / $6.75; retirement 2026-10-08, kept at the last published price |

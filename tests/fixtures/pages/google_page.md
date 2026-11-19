@@ -1,3 +1,221 @@
+## Gemini 4 Carbon  {% id="gemini-4-carbon" %}
+
+{% two-column-layout %}
+  {% left-column class="center-vertically" %}
+  *[`gemini-4-carbon`](/docs/models/gemini-4-carbon)*
+
+  {% /left-column %}
+
+  {% right-column class="center-vertically right-align" %}
+  {% button href="https://aistudio.google.com/prompts/new_chat?model=gemini-4-carbon" variant="ais" %}
+  Try it in Google AI Studio
+
+  {% /button %}
+
+  {% /right-column %}
+
+{% /two-column-layout %}
+
+{% hr /%}
+
+Our most capable reasoning model, built for complex software engineering, deep
+mathematical and scientific problem solving, high factual accuracy, autonomous
+multi-step agents, and long-decode generation up to 1M tokens.
+
+{% callout type="note" %}
+  Gemini 4 Carbon is not available on the Free tier. Every token the model processes is counted and billed, including thinking tokens and internal tool system instructions and function declarations when using grounding.
+
+{% /callout %}
+
+{% tabs %}
+  {% tab title="Standard" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $2.00 through November 30, 2026.   
+  $4.00 starting December 1, 2026.
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $10.00 through November 30, 2026.   
+  $20.00 starting December 1, 2026.
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.10 through November 30, 2026.   
+  $0.20 starting December 1, 2026.   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+  {% tab title="Batch" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $1.00 through November 30, 2026.   
+  $2.00 starting December 1, 2026.
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $5.00 through November 30, 2026.   
+  $10.00 starting December 1, 2026.
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.05 through November 30, 2026.   
+  $0.10 starting December 1, 2026.   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Flex" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $1.00 through November 30, 2026.   
+  $2.00 starting December 1, 2026.
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $5.00 through November 30, 2026.   
+  $10.00 starting December 1, 2026.
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.05 through November 30, 2026.   
+  $0.10 starting December 1, 2026.   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Priority" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $3.60 through November 30, 2026.   
+  $7.20 starting December 1, 2026.
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $18.00 through November 30, 2026.   
+  $36.00 starting December 1, 2026.
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.18 through November 30, 2026.   
+  $0.36 starting December 1, 2026.   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+{% /tabs %}
+
 ## Gemini 4 Argon  {% id="gemini-4-argon" %}
 
 {% two-column-layout %}
@@ -18,9 +236,10 @@
 
 {% hr /%}
 
-Our flagship reasoning model, built for complex software engineering, deep
-mathematical and scientific problem solving, autonomous multi-step agents, and
-long-decode generation up to 1M tokens.
+Our efficient Gemini 4 frontier reasoning model. It delivers Gemini 4
+intelligence with faster responses and lower token spend per turn compared to
+[Gemini 4 Carbon](/docs/pricing#gemini-4-carbon) across complex coding, agentic,
+math, and science tasks.
 
 {% callout type="note" %}
   Gemini 4 Argon is not available on the Free tier. Every token the model processes is counted and billed, including thinking tokens and internal tool system instructions and function declarations when using grounding.
@@ -119,11 +338,6 @@ long-decode generation up to 1M tokens.
   * [No](/docs/terms)
   {% /table %}
 
-  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
-    more queries to Google Search. You will be charged for each individual search
-    query performed.
-    
-
   {% /tab %}
 
   {% tab title="Flex" %}
@@ -160,11 +374,6 @@ long-decode generation up to 1M tokens.
   * Not available
   * [No](/docs/terms)
   {% /table %}
-
-  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
-    more queries to Google Search. You will be charged for each individual search
-    query performed.
-    
 
   {% /tab %}
 
@@ -261,6 +470,463 @@ long-decode generation up to 1M tokens.
 
   * Used to improve our products
   * Not available
+  * [Yes](/docs/logs-policy#contributor-tier)
+  {% /table %}
+
+  {% sup %}*{% /sup %} Discounts and model availability are subject to change.
+    
+
+  {% /tab %}
+
+{% /tabs %}
+
+## Gemini 4 Neon  {% id="gemini-4-neon" %}
+
+{% two-column-layout %}
+  {% left-column class="center-vertically" %}
+  *[`gemini-4-neon`](/docs/models/gemini-4-neon)*
+
+  {% /left-column %}
+
+  {% right-column class="center-vertically right-align" %}
+  {% button href="https://aistudio.google.com/prompts/new_chat?model=gemini-4-neon" variant="ais" %}
+  Try it in Google AI Studio
+
+  {% /button %}
+
+  {% /right-column %}
+
+{% /two-column-layout %}
+
+{% hr /%}
+
+Brings frontier-level intelligence with fast end-to-end task completion across
+complex software engineering, knowledge work, and science workflows, featuring a
+unified 1M-token context window and long-decode generation up to 1M tokens.
+
+{% callout type="note" %}
+  Gemini 4 Neon is not available on the Free tier. Every token the model processes is counted and billed, including thinking tokens and internal tool system instructions and function declarations when using grounding.
+
+{% /callout %}
+
+{% tabs %}
+  {% tab title="Standard" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $3.00
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $15.00
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.15   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+  {% tab title="Batch" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $1.50
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $7.50
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.075   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Flex" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $1.50
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $7.50
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.075   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Priority" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $5.40
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $27.00
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.27   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * Not available
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+{% /tabs %}
+
+## Gemini 4 Hydrogen  {% id="gemini-4-hydrogen" %}
+
+{% two-column-layout %}
+  {% left-column class="center-vertically" %}
+  *[`gemini-4-hydrogen`](/docs/models/gemini-4-hydrogen)*
+
+  {% /left-column %}
+
+  {% right-column class="center-vertically right-align" %}
+  {% button href="https://aistudio.google.com/prompts/new_chat?model=gemini-4-hydrogen" variant="ais" %}
+  Try it in Google AI Studio
+
+  {% /button %}
+
+  {% /right-column %}
+
+{% /two-column-layout %}
+
+{% hr /%}
+
+Brings cutting-edge intelligence to everyone, with speed and efficiency for
+everyday coding and agentic workflows, featuring a unified 1M-token context
+window and long-decode generation up to 1M tokens.
+
+{% callout type="note" %}
+  Every token the model processes is counted and billed, including thinking tokens and internal tool system instructions and function declarations when using grounding.
+
+{% /callout %}
+
+{% tabs %}
+  {% tab title="Standard" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Free of charge
+  * $1.50
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Free of charge
+  * $7.50
+
+  ---
+
+  * Context caching price
+  * Free of charge
+  * $0.075   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * [Yes](/docs/terms)
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+  {% tab title="Batch" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $0.75
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $3.75
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.0375   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * [Yes](/docs/terms)
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Flex" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Not available
+  * $0.75
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Not available
+  * $3.75
+
+  ---
+
+  * Context caching price
+  * Not available
+  * $0.0375   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * [Yes](/docs/terms)
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% /tab %}
+
+  {% tab title="Priority" %}
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD
+
+  ---
+
+  * Input price
+  * Free of charge
+  * $2.70
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Free of charge
+  * $13.50
+
+  ---
+
+  * Context caching price
+  * Free of charge
+  * $0.135   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Grounding with Google Search{% sup %}*{% /sup %}
+  * Not available
+  * 5,000 free search requests per month (shared across all Gemini 3 and newer models),
+  then $14 per 1,000 requests (subject to a [daily cap](/docs/pricing#pricing-for-tools) of 1,500 requests per day).
+
+  ---
+
+  * Grounding with Google Maps
+  * Not available
+  * 5,000 requests per month (free, shared across all Gemini 3 and newer models), then $14 / 1,000
+  search queries.
+
+  ---
+
+  * Used to improve our products
+  * [Yes](/docs/terms)
+  * [No](/docs/terms)
+  {% /table %}
+
+  {% sup %}*{% /sup %} A customer-submitted request to Gemini may result in one or
+    more queries to Google Search. You will be charged for each individual search
+    query performed.
+    
+
+  {% /tab %}
+
+  {% tab title="Contributor" %}
+  {% callout type="note" %}
+  The Gemini API Contributor Tier is offered as a private preview on an
+      invite-only basis. Speed and reliability are equivalent to
+      [Standard Tier inference](/docs/optimization). Eligible users will be invited by
+      email and see a callout in AI Studio.
+
+  {% /callout %}
+
+  {% table %}
+  * Feature
+  * Free Tier
+  * Paid Tier, per 1M tokens in USD{% sup %}*{% /sup %}
+
+  ---
+
+  * Input price
+  * Free of charge
+  * $0.75
+
+  ---
+
+  * Output price (including thinking tokens)
+  * Free of charge
+  * $3.75
+
+  ---
+
+  * Context caching price
+  * Free of charge
+  * $0.0375   
+  Implicit caching only (explicit caching is not supported).
+
+  ---
+
+  * Used to improve our products
+  * [Yes](/docs/terms)
   * [Yes](/docs/logs-policy#contributor-tier)
   {% /table %}
 
@@ -511,51 +1177,6 @@ and simple data processing.
     query performed.
 
   {% sup %}**{% /sup %} Can be tested in Google AI Studio.
-    
-
-  {% /tab %}
-
-  {% tab title="Contributor" %}
-  {% callout type="note" %}
-  The Gemini API Contributor Tier is offered as a private preview on an
-      invite-only basis. Speed and reliability are equivalent to
-      [Standard Tier inference](/docs/optimization). Eligible users will be invited by
-      email and see a callout in AI Studio.
-
-  {% /callout %}
-
-  {% table %}
-  * Feature
-  * Free Tier
-  * Paid Tier, per 1M tokens in USD{% sup %}*{% /sup %}
-
-  ---
-
-  * Input price
-  * Free of charge
-  * $0.15 (text / image / video / audio)
-
-  ---
-
-  * Output price (including thinking tokens)
-  * Free of charge
-  * $1.25
-
-  ---
-
-  * Context caching price
-  * Not available
-  * $0.015    
-  $1.00 / 1,000,000 tokens per hour (storage price)
-
-  ---
-
-  * Used to improve our products
-  * [Yes](/docs/terms)
-  * [Yes](/docs/logs-policy#contributor-tier)
-  {% /table %}
-
-  {% sup %}*{% /sup %} Discounts and model availability are subject to change.
     
 
   {% /tab %}
@@ -887,75 +1508,24 @@ capabilities, and vibe-coding.
 
   {% /tab %}
 
-  {% tab title="Contributor" %}
-  {% callout type="note" %}
-  The Gemini API Contributor Tier is offered as a private preview on an
-      invite-only basis. Speed and reliability are equivalent to
-      [Standard Tier inference](/docs/optimization). Eligible users will be invited by
-      email and see a callout in AI Studio.
-
-  {% /callout %}
-
-  {% table %}
-  * Feature
-  * Free Tier
-  * Paid Tier, per 1M tokens in USD{% sup %}*{% /sup %}
-
-  ---
-
-  * Input price
-  * Not available
-  * $1.00, prompts <= 200k tokens    
-  $2.00, prompts > 200k tokens
-
-  ---
-
-  * Output price (including thinking tokens)
-  * Not available
-  * $6.00, prompts <= 200k tokens    
-  $9.00, prompts > 200k tokens
-
-  ---
-
-  * Context caching price
-  * Not available
-  * $0.10, prompts <= 200k tokens    
-  $0.20, prompts > 200k tokens    
-  $4.50 / 1,000,000 tokens per hour (storage price)
-
-  ---
-
-  * Used to improve our products
-  * Not available
-  * [Yes](/docs/logs-policy#contributor-tier)
-  {% /table %}
-
-  {% sup %}*{% /sup %} Discounts and model availability are subject to change.
-    
-
-  {% /tab %}
-
 {% /tabs %}
 
 ## Gemini 2.5 Flash  {% id="gemini-2.5-flash" %}
 
-{% two-column-layout %}
-  {% left-column class="center-vertically" %}
-  *[`gemini-2.5-flash`](/docs/models/gemini-2.5-flash)*
-
-  {% /left-column %}
-
-  {% right-column class="center-vertically right-align" %}
-  {% button href="https://aistudio.google.com?model=gemini-2.5-flash" variant="ais" %}
-  Try it in Google AI Studio
-
-  {% /button %}
-
-  {% /right-column %}
-
-{% /two-column-layout %}
+*[`gemini-2.5-flash`](/docs/models/gemini-2.5-flash)*
 
 {% hr /%}
+
+{% callout type="caution" %}
+  Gemini 2.5 Flash (`gemini-2.5-flash`) is
+  [deprecated](/docs/deprecations#gemini-2.5-flash-models) and is no longer
+  available to select in Google AI Studio. Effective December 1, 2026, all API
+  requests to `gemini-2.5-flash` will automatically route to
+  [Gemini 3.5 Flash-Lite (`gemini-3.5-flash-lite`)](/docs/models/gemini-3.5-flash-lite)
+  and be billed at
+  [Gemini 3.5 Flash-Lite rates](/docs/pricing#gemini-3.5-flash-lite).
+
+{% /callout %}
 
 Our first hybrid reasoning model which supports a 1M token context window and
 has thinking budgets.

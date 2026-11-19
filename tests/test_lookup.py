@@ -1180,23 +1180,35 @@ class TestOpenAIPageReader(Base):
 # Google (Gemini API): the page reader in pricing/google.py, run on a saved
 # copy of the page with a faked fetch, and each rule the table models.
 #
-# The saved page, fixtures/pages/google_page.md, is five model sections cut
+# The saved page, fixtures/pages/google_page.md, is eight model sections cut
 # verbatim, in page order, from https://aistudio.google.com/docs/pricing.md as
-# fetched on 2 November 2026, each from its "## " heading to the next: Gemini 4
-# Argon (dated prices), 3.5 Flash-Lite, the 3.8 Live section (a model kind the
-# reader leaves out), 3.1 Pro Preview (long context, two ids) and 2.5 Flash
-# (audio prices beside the text ones). Nothing in it was typed by hand. A test
-# that needs a different page builds it from that copy. It replaced a cut of
-# the HTML page at https://ai.google.dev/gemini-api/docs/pricing of 27 October
+# fetched on 19 November 2026 at 01:08 UTC (115,964 bytes), each from its "## "
+# heading to the next: Gemini 4 Carbon and 4 Argon (dated prices), 4 Neon and
+# 4 Hydrogen, 3.5 Flash-Lite, the 3.8 Live section (a model kind the reader
+# leaves out), 3.1 Pro Preview (long context, two ids) and 2.5 Flash (audio
+# prices beside the text ones, and a deprecation notice naming another
+# model's id). Nothing in it was typed by hand. A test that needs a different
+# page builds it from that copy. It replaced a cut of 2 November 2026 that
+# had the other five sections only, which in turn replaced a cut of the HTML
+# page at https://ai.google.dev/gemini-api/docs/pricing of 27 October
 # 2026, because the page moved and its HTML no longer holds the tables.
 
 GOOGLE_PAGE_FILE = os.path.join(FIXTURES, "pages", "google_page.md")
 
 
 # Typed from the page on 27 October 2026, not copied from the table: the
-# Standard and Priority tables of each text model. The copy of 2 November
-# 2026 that the saved page is cut from prints the same figures.
+# Standard and Priority tables of each text model; Gemini 4 Carbon, Neon and
+# Hydrogen typed from the copy of 19 November 2026 that the saved page is cut
+# from, which prints the same figures for the others.
 GOOGLE_ON_THE_PAGE = {
+    "gemini-4-carbon": {
+        "in": 4.00, "out": 20.00, "cached": 0.20, "fast_in": 7.20, "fast_out": 36.00,
+        "_history": [
+            {"from": "", "in": 2.00, "out": 10.00, "cached": 0.10, "fast_in": 3.60, "fast_out": 18.00},
+            {"from": "2026-12-01", "in": 4.00, "out": 20.00, "cached": 0.20,
+             "fast_in": 7.20, "fast_out": 36.00}]},
+    "gemini-4-neon": {"in": 3.00, "out": 15.00, "cached": 0.15, "fast_in": 5.40, "fast_out": 27.00},
+    "gemini-4-hydrogen": {"in": 1.50, "out": 7.50, "cached": 0.075, "fast_in": 2.70, "fast_out": 13.50},
     "gemini-4-argon": {
         "in": 4.00, "out": 20.00, "cached": 0.20, "fast_in": 7.20, "fast_out": 36.00,
         "_history": [
@@ -1261,8 +1273,9 @@ class TestGooglePageReaderOnTheSavedPage(Base):
         c = tm.compare_with_page(self.table, lambda url: self.html)
         self.assertEqual((c["error"], c["found"]), ("", True))
         self.assertEqual((c["diffs"], c["unlisted"]), ([], []))
-        self.assertEqual(c["matched"], 4)
-        self.assertNotIn("gemini-4-argon", c["absent"])
+        self.assertEqual(c["matched"], 7)
+        for mid in ("gemini-4-carbon", "gemini-4-argon", "gemini-4-neon", "gemini-4-hydrogen"):
+            self.assertNotIn(mid, c["absent"])
 
     def test_a_changed_priority_figure_is_reported(self):
         """The Priority figures are checked, not just read: a page whose
