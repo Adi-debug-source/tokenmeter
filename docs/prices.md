@@ -224,7 +224,7 @@ Source: <https://docs.mistral.ai/inference/pricing>. Last verified 2 Nov 2026, c
 
 ## Moonshot
 
-Source: <https://platform.kimi.ai/docs/pricing/chat>. Last verified 27 Oct 2026, checked against the published page; not yet against a real bill.
+Source: <https://platform.kimi.ai/docs/pricing/chat>. Last verified 19 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|

@@ -38,6 +38,13 @@
   day it was first read. Earlier calls keep the flat rate.
 - `--check-prices` reads all 40 models on OpenAI's page as matching, so the
   table is marked verified on 19 November 2026.
+- Fixed: since Moonshot rebuilt its Kimi pricing page in November 2026,
+  `--check-prices` and the daily check said the page was read but no rates
+  were found. The figures now sit in the page's embedded manifest rather
+  than in Next.js script chunks, and the K2 rows name their model without a
+  link; the reader takes them from there, so all six models are found again.
+- `--check-prices` reads all 6 models on Moonshot's page as matching, with
+  no rate changed, so the table is marked verified on 19 November 2026.
 
 ## 1.3.0, 3 November 2026
 

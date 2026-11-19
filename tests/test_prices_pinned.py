@@ -1424,6 +1424,11 @@ class TestMoonshotPublishedRates(Base):
     dated rate change. Its only date is the notice that the K2 series closes to
     newly registered users on 31 October 2026 and is to be retired by the end
     of December 2026; existing users keep the same rates, so no figure moves.
+
+    Read again by hand on 19 November 2026 at 00:46 UTC, from the compiled
+    page in the HTML's Mintlify manifest (145,640 bytes, md5
+    455ee37b09f55fdb3703573b09be8f26): the same six models and every figure
+    below unchanged, with the same K2 notice.
     """
 
     OFFICIAL = {

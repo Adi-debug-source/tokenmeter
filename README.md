@@ -152,7 +152,7 @@ There are three levels of confidence, and every report says which one each figur
 | xAI | 8 | 26 Sep 2026 | not yet |
 | DeepSeek | 2 | 2 Nov 2026 | not yet |
 | Mistral | 10 (3 retired) | 2 Nov 2026 | not yet |
-| Moonshot (Kimi) | 6 | 27 Oct 2026 | not yet |
+| Moonshot (Kimi) | 6 | 19 Nov 2026 | not yet |
 | Z.ai (GLM) | 17 | 27 Oct 2026 | not yet |
 | MiniMax | 2 | 2 Nov 2026 | not yet |
 | Xiaomi MiMo | 3 | 2 Nov 2026 | not yet |
