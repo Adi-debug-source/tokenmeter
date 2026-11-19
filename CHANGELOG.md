@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.3.1, 19 November 2026
+
+Claude Fable 5.2 and Mythos 5.2, the models OpenAI and Google have released
+since 1.3.0, and readers for the pricing pages OpenAI and Moonshot rebuilt,
+which had every online user warned daily about rates that had not moved. A
+page a reader can no longer see now fails the check where it used to pass.
+Fixes from a security audit: the ledger and caches are their owner's alone,
+names are printable, a looked-up rate is checked before it is trusted, and
+one badly shaped log line no longer ends every report.
+
+### Prices
 
 - Prices: Claude Fable 5.2 and Claude Mythos 5.2 ($8 in, $40 out, cache hits
   $0.20, which is 0.025x input, cache writes $10 and $16, fast mode $16 in
@@ -62,6 +72,8 @@
 - `--check-prices` reads all 13 current models on Google's page as
   matching, with no other rate changed, so the table is marked verified on
   19 November 2026.
+### Security
+
 - Fixed: the ledger, the backup a rebuild keeps, the exchange-rate and
   price caches and the status line's day total were written readable by
   every account on the Mac (0644), though they name projects, sessions,
@@ -95,6 +107,11 @@
 - `SECURITY.md` names every request Tokenmeter makes, the daily reread of
   each provider's pricing page and the OpenAI lookup whose address names
   the model included, as the README already did.
+
+### Project
+
+- The test workflow runs with read-only permissions, and its actions are
+  pinned by commit.
 
 ## 1.3.0, 3 November 2026
 
