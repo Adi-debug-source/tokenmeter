@@ -513,7 +513,9 @@ the menu bar image is to be captured from the same history, as step 4 says.
 `docs/screenshots/make_demo.py` writes it: a home folder holding three months
 of a made-up user's Claude Code transcripts, a few Codex, Gemini CLI and
 OpenCode sessions, and a ledger to match. `docs/screenshots/shoot.py` takes
-six of the images from it:
+seven images from it: the six the README shows beside the menu bar's, and
+`status-line.png`, the status line's two lines for the demo's newest
+session, which the README gives as text until that image has been taken:
 
     DEMO=/tmp/tokenmeter-demo
     TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force

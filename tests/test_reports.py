@@ -1128,6 +1128,42 @@ class TestCommandLine(Base):
             for name in re.findall(r"TOKENMETER_[A-Z_]+", source):
                 self.assertIn(name, names)
 
+    def test_every_link_between_the_documents_leads_somewhere(self):
+        """Guards the links between README.md and the pages under docs/,
+        which the README was split into: a page moved or a heading reworded
+        leaves a link that opens nothing on GitHub. Every relative link in a
+        document names a file in the repository, and one to a heading names a
+        heading that file has, spelt as GitHub spells its anchor."""
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "adapters/README.md",
+                 "pricing/README.md", "fonts/README.md"]
+        pages += ["docs/" + f for f in sorted(os.listdir(os.path.join(repo, "docs")))
+                  if f.endswith(".md")]
+        pages += ["docs/github/about.md"]
+
+        def anchors(path):
+            text = re.sub(r"```.*?```", "", slurp(path, encoding="utf-8"), flags=re.S)
+            return {re.sub(r"[^a-z0-9 _-]", "", title.strip().lower()).replace(" ", "-")
+                    for title in re.findall(r"^#+ (.+)$", text, re.M)}
+
+        seen = 0
+        for page in pages:
+            text = re.sub(r"```.*?```", "", slurp(os.path.join(repo, page), encoding="utf-8"),
+                          flags=re.S)
+            links = re.findall(r"\]\(([^)\s]+)\)", text) + re.findall(r'src="([^"]+)"', text)
+            for link in links:
+                if re.match(r"[a-z]+:", link):
+                    continue
+                seen += 1
+                target, _, anchor = link.partition("#")
+                path = os.path.normpath(os.path.join(repo, os.path.dirname(page), target)
+                                        if target else os.path.join(repo, page))
+                with self.subTest(page=page, link=link):
+                    self.assertTrue(os.path.exists(path), f"{page} links to {link}")
+                    if anchor and path.endswith(".md"):
+                        self.assertIn(anchor, anchors(path))
+        self.assertGreater(seen, 30)
+
 
 class TestOpeningTheDashboard(Base):
     """--html ran macOS's open on every platform, so a machine without it
