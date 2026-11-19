@@ -17,12 +17,22 @@ Verified three ways, most recently on 19 November 2026.
    Sonnet 5.5 was added on 6 October 2026 and measured the same way:
    $0.0744524, exact, with base input, a 0.1x cache read and a 1-hour write.
    Haiku 5.5, and Sonnet 5.5's cheaper cache reads, both from 7 October
-   2026, come from the page and the release notes, and are not yet measured
-   against Claude Code. Fable 5.2 was added on 19 November 2026 and matched
-   the same summaries the same day: 16 sessions, each exact to the seven
-   places Claude Code writes, between them base input, output, the 0.025x
-   cache read and the 1-hour write. Its fast rate and Mythos 5.2 come from
-   the page alone.
+   2026, came from the page and the release notes, and were measured on 19
+   November 2026 against the same summaries. Sonnet 5.5 matched in 17
+   sessions, 16 of them with cache reads at 0.05x. Haiku 5.5, priced record
+   by record, matched in 24 sessions: 61 calls, between them input, output,
+   the 0.1x cache read and both cache writes, every one a prompt under
+   100,000 tokens. Its higher tier was measured the same day in five older
+   sessions holding 26 calls of 102,109 to 160,911 tokens, nearly all of
+   each prompt a cache read or a 5-minute write, beside calls of up to
+   97,616 at the lower tier: in each session the recorded calls priced
+   here, plus the web calls Claude Code keeps no record of, priced at base
+   rates, equal its cost to seven places, where base rates for the 26 would
+   fall 3 to 13 cents short. Fable 5.2 was added on 19 November 2026 and
+   matched the same summaries the same day: 16 sessions, each exact to the
+   seven places Claude Code writes, between them base input, output, the
+   0.025x cache read and the 1-hour write. Its fast rate and Mythos 5.2
+   come from the page alone.
 
 2. Against the published page, row by row: 11 September 2026 for every
    model, and again on 26 September 2026 for all eighteen rows, both cache
@@ -44,9 +54,13 @@ Verified three ways, most recently on 19 November 2026.
 3. By the test suite. TestPublishedRates holds the published figure for every
    model and fails if this table drifts from it.
 
-One assumption remains: the 5-minute cache write at 1.25x is published but not
-measured, because Claude Code gives no way to force one. It carries about 3.6%
-of a typical total. The retired models below were never measured.
+The 5-minute cache write at 1.25x, which Claude Code gives no way to force,
+was measured on 19 November 2026 against the per-model `costUSD` summaries in
+Claude Code's transcripts: 53 sessions that made such writes (Opus 5.5 in 32,
+Sonnet 5.5 in 14, Fable 5.2 in 5, Opus 4.8 in 2), 29 of them with no other
+kind of cache write. With every other component priced from this table, each
+session's recorded cost gives a multiple of 1.25 to thirteen decimal places.
+The retired models below were never measured.
 
 Retired models. Every retirement date comes from Anthropic's deprecation
 page, https://platform.claude.com/docs/en/about-claude/model-deprecations

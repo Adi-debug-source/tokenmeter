@@ -140,7 +140,7 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models, 21 read from its current page and 8 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on eight of those 21.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models, 21 read from its current page and 8 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on nine of those 21.
 2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; every report rereads the live page once a day, and `--check-prices` re-confirms it at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot, Z.ai, MiniMax and Xiaomi MiMo.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
@@ -180,7 +180,7 @@ The tables model what each provider publishes and a log can support: cached inpu
 
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
-**One known assumption:** Anthropic's 5-minute cache write multiplier (1.25x) is taken from the documentation and has not been measured, because Claude Code gives no way to force one. It carries roughly 3.6% of a typical total.
+**The 5-minute cache write is measured.** Anthropic's 5-minute cache write multiplier (1.25x) was checked on 19 November 2026 against the per-model cost Claude Code records in its transcripts: 53 sessions that made such writes, on Opus 5.5, Sonnet 5.5, Fable 5.2 and Opus 4.8, 29 of them with no other kind of cache write. With every other component priced from the table, each session's recorded cost gives a multiplier of 1.25 to thirteen decimal places.
 
 **Not modelled, by design:** batch and flex discounts (coding harnesses are interactive), regional or data-residency uplifts, cache storage fees billed by the hour, and search-grounding fees that depend on a monthly free allowance. Qwen has no table because its price depends on region, tier, thinking mode and cache type, which logs do not record; its models are priced by the online lookup and labelled.
 
@@ -292,6 +292,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 - **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
 - **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
 - **Side calls with no usable record.** Some harnesses make small extra calls whose usage they keep nowhere, or keep in a form that cannot be priced exactly, so these are not counted:
+  - Claude Code's WebSearch calls and some of its WebFetch calls, which it runs through a second, smaller model (Haiku 5.5 in the logs checked) and keeps only in a session's running cost total, the price of each web search with them; on the history this was measured on, 19 November 2026, they came to under 1% of the cost Claude Code recorded;
   - T3 Code's thread titles, branch names, commit messages, pull request text and review guides, which it has Claude Code (2.0.63 or later), Codex or Pi write with session saving off;
   - Gemini CLI's chat compression, its choice of model while the model is left on auto, and its loop checks once a request runs past 30 turns, plus its next speaker check and edit repair when those are turned on;
   - OpenCode's title calls, whose tokens it keeps without the model, and its compaction calls, which it keeps per call without the model, and with the model only as one total over all of them;
