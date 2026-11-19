@@ -910,6 +910,7 @@ def demo_env(folder: str) -> dict:
         "TOKENMETER_CLAUDE_PROJECTS": os.path.join(home, ".claude", "projects"),
         "TOKENMETER_LEDGER": os.path.join(home, ".claude", "cost-ledger.jsonl"),
         "TOKENMETER_PRICE_CACHE": os.path.join(folder, "fetched-prices.json"),
+        "TOKENMETER_SCAN_CACHE": os.path.join(folder, "scan-cache.db"),
         "TOKENMETER_OFFLINE": "1",
         "TOKENMETER_CURRENCY": "USD",
         "CODEX_HOME": os.path.join(home, ".codex"),

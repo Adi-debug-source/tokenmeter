@@ -252,6 +252,37 @@ def _where(path: str) -> tuple:
     return os.path.basename(os.path.dirname(path)), os.path.basename(path)[:-6], False
 
 
+def reading(path: str) -> None:
+    """Note for notes() that this scan read a transcript, and whether it lies
+    in the default projects folder. records() calls it; so does the engine
+    when it takes an unchanged transcript's calls from its scan cache."""
+    inside = os.path.normpath(path).startswith(_default_projects() + os.sep)
+    _READ["default" if inside else "other"] = True
+
+
+_USAGE = b'"usage"'
+
+
+def _usage_lines(fh):
+    """The lines of a transcript opened in binary that can carry a usage
+    block, as text.
+
+    Two lines in three carry none and are tool output, several kilobytes
+    each, so the test is made on the bytes and only a line that passes is
+    decoded. Decoding every line to test it as text was half of a scan's
+    time. A line ends at \n, \r or \r\n, as it does for a file opened as
+    text. The one difference from that: a line whose "usage" is broken up by
+    bytes that are not UTF-8 is not seen, where decoding first dropped them
+    and found it.
+    """
+    for raw in fh:
+        if _USAGE not in raw:
+            continue
+        for line in raw.split(b"\r") if b"\r" in raw else (raw,):
+            if _USAGE in line:
+                yield line.decode("utf-8", "ignore")
+
+
 def records(path: str):
     """Yield (key, event) for every line that carries an API response.
 
@@ -260,18 +291,14 @@ def records(path: str):
     largest usage block, because the early copies of a streamed reply carry an
     output count that is still climbing.
     """
-    default = _default_projects()
-    inside = os.path.normpath(path).startswith(default + os.sep)
-    _READ["default" if inside else "other"] = True
+    reading(path)
     project, session, is_subagent = _where(path)
     try:
-        fh = open(path, "r", encoding="utf-8", errors="ignore")
+        fh = open(path, "rb")
     except OSError:
         return
     with fh:
-        for line in fh:
-            if '"usage"' not in line:
-                continue
+        for line in _usage_lines(fh):
             try:
                 d = json.loads(line)
             except ValueError:
