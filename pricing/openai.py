@@ -30,7 +30,7 @@ time, which prints the same three figures.
 
 On 19 November 2026 the markdown page was fetched at 00:15 UTC and again
 at 00:28 UTC (HTTP 200, 24,045 bytes each, byte for byte the same, sha256
-427698a0...e0b590ac5114) and read once; the pinned tests were typed from
+427698a0...f0b590ac5114) and read once; the pinned tests were typed from
 it, not from this table. By then the page had been rebuilt: the Cyber,
 Life Sciences and Legal tables, and the specialised models table, are one
 "Specialized models" table, headed Category and Model, with a Standard tab
@@ -190,7 +190,11 @@ long-context tier and no fast pair. On 19 November 2026 the page prints a
 "(long context)" row for it too: $20 in, $75 out and $2 cached, with "-"
 for writes, which is the table's usual long rule (2x input and cache, 1.5x
 output). A row dated 19 November 2026, the day it was first read, carries
-it; earlier calls keep the row with no long tier.
+it; earlier calls keep the row with no long tier. If the long row was
+printed before that day (it was not on 2 November), earlier calls over
+272K are understated, as gpt-6-rosalind's date overstates its earlier
+calls; an archive capture that dates it is the evidence to correct the
+row's start with.
 
 gpt-6.2-astra-law is printed beside it, Legal model configurations, with
 the full set of figures gpt-6.2-astra has but the fast pair. Like its
@@ -284,8 +288,9 @@ PRICES = {
                            _row( 0.10,  0.50, 0.1, ( 0.20,   1.00), 1.25, _LONG, **_12H)],
     # GPT-5.6. The undated rows hold the pre-cut figures (see the docstring),
     # from the markdown page as captured on 29 July and 12 August 2026. Sol
-    # is on promotional pricing "at least through November 21, 2026". When
-    # that ends, add a dated entry; do not edit this one.
+    # is on promotional pricing, "available until November 30, 2026" on the
+    # page of 19 November 2026. When that ends, add a dated entry; do not
+    # edit this one.
     "gpt-5.6-sol":        [_row( 5.00, 30.00, 0.1, (10.00,  60.00), 1.25, _LONG),
                            _row( 4.00, 20.00, 0.1, ( 8.00,  40.00), 1.25, _LONG, frm="2026-08-21"),
                            _row( 4.00, 20.00, 0.1, ( 8.00,  40.00), 1.25, _LONG, **_12H)],
@@ -544,19 +549,34 @@ def _fields(header: list) -> dict:
 
 def _tabbed(text: str, tables) -> list:
     """Every table as (tab, heading, header, rows). The tab is the label
-    printed between a heading and the one before it, lower-cased, or "" if
-    none was: a lost label leaves its tables unread, never taken for the tab
-    above them."""
+    printed above a heading, lower-cased, or "" if none was. A label line
+    ends the section above it, so a lost label or a lost heading leaves its
+    tables unread, never taken for the tab above them."""
     out, tab, label, section = [], "", "", []
     for line in text.splitlines() + ["#"]:
         s = line.strip()
-        if s.startswith("#"):
+        if s.startswith("#") or _TAB.fullmatch(s):
             out += [(tab, *t) for t in tables("\n".join(section))]
-            tab, label, section = label, "", []
-        elif _TAB.fullmatch(s):
-            label = s.lower()
+            section = []
+            if s.startswith("#"):
+                tab, label = label, ""
+            else:
+                tab, label = "", s.lower()
         section.append(line)
     return out
+
+
+def _merge(into: dict, mid: str, figures: dict) -> None:
+    """A row's figures added to those already read for its model. A field
+    the page has already given at another figure fails the read, naming
+    both: the page does not say which applies, so neither is taken."""
+    def show(v):
+        return "-" if v is None else f"${v:g}"
+    for field, value in figures.items():
+        if field in into and into[field] != value:
+            raise ValueError(f"{mid} {field}: the page prints both {show(into[field])} "
+                             f"and {show(value)}")
+        into[field] = value
 
 
 def _fill(r: dict) -> dict:
@@ -596,11 +616,13 @@ def page_rates(fetch, tables, want=None):
     fast_out and fast_cached and, from its long columns, fast_long_in,
     fast_long_out and fast_long_cached. Batch, Flex, Ultrafast,
     fine-tuning, audio, image and tool tables, and any table under no
-    label, are not read for rates. The model ids in them, and in any table
-    this reader does not recognise, are still checked against the table,
-    so a model printed only in a new layout is named rather than dropped;
-    a dated snapshot of a row (o4-mini-2025-04-16, as fine-tuning listed it
-    on 2 November 2026) is not new. The long-context threshold is read from
+    label or no heading, are not read for rates. The model ids in them, and
+    in any table this reader does not recognise, are still checked against
+    the table, so a model printed only in a new layout is named rather than
+    dropped; a dated snapshot of a row (o4-mini-2025-04-16, as fine-tuning
+    listed it on 2 November 2026) is not new. A model the page gives two
+    different figures for one field fails the read. The long-context
+    threshold is read from
     the page's footnote (">272K input tokens"), else LONG_OVER.
 
     With want=None (--check-prices, which reports differences and never
@@ -634,10 +656,8 @@ def page_rates(fetch, tables, want=None):
             if "(long context)" in r[name_at].lower():
                 figures = {_LONG_FIELD[f]: v for f, v in figures.items() if f in _LONG_FIELD}
             if tab == "fast":
-                fast.setdefault(mid, {}).update(
-                    (_FAST_FIELD[f], v) for f, v in figures.items() if f in _FAST_FIELD)
-            else:
-                rates.setdefault(mid, {}).update(figures)
+                figures = {_FAST_FIELD[f]: v for f, v in figures.items() if f in _FAST_FIELD}
+            _merge((fast if tab == "fast" else rates).setdefault(mid, {}), mid, figures)
     for mid, figures in fast.items():
         if mid in rates:
             rates[mid].update(figures)

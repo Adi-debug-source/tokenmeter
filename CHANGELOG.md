@@ -20,8 +20,9 @@
   for their Standard one. Each table now takes its tier from the tab label
   the page prints above it, and the Specialized models table's
   "(short context)" and "(long context)" rows are read into the standard
-  and long-context figures, so the eight models on it are found again. The
-  Fast tables' cached and long-context columns are now compared too.
+  and long-context figures, so all 11 models the table prices from it are
+  read; eight of them had been named as not found on the page. The Fast
+  tables' cached and long-context columns are now compared too.
 - Prices: OpenAI's gpt-6.2-astra ($8 in, $40 out, cached $0.40, fast $16 /
   $80), gpt-6.2-sol ($2, $10, $0.10, fast $4 / $20), gpt-6-cyber ($20,
   $100, $2) and gpt-6.2-astra-law ($8, $40, $0.40), each with 30-minute
@@ -38,6 +39,12 @@
   day it was first read. Earlier calls keep the flat rate.
 - `--check-prices` reads all 40 models on OpenAI's page as matching, so the
   table is marked verified on 19 November 2026.
+- `--check-prices` now fails (exit 1) when a current model in a table is not
+  found on its provider's page, and the daily check warns about that model
+  instead of recording the page as matched. Before, the model was listed in
+  grey and the check still said `Everything matches`, so a table the reader
+  could no longer see passed. A retired model missing from the page still
+  passes.
 - Fixed: since Moonshot rebuilt its Kimi pricing page in November 2026,
   `--check-prices` and the daily check said the page was read but no rates
   were found. The figures now sit in the page's embedded manifest rather

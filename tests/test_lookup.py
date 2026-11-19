@@ -447,7 +447,9 @@ class TestCheckPrices(Base):
 
     def test_a_model_missing_from_the_page_is_named(self):
         """A current model whose row has gone from the page is named, so a
-        price the table still charges is checked by hand. The model was Haiku
+        price the table still charges is checked by hand, and the check
+        fails: it used to exit 0 and say "Everything matches", so a table
+        the reader could no longer see passed quietly. The model was Haiku
         3.5 until the table marked it retired on 27 October 2026; Sonnet 4.5
         is current, and the first assertion says so if that changes."""
         self.assertNotIn("claude-sonnet-4-5", tm._anthropic.RETIRED)
@@ -455,6 +457,8 @@ class TestCheckPrices(Base):
                        if "| Claude Sonnet 4.5 |" not in l)
         code, out = self.run_check(lambda url: page)
         self.assertIn("not found on the page: claude-sonnet-4-5", out)
+        self.assertEqual(code, 1)
+        self.assertNotIn("Everything matches", out)
 
     def test_a_retired_model_missing_from_the_page_is_expected(self):
         """A retired model missing from the page is counted as retired, not
@@ -891,11 +895,13 @@ class TestOpenAIPageReader(Base):
         four-column tables, so 27 models fell through to their own model
         pages and one of those answered 404, failing the whole check. Now
         one fetch of the markdown page gives every model, and a "-" cached
-        cell (pro rows) reads as the ordinary input rate. Also guards the
-        eight models of the Specialized models table, which since about 5
-        November 2026 has seven columns and "(short context)" rows, being
-        reported as not found on the page: each is read at its figures, and
-        no id is named as missing from the table."""
+        cell (pro rows) reads as the ordinary input rate. Also guards eight
+        of the 11 models the table prices from the Specialized models table,
+        which by 19 November 2026 had seven columns and "(short context)"
+        rows, being reported as not found on the page (the daily check on
+        the maintainer's machine last matched the page on 5 November 2026
+        and has differed since): each is read at its figures, and no id is
+        named as missing from the table."""
         rates, unknown = self.read(self.page)
         self.assertEqual(self.urls, [self.table.SOURCE_MD])
         self.assertEqual(unknown, [])
@@ -956,8 +962,10 @@ class TestOpenAIPageReader(Base):
         self.assertAlmostEqual(rates["gpt-6.2-astra"]["fast_in"], 16, places=9)
 
     def test_the_specialised_tabs_are_told_apart_by_their_label(self):
-        """Guards the false "differs" every online user of 1.3.0 saw from
-        about 5 November 2026: the Specialized models' Standard tab gained
+        """Guards the false "differs" every online user of 1.3.0 saw once
+        the page changed (the daily check on the maintainer's machine last
+        matched it on 5 November 2026 and has differed since): the
+        Specialized models' Standard tab gained
         two write columns, and the old reader, which took the first
         five-column Category table for Standard, read the Fast tab's
         gpt-5.3-codex ($3.50 / $28 / $0.35) as its Standard rate. A table
@@ -1054,19 +1062,96 @@ class TestOpenAIPageReader(Base):
         named, while a dated snapshot of a row there (o4-mini-2025-04-16, as
         fine-tuning once listed it) is not. In a Category table under no
         tab label the id is taken from the Model column, not the Category
-        one, which named "Codex" in its place."""
+        one: the reader before 19 November 2026 named "Codex" in its place
+        for a Category table it did not price from, such as this one with a
+        sixth column."""
         page = self.page + ("\n### Some new tier\n\n| Model | Price per call |\n| --- | --- |\n"
                             "| gpt-9-nova | $1.00 |\n| o4-mini-2025-04-16 | $1.00 |\n")
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gpt-9-nova"])
         self.assertNotIn("gpt-9-nova", rates)
         page = self.page + ("\n### Grouped Pricing Table data\n\n"
-                            "| Category | Model | Input | Output | Cached input |\n"
-                            "| --- | --- | --- | --- | --- |\n"
-                            "| Codex | gpt-9-nova | $1.00 | $2.00 | $0.10 |\n")
+                            "| Category | Model | Input | Output | Cached input | Batch input |\n"
+                            "| --- | --- | --- | --- | --- | --- |\n"
+                            "| Codex | gpt-9-nova | $1.00 | $2.00 | $0.10 | $0.50 |\n")
         rates, unknown = self.read(page)
         self.assertEqual(unknown, ["gpt-9-nova"])
         self.assertNotIn("gpt-9-nova", rates)
+
+    def test_a_table_it_can_no_longer_see_fails_the_check(self):
+        """Guards a table the reader cannot place passing quietly: with the
+        Specialized models' "Standard" label printed as "Standard tier", its
+        table is left unread and its 11 models are not found on the page.
+        --check-prices said "29 of 40 models match", then "Everything
+        matches", exited 0 and recorded the day as matched."""
+        lines = self.page.splitlines(True)
+        at = lines.index("Standard\n", lines.index("Specialized models\n"))
+        lines[at] = "Standard tier\n"
+        buf = io.StringIO()
+        with unittest.mock.patch.dict(tm.TABLES, {"openai": self.table}, clear=True), \
+                contextlib.redirect_stdout(buf):
+            code = tm.check_prices(fetch=lambda url: "".join(lines))
+        out = buf.getvalue()
+        self.assertIn("29 of 40 models match", out)
+        self.assertEqual(code, 1)
+        self.assertNotIn("Everything matches", out)
+        with open(tm.PRICE_CACHE) as f:
+            state = json.load(f)[tm.DAILY_CHECK_KEY]["openai"]
+        self.assertEqual(state["matched"], "")
+        self.assertEqual(len(state["differs"]), 11)
+        self.assertIn("gpt-5.3-codex", state["differs"])
+
+    def test_a_table_whose_heading_is_lost_is_not_read_as_the_tier_above(self):
+        """Guards a tab label with no heading under it being lost, so its
+        table took the tier of the heading above: with the Batch heading gone
+        the Batch rates were read as Standard (gpt-6.2-astra at $4, not $8),
+        and with the Specialized models' Fast heading gone gpt-5.3-codex's
+        Fast $3.50 / $28 was read as its Standard rate. Such a table is now
+        left unread, and the rest of the page still matches the table in
+        full. With the Flagship Fast heading gone its tables are not read as
+        Flex or Ultrafast figures either, nor as anything else."""
+        def without(heading, after_label):
+            lines = self.page.splitlines(True)
+            at = lines.index(after_label + "\n")
+            gone = lines.index(heading + "\n", at)
+            self.assertLessEqual(gone - at, 2)
+            return "".join(lines[:gone] + lines[gone + 1:])
+        page = without("### Batch pricing data", "Batch")
+        rates, _ = self.read(page)
+        self.assertEqual((rates["gpt-6.2-astra"]["in"], rates["gpt-6-astra"]["in"]), (8, 10))
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertEqual((c["matched"], c["diffs"], c["absent"]), (40, [], []))
+        lines = self.page.splitlines(True)
+        fast = lines.index("Fast\n", lines.index("Specialized models\n"))
+        self.assertEqual(lines[fast + 2], "### Grouped Pricing Table data\n")
+        page = "".join(lines[:fast + 2] + lines[fast + 3:])
+        rates, _ = self.read(page)
+        codex = rates["gpt-5.3-codex"]
+        self.assertEqual((codex["in"], codex["out"], codex["cached"]), (1.75, 14, 0.175))
+        self.assertNotIn("fast_in", codex)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertEqual((c["matched"], c["diffs"], c["absent"]), (40, [], []))
+        rates, _ = self.read(without("### Fast pricing data", "Fast"))
+        self.assertEqual(rates["gpt-6-astra"]["in"], 10)
+        self.assertNotIn("fast_in", rates["gpt-6-astra"])
+
+    def test_a_model_printed_twice_at_different_rates_is_reported(self):
+        """Guards a second row for a model silently overwriting the first:
+        gpt-5.3-codex added to the Flagship four-column Standard table at $9
+        / $90 / $0.90 was overwritten by the Specialized models' row and the
+        check still read 40 of 40. Two figures for one field now fail the
+        read, naming the model, the field and both figures; the same row
+        printed twice at the same figures is still read."""
+        row = "| gpt-5.4-mini | $0.75 | $4.50 | $0.075 |"
+        self.assertIn(row, self.page)
+        page = self.page.replace(row, row + "\n| gpt-5.3-codex | $9.00 | $90.00 | $0.90 |")
+        with self.assertRaisesRegex(ValueError, r"gpt-5\.3-codex .*\$9\b.*\$1\.75"):
+            self.read(page)
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertIn("gpt-5.3-codex", c["error"])
+        page = self.page.replace(row, row + "\n| gpt-5.3-codex | $1.75 | $14.00 | $0.175 |")
+        c = tm.compare_with_page(self.table, lambda url: page)
+        self.assertEqual((c["error"], c["matched"], c["diffs"]), ("", 40, []))
 
     def test_a_model_page_404_skips_only_that_model(self):
         """Guards one model page's 404 failing every other model: with want

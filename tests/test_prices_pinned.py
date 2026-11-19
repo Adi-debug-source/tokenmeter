@@ -447,7 +447,8 @@ class TestOpenAIPublishedRates(Base):
         "o1-preview": (15.00, 60.00, 7.50), "gpt-4.5-preview": (75.00, 150.00, 37.50),
     }
 
-    # Fast tables of 27 October 2026 (Fast was named Priority until 30 July
+    # Fast tables of 27 October 2026, and of 19 November 2026 for
+    # gpt-6.2-astra and gpt-6.2-sol (Fast was named Priority until 30 July
     # 2026): (input, output, cached input). gpt-5.3-codex is from the Fast
     # tab of the specialised table. gpt-4o-2024-05-13 prints "-" for cached
     # input, listed at its fast input rate. Every other model is absent from
@@ -477,7 +478,9 @@ class TestOpenAIPublishedRates(Base):
 
     # The ten-column tables and the Specialized models' Standard tab, short
     # context: (30m write, 12h write), for the rows that print both. Every
-    # other row prints "-" or has no such column.
+    # other row prints "-" or has no such column. gpt-6-rosalind's are from
+    # the Life sciences table of 2 November 2026, before its cut; the
+    # Specialized tab's $12.50 and $25 are pinned in its own test below.
     WRITES = {
         "gpt-6.2-astra": (10.00, 20.00), "gpt-6.2-sol": (2.50, 5.00),
         "gpt-6-cyber": (25.00, 50.00), "gpt-6.2-astra-law": (10.00, 20.00),
@@ -612,8 +615,10 @@ class TestOpenAIPublishedRates(Base):
     def test_cache_writes_by_lifetime(self):
         """The ten-column tables print a 30-minute and a 12-hour cache write
         for the GPT-6.2, GPT-6, GPT-6.1 and GPT-5.6 rows, and the
-        Specialized models' Standard tab for gpt-6-cyber, gpt-5.6-cyber,
-        gpt-6-rosalind and gpt-6.2-astra-law. The table
+        Specialized models' Standard tab for gpt-6-cyber, gpt-5.6-cyber and
+        gpt-6.2-astra-law; gpt-6-rosalind's $18.75 and $37.50 are from the
+        Life sciences table of 2 November 2026, the row before its cut of
+        19 November, which is the one in force on OPENAI_READ_ON. The table
         holds the 30-minute write in its shorter write lifetime and the
         12-hour write in its longer one (the slot named for Anthropic's one
         hour). Guards against either write billed at the wrong multiple, or

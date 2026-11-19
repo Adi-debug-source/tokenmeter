@@ -3245,8 +3245,9 @@ def check_prices(fetch=None) -> int:
 
     Reports, never edits: a difference is for a person to read, date and
     record as a new entry, because a rate change is history and not a typo.
-    Returns 0 when everything matches, 1 on any difference or unlisted model,
-    2 when a page could not be read at all. What it found is also recorded
+    Returns 0 when everything matches, 1 on any difference, unlisted model or
+    current model the page does not list, 2 when a page could not be read at
+    all. What it found is also recorded
     for the daily check's note (record_page_checks()), so a warning that says
     "run --check-prices" clears when this run finds the page agreeing.
     """
@@ -3284,7 +3285,7 @@ def check_prices(fetch=None) -> int:
             print(f"    {DIM}not found on the page: {', '.join(absent)}{RESET}")
         if unlisted:
             print(f"    {YELLOW}on the page but not in the table{RESET}: {', '.join(unlisted)}")
-        if diffs or unlisted:
+        if diffs or unlisted or absent:
             worst = max(worst, 1)
     record_page_checks({p: c for p, c in found.items() if hasattr(TABLES[p], "page_rates")})
     print()
@@ -3308,7 +3309,8 @@ def check_prices(fetch=None) -> int:
 #
 #   tried          the local day of the last attempt (ISO date)
 #   matched        the last day the page agreed with the table, "" if never
-#   differs        models whose rates on the page differ from the table
+#   differs        models whose rates on the page differ from the table, or
+#                  current models the page does not list
 #   unlisted       models on the page that the table lacks
 #   differs_since  the first day of the current run of differences, or ""
 #   error          why the last read failed, "" when it was read
@@ -3355,7 +3357,9 @@ def page_check_after(state, result: dict, today: str) -> dict:
     """A provider's daily-check state after one comparison (compare_with_page()).
 
     A page that was read resets the failures; it matched when it gave rates,
-    none of them differ and it lists nothing the table lacks. A page that
+    none of them differ, it lists every current model and nothing the table
+    lacks. A current model it does not list is kept with the ones that
+    differ, so a table the reader can no longer see warns. A page that
     could not be read, or was read with no rates in it, counts one more
     failed day, unless today already failed: the threshold counts days, not
     attempts, so --check-prices on a bad day does not add a second.
@@ -3371,7 +3375,7 @@ def page_check_after(state, result: dict, today: str) -> dict:
         new["failing_since"] = new["failing_since"] or today
         new["error"] = result["error"] or "the page was read but no rates were found in it"
         return new
-    differs = sorted({d[0].split(" ")[0] for d in result["diffs"]})
+    differs = sorted({d[0].split(" ")[0] for d in result["diffs"]} | set(result["absent"]))
     unlisted = sorted(result["unlisted"])
     new.update(failures=0, failing_since="", error="", differs=differs, unlisted=unlisted)
     if differs or unlisted:

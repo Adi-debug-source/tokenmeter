@@ -143,8 +143,9 @@ from it are translated as fresh records are.
 
 The same file holds the daily price check (`daily_price_check()`), under the
 key `page_checks`, one entry per provider: the day of the last attempt, the
-last day the page matched, any models that differ or that the page lists and
-the table lacks, and how many days in a row the page could not be read.
+last day the page matched, any models that differ or that the page no longer
+lists (retired ones apart), any it lists and the table lacks, and how many
+days in a row the page could not be read.
 After a report's output is written, and after `--summary-json` prints, each
 provider not yet tried that local day has its page reread side by side with
 the others, through `compare_with_page()`, the comparison `--check-prices`
