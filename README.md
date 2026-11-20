@@ -76,7 +76,7 @@ The running figure, always visible, refreshed every minute: today, the last 7 da
 - **Currency** switches between seven currencies.
 - Every note the engine has, such as which readers are unverified and when each price table was last checked, is in the menu too.
 
-The image is the real app running against the demo history. The menu is taller than one screen, so the image ends at Show tokens.
+The image is the real app running against the demo history. The menu is taller than one screen, so the image ends before its notes, the Currency menu and Show tokens.
 
 <br clear="right">
 
