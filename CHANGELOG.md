@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.4, unreleased
+## 1.3.4, 20 November 2026
 
 Two price gaps closed. Calls to OpenCode Zen's free GLM-5.3-Flash were
 priced at nothing under a "no price table" warning, and are now priced at
