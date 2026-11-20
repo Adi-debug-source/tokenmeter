@@ -55,12 +55,13 @@ class Tokenmeter < Formula
 
   test do
     assert_match version.to_s, shell_output("/usr/bin/python3 #{libexec}/tokenmeter.py --version")
-    # Homebrew keeps README.md and CHANGELOG.md at the top of the keg, not in
-    # libexec, and some tests read them beside the code, so the suite runs on
-    # a copy that has them.
+    # Homebrew keeps README.md, CHANGELOG.md and LICENSE at the top of the
+    # keg, not in libexec, and some tests read them beside the code, so the
+    # suite runs on a copy that has them.
     cp_r libexec.children, testpath
     cp prefix/"README.md", testpath
     cp prefix/"CHANGELOG.md", testpath
+    cp prefix/"LICENSE", testpath
     system "/usr/bin/python3", testpath/"tests/test_tokenmeter.py"
   end
 end
