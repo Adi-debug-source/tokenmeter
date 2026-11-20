@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.4, 20 November 2026
+
+Two price gaps closed. Calls to OpenCode Zen's free GLM-5.3-Flash were
+priced at nothing under a "no price table" warning, and are now priced at
+Z.ai's rate. xAI's page no longer lists `grok-build-0.1`, which made
+`--check-prices` and the daily check fail from 20 November 2026; the model
+keeps its last published price as a retired one. No other figure moves.
+
+### Prices
+
+- OpenCode Zen's `glm-5.3-flash-free`, recorded under provider `opencode`,
+  is priced as Z.ai's `glm-5.3-flash`: $0.15 in, $0.03 cached and $0.50 out
+  per million tokens. It is the same open-weight model served free, so it is
+  priced at its maker's API rate like any other: models.dev, the catalogue
+  OpenCode reads, gives its base model as `zhipuai/glm-5.3-flash` on "the
+  same Zen upstreams", and Zen's documentation names it "GLM-5.3-Flash
+  Free", deprecated on 18 November 2026. Read on 20 November 2026. Calls
+  already in the ledger are priced the same way from the next run, since
+  the ledger keeps the id as recorded. Zen's other ids are not mapped yet.
+- xAI's `grok-build-0.1` is recorded as retired, kept at $1.00 in, $0.20
+  cached and $2.00 out, twice that from 200,000 prompt tokens, with its
+  `grok-code-fast` aliases. xAI published no notice: its pricing page listed
+  the model on 19 November 2026 and not on the 20th, and the model's own
+  page now redirects to the models list. The date, 20 November 2026, is the
+  first day the page was read without it, not a shutdown xAI announced. The
+  price is as the Internet Archive's copy of xAI's page printed it on 14
+  November 2026. `--check-prices` passes again.
+- xAI's page was read again on 20 November 2026: its other seven models,
+  web search and the priority multiple are unchanged.
+
 ## 1.3.3, 20 November 2026
 
 No figure changes. Tokenmeter is three to four times faster on a large

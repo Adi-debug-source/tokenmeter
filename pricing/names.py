@@ -28,6 +28,21 @@ Sources, read on 2 November 2026:
   weights repository on Hugging Face, so an open-weight model, priced at its
   maker's rate whoever served it (decision 4). OpenRouter's frontier models,
   those with no weights published, keep the host's price through the lookup.
+
+Source, read on 20 November 2026:
+- OpenCode Zen, OpenCode's hosted models, recorded under provider opencode.
+  glm-5.3-flash-free was Z.ai's GLM-5.3-Flash served free. models.dev, the
+  catalogue OpenCode reads its models from (anomalyco/models.dev at 9a9ecdd),
+  providers/opencode/models/glm-5.3-flash-free.toml, added on 16 October
+  2026: name "GLM-5.3-Flash Free", base_model "zhipuai/glm-5.3-flash", and
+  its note "same Zen upstreams as glm-5.3-flash". OpenCode's own copy of the
+  catalogue (packages/core/src/models-dev/snapshot.txt at 12c4cfa) lists the
+  id under the same name. Z.ai's own provider there (providers/zai) lists
+  glm-5.3-flash with that base_model at Z.ai's table's rates. Zen's
+  documentation (opencode.ai/docs/zen, "Deprecated models") names it
+  "GLM-5.3-Flash Free", deprecated on 18 November 2026. An open-weight model,
+  as OpenRouter's z-ai/glm-5.3-flash, so priced at its maker's rate. Zen's
+  other ids are not mapped here.
 """
 
 NAMES = {
@@ -63,4 +78,7 @@ NAMES = {
     ("", "openrouter", "xiaomi/mimo-v2.6-pro"): ("mimo", "mimo-v2.6-pro"),
     ("", "openrouter", "minimax/minimax-m3"): ("minimax", "MiniMax-M3"),
     ("", "openrouter", "minimax/minimax-m3.1-flash"): ("minimax", "MiniMax-M3.1-Flash"),
+
+    # OpenCode Zen, through any harness.
+    ("", "opencode", "glm-5.3-flash-free"): ("zai", "glm-5.3-flash"),
 }

@@ -1198,7 +1198,8 @@ class TestGooglePublishedRates(Base):
 class TestXaiPublishedRates(Base):
     """Every rate in the xAI table, typed from docs.x.ai/developers/pricing
     on 26 September 2026, separately from the table, so a slip in either one
-    fails. A retired model keeps its last published rate.
+    fails. A retired model keeps its last published rate. Read again on 20
+    November 2026: the seven models the page lists are unchanged.
     """
 
     XAI = {
@@ -1218,6 +1219,30 @@ class TestXaiPublishedRates(Base):
                 self.assertAlmostEqual(row["in"], inp, places=9)
                 self.assertAlmostEqual(row["out"], out, places=9)
                 self.assertAlmostEqual(row["in"] * row["cache_read_mult"], hit, places=9)
+
+    # The page listed it on 19 November 2026 and not on the 20th. Its figures
+    # above are as the Internet Archive's copy of the page printed them on 14
+    # November 2026 (20261114113159).
+    RETIRED = {"grok-build-0.1": "2026-11-20"}
+
+    def test_xai_keeps_the_model_its_page_dropped(self):
+        """Guards --check-prices and the daily check failing from 20 November
+        2026 with "not found on the page: grok-build-0.1", and guards the
+        other way to quiet them, deleting its row, which would price its
+        calls at the fallback, Grok 4.7: twice the input rate and three times
+        the output. xAI's page as it now reads, without the model, must
+        compare clean, with the model named as retired."""
+        table = tm.TABLES["xai"]
+        self.assertEqual(dict(table.RETIRED), self.RETIRED)
+        page = ["| Model | Context | Input / 1M tokens | Cached input / 1M tokens | Output / 1M tokens |",
+                "| --- | --- | --- | --- | --- |"]
+        for model, (inp, out, hit) in self.XAI.items():
+            if model not in self.RETIRED:
+                page += [f"| {model} (< 200k prompt tokens) | 500k | ${inp:.2f} | ${hit:.2f} | ${out:.2f} |",
+                         f"| {model} (≥ 200k prompt tokens) | 500k | ${inp * 2:.2f} | ${hit * 2:.2f} | ${out * 2:.2f} |"]
+        got = tm.compare_with_page(table, lambda url: "\n".join(page))
+        self.assertEqual((got["error"], got["absent"], got["diffs"]), ("", [], []))
+        self.assertEqual((got["matched"], got["retired"]), (7, ["grok-build-0.1"]))
 
     def test_xai_aliases_are_the_same_model(self):
         for alias, canonical in (("grok-code-fast-1", "grok-build-0.1"),

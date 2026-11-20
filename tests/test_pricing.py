@@ -1185,6 +1185,25 @@ class TestHostServedOpenWeights(NamesBase):
         self.assertGreater(cost_of(want), 0)
         self.assertEqual(ev["cost"], want)
 
+    def test_opencode_zens_free_glm_5_3_flash_prices_at_zais_table(self):
+        """Guards OpenCode Zen's free GLM-5.3-Flash being priced at nothing
+        under a "no price table" warning, as it was until 1.3.4: OpenCode
+        records it as glm-5.3-flash-free through provider opencode, and it
+        is Z.ai's glm-5.3-flash served free, so it must price from Z.ai's
+        table. And guards the map guessing: a Zen id it does not list (Big
+        Pickle, whose maker OpenCode does not name) passes through as
+        recorded."""
+        self.imported(dict(OPENROUTER_K3, provider="opencode", model="glm-5.3-flash-free"))
+        [ev] = self.events()
+        self.assertEqual((ev["provider"], ev["model"]), ("zai", "glm-5.3-flash"))
+        self.assertTrue(tm.lookup("glm-5.3-flash", ev["when"], "zai")[1])
+        # 1,000 input at $0.15, 9,000 cache reads at $0.03, 500 output at $0.50.
+        self.assertAlmostEqual(cost_of(ev["cost"]), 0.00015 + 0.00027 + 0.00025, places=12)
+        self.assertEqual(tm.maker_name("opencode", "opencode", "glm-5.3-flash-free"),
+                         ("zai", "glm-5.3-flash"))
+        self.assertEqual(tm.maker_name("opencode", "opencode", "big-pickle"),
+                         ("opencode", "big-pickle"))
+
     def test_kimi_code_bare_k3_is_moonshots_kimi_k3_for_that_harness_only(self):
         """Guards Kimi Code's bare "k3" (the model as sent, never the alias
         kimi-code/k3) pricing at Moonshot's fallback as an unrecognised id,
