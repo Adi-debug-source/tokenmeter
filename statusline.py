@@ -165,8 +165,15 @@ def main() -> None:
         data = json.load(sys.stdin)
     except Exception:
         data = {}
+    if not isinstance(data, dict):
+        data = {}
 
-    model = (data.get("model") or {}).get("display_name") or "unknown"
+    sent = data.get("model")
+    model = sent.get("display_name") if isinstance(sent, dict) else None
+    # Printed into the terminal, so without the characters a terminal acts
+    # on. Not the engine's printable(): this line must print without it.
+    model = "".join(c for c in model if c.isprintable()) if isinstance(model, str) else ""
+    model = model or "unknown"
     sess_usd, tokens = session_cost(data.get("transcript_path") or "")
     show_tokens = os.environ.get(TOKENS_ENV, "").strip() not in ("", "0")
     day_usd, day_tokens = today_totals(show_tokens) if money is not None else (None, None)

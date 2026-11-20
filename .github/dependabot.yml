@@ -1,0 +1,12 @@
+# The two actions the workflow uses are pinned by commit, and a pin never
+# moves by itself. Once a month Dependabot proposes the newer commit and its
+# version comment together; its pull request runs the same read-only tests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

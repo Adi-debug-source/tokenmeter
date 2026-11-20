@@ -169,6 +169,33 @@ class TestLedger(Base):
             f.write("this is not json\n")
         self.assertEqual(len(tm.read_ledger(self.ledger)), 1)
 
+    def test_a_row_of_the_wrong_shape_does_not_end_every_report(self):
+        """read_ledger() skipped a line that was not JSON but trusted the shape
+        of one that was: a line that was a list, an id that was a list, or a
+        count that was text or null ended every report, the menu bar's
+        included, in a traceback until the line was removed by hand."""
+        self.write("a.jsonl", record("msg_1", out=100))
+        list(tm.iter_events(tm.transcripts()))
+        with open(self.ledger, "a") as f:
+            for bad in ([1], "x", {"i": ["m"], "o": 1}, {"i": "msg_2", "o": None},
+                        {"i": "msg_3", "in": "lots"}, {"i": "msg_4", "th": "x"},
+                        {"i": "msg_5", "o": True}, {"i": "msg_6", "o": 1e999}):
+                f.write(json.dumps(bad) + "\n")
+        self.assertEqual(set(tm.read_ledger(self.ledger)), {"msg_1"})
+        self.assertEqual(sum(1 for _ in tm.iter_events(tm.transcripts())), 1)
+
+    def test_a_price_cache_that_is_not_an_object_is_started_afresh(self):
+        """A .fetched_prices.json holding [] is valid JSON, so it was taken
+        as the cache, and data.setdefault() raised AttributeError in every
+        report with a call to price. It is ignored, as a damaged one is."""
+        for text in ("[]", "7", '"x"', "null", '{"fetched": [], "misses": 3}'):
+            with open(tm.PRICE_CACHE, "w") as f:
+                f.write(text)
+            tm._PRICE_STATE["loaded"] = False
+            tm._PRICE_STATE["data"] = {"fetched": {}, "misses": {}}
+            cache = tm._price_cache()
+            self.assertEqual((cache["fetched"], cache["misses"]), ({}, {}), text)
+
     def test_a_bigger_copy_supersedes(self):
         tm.append_ledger([tm.usage_to_row("m", None, "claude-opus-5", "p", "s", usage(out=4))])
         tm.append_ledger([tm.usage_to_row("m", None, "claude-opus-5", "p", "s", usage(out=1160))])

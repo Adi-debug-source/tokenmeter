@@ -21,6 +21,20 @@ class TestDashboard(Base):
         tm.render_html(overall, groups, meta, unknown, "all time", out, covered="a window")
         return slurp(out, encoding="utf-8")
 
+    def test_the_page_is_its_owners_alone(self):
+        """The dashboard names projects, sessions, models and spend, as the
+        ledger does, but was written with the umask, 0644 on a Mac, while the
+        ledger and every cache are 0600: any account could read a page saved
+        outside a private folder. An existing page is tightened too."""
+        import stat
+        self.addCleanup(os.umask, os.umask(0o022))
+        out = os.path.join(self.tmp, "d.html")
+        with open(out, "w") as f:
+            f.write("an older page")
+        os.chmod(out, 0o644)
+        self.render()
+        self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o600)
+
     def test_fetches_nothing_when_opened(self):
         """A file on disk must not depend on a network that may not be there."""
         page = self.render()

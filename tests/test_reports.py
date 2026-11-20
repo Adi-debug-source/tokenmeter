@@ -1858,6 +1858,12 @@ class TestControlCharacters(Base):
             out = self.SGR.sub("", out)
         self.assertNotRegex(out, self.CONTROL)
 
+    def test_a_name_cannot_turn_the_figures_after_it_around(self):
+        """printable() removed C0 and C1 controls but not Unicode's direction
+        overrides and isolates: a model named "x" + U+202E showed every figure
+        after it on its line right to left, in a terminal that applies them."""
+        self.assertEqual(tm.printable("a\u202eb\u2066c\u200fd\u061ce"), "abcde")
+
     def test_names_from_an_import_are_printable_everywhere(self):
         trial = os.path.join(self.tmp, "trial.jsonl")
         lines = [dict(GOOD_IMPORT, id="e1", model="gpt-6-sol\x1b]0;PWNED\x07\x1b[31m",

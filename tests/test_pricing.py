@@ -1363,6 +1363,26 @@ def local(*parts):
     return dt.datetime(*parts).astimezone()
 
 
+class TestMistralPageReader(unittest.TestCase):
+    def test_stripping_scripts_takes_one_pass(self):
+        """page_rates() dropped <script> and <style> blocks with
+        re.sub(r"<script.*?</script>|<style.*?</style>", " ", page, flags=re.S),
+        which rescans to the end of the page from every <script with no
+        closing tag: 280 KB of them took 35 seconds, and the daily check's
+        deadline could not end the wait, as the pattern holds the interpreter
+        lock. _drop_blocks() gives the same text in one pass."""
+        import inspect
+        from pricing import mistral
+        pattern = r"<script.*?</script>|<style.*?</style>"
+        for text in ("a<script>x</script>b<style>y</style>c", "<script>never closed<style>s</style>z",
+                     "<style>a</style><script>b", "<scriptx</script><style</style>", "plain", "",
+                     "<script><style></script></style>", "<style><script></style></script>"):
+            self.assertEqual(mistral._drop_blocks(text), re.sub(pattern, " ", text, flags=re.S), text)
+        hostile = "<script" * 200000
+        self.assertEqual(mistral._drop_blocks(hostile), hostile)
+        self.assertNotIn(".*?</script>", inspect.getsource(mistral))
+
+
 class TestMistralLarge4DatedRows(Base):
     """Mistral Large 4's three prices, each from the day the table starts
     it: the launch sale, $1.36 from 21 October 2026, $0.70 from 1 November

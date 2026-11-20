@@ -74,6 +74,7 @@ import datetime as dt
 import glob
 import json
 import os
+import pathlib
 import shutil
 import sqlite3
 import tempfile
@@ -169,7 +170,9 @@ def _connect(path: str):
     """Read-only, and from a private copy if the live file cannot be opened
     that way (a write-ahead log that needs its shared-memory file, say)."""
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        # The path is quoted into the URI: a "#" or "?" in it ended the path
+        # there and dropped mode=ro, opening another database read-write.
+        con = sqlite3.connect(pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=ro", uri=True)
         con.execute("SELECT count(*) FROM sqlite_master").fetchone()
         return con, None
     except sqlite3.Error:

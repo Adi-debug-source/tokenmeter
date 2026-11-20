@@ -146,10 +146,31 @@ PAGE_NAMES = {
 FALLBACK_MODEL = "mistral-large-4"
 
 
+def _drop_blocks(text: str) -> str:
+    """text with each <script ...</script> and <style ...</style> block made a
+    space, in one pass. A lazy pattern rescanned to the end of the page from
+    every unclosed <script, which a hostile page made minutes of work."""
+    out, i, tags = [], 0, ["script", "style"]
+    while tags:
+        found = [(text.find("<" + t, i), t) for t in tags]
+        found = [(j, t) for j, t in found if j >= 0]
+        if not found:
+            break
+        j, t = min(found)
+        k = text.find("</" + t + ">", j + len(t) + 1)
+        if k < 0:
+            tags.remove(t)  # no closing tag after this one, so none after a later one
+            continue
+        out.append(text[i:j] + " ")
+        i = k + len(t) + 3
+    out.append(text[i:])
+    return "".join(out)
+
+
 def page_rates(fetch, tables, want=None):
     """The page lays prices out in styled blocks, not <table> elements, so it
     is read as text: each model's name followed by input, cached and output."""
-    t = re.sub(r"<script.*?</script>|<style.*?</style>", " ", fetch(SOURCE), flags=re.S)
+    t = _drop_blocks(fetch(SOURCE))
     text = re.sub(r"\s*\|[\s|]*", " | ", html.unescape(re.sub(r"<[^>]+>", "|", t)))
     rates = {}
     for name, mid in PAGE_NAMES.items():

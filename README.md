@@ -26,7 +26,7 @@ On a subscription, a coding agent's usage is not billed per token, so you never 
 
 <table>
 <tr><td><b>Four ways to see it</b></td><td>A menu bar app, a status line for Claude Code, a terminal report and an offline dashboard, all showing one engine's figures.</td></tr>
-<tr><td><b>Numbers you can check</b></td><td>Claude Code's figures match its own <code>total_cost_usd</code> to ten decimal places. 728 tests, each guarding a bug that was once real.</td></tr>
+<tr><td><b>Numbers you can check</b></td><td>Claude Code's figures match its own <code>total_cost_usd</code> to ten decimal places. 738 tests, each guarding a bug that was once real.</td></tr>
 <tr><td><b>Every rate from its maker</b></td><td>Ten providers' price tables, each rate read from the provider's own page, dated, pinned by a test and compared with the live page daily.</td></tr>
 <tr><td><b>Yours alone</b></td><td>Standard-library Python and a small Swift app. No packages, no account, no telemetry.</td></tr>
 </table>
@@ -133,7 +133,7 @@ Tokenmeter's only claim is that its numbers are right, so most of the work in it
 - **Each call is counted once.** Harnesses write the same response several times: once per streamed block, again when a session is resumed or forked. Counting log lines overstates usage several times over; Tokenmeter keys every call by its response id and keeps the complete copy.
 - **History outlives the logs.** Claude Code deletes transcripts after 30 days by default. Tokenmeter keeps its own ledger of tokens, never money, so "all time" does not shrink and the whole history reprices when a rate table changes.
 - **Rates are dated.** A price change is a new dated row, never an edit, so a call is always priced at the rate in force on the day it was made.
-- **Most of its tests guard a bug that was once real.** There are 728, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
+- **Most of its tests guard a bug that was once real.** There are 738, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
 - **No packages, no account, no telemetry.** The engine is standard library Python. A report fetches only public price lists, pricing pages and exchange rates, and `--offline` stops those.
 
 ## How it works

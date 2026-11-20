@@ -1,5 +1,67 @@
 # Changelog
 
+## 1.3.5, unreleased
+
+A security review and a tidier front door. The review read every path that
+touches the network, files, the shell and the login item, and scanned the
+whole history for secrets. It found nothing that sends usage off the Mac,
+runs a command or puts markup in the dashboard; what it did find, crafted
+or damaged input that could stop a report or waste memory, is fixed below.
+No figure moves: every report on the demo history is what it was.
+
+### Hardening
+
+- A ledger line that is valid JSON but not a row (`[1]`, `7`, a row whose id
+  is a list, a count that is text) ended every report, the menu bar's
+  included, until the line was removed by hand. Such a line is now skipped
+  like any other damaged one. A `.fetched_prices.json` that is not an object
+  did the same and is now started afresh.
+- OpenCode's and Kilo Code's databases are opened read-only by a proper file
+  address. A `#`, `?` or `%` in the data folder's path cut the address
+  short, so SQLite made an empty database beside the real one and that
+  harness counted as nothing.
+- A compressed Codex session is decompressed to at most 512 MiB; a larger
+  one is reported as damaged. A file of a few kilobytes could ask for all
+  the Mac's memory.
+- A fetched page or price list is read to at most 32 MiB, six times the
+  largest real reply.
+- A reply giving any exchange rate more than three times away from the
+  built-in estimate is refused whole. Any positive number was accepted and
+  labelled live.
+- Mistral's page reader drops script and style blocks in one pass. Its
+  pattern slowed quadratically on a hostile page, past the daily check's
+  deadline.
+- The dashboard page is written for its owner alone (0600), as the ledger
+  and caches are.
+- The status line prints only the printable characters of the model name
+  Claude Code sends, and no longer stops on input that is not an object.
+- Text-direction characters are removed from names, as other control
+  characters are, so a name cannot reverse the figures printed after it.
+- The workflow's checkouts keep no credentials, and Dependabot proposes
+  updates to the two pinned actions monthly.
+
+### Documents
+
+- README: opens on the dashboard as a short clip, says what it is in four
+  lines, then install. Each face has an image or a clip, and a Privacy
+  section says what is read, written and sent.
+- Every image is retaken from an invented history made on 20 November 2026,
+  and `docs/screenshots/clip.py` records the two clips from it.
+- MAINTENANCE.md: the same facts and commands under a contents list, with
+  procedures as numbered steps.
+- CONTRIBUTING.md and two issue forms, for a figure that looks wrong and a
+  price that is wrong or missing.
+
+### Code
+
+- The engine's own folder is one constant, `HERE`, where it was spelt out
+  five times; three aliases nothing read and one unreachable branch in the
+  status line are gone.
+
+### Tests
+
+- 738, ten of them new, each failing on the code before its fix.
+
 ## 1.3.4, 20 November 2026
 
 Two price gaps closed. Calls to OpenCode Zen's free GLM-5.3-Flash were
