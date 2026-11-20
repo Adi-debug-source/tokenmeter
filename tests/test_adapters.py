@@ -592,6 +592,24 @@ class TestCodexAdapter(Base):
             f.write(data)
         return p
 
+    def test_a_compressed_session_is_not_decompressed_without_limit(self):
+        """_decompress() read a .jsonl.zst whole with no limit, so a few
+        kilobytes of zstd that expand to gigabytes took all the memory the Mac
+        had. Past MAX_DECOMPRESSED a file is read as a damaged one."""
+        bomb = zstd_compress(b"\n" * 5000)
+        if bomb is None:
+            self.skipTest("no zstd encoder on this machine")
+        p = os.path.join(self.tmp, "bomb.jsonl.zst")
+        with open(p, "wb") as f:
+            f.write(bomb)
+        with unittest.mock.patch.object(codex_module, "MAX_DECOMPRESSED", 4096):
+            with self.assertRaises(codex_module._Damaged):
+                codex_module._decompress(p)
+            small = os.path.join(self.tmp, "small.jsonl.zst")
+            with open(small, "wb") as f:
+                f.write(zstd_compress(b"\n" * 4096))
+            self.assertEqual(codex_module._decompress(small), "\n" * 4096)
+
     def test_a_damaged_compressed_session_is_reported_not_fatal(self):
         """A .jsonl.zst cut short (Codex compressing it while a run reads it)
         or corrupt raised EOFError or ZstdError on Python 3.14 and ended every
@@ -1291,6 +1309,26 @@ class TestOpenCodeAdapter(Base):
             self.assertEqual(overall["calls"], 0)
         finally:
             tm._PROJECT.clear()
+
+
+class TestOpenCodeFolderNames(Base):
+    def test_a_hash_in_the_folder_opens_the_real_database(self):
+        """The database was opened as the URI "file:<path>?mode=ro" with the
+        path as it stood, so a '#' in a folder name ended the path there:
+        SQLite opened, and created, an empty database beside it, read-write,
+        and every OpenCode call was silently left out of the report."""
+        root = os.path.join(self.tmp, "data#1", "opencode")
+        os.makedirs(root)
+        con = sqlite3.connect(os.path.join(root, "opencode.db"))
+        con.executescript(slurp(os.path.join(FIXTURES, "opencode", "build_db.sql")))
+        con.commit()
+        con.close()
+        tm.ADAPTER_ROOTS["opencode"] = [root]
+        tm._ONLY[:] = ["opencode"]
+        expected = json.loads(slurp(os.path.join(FIXTURES, "opencode", "expected.json")))
+        overall, *_ = tm.collect(tm.transcripts(), ledger=False)
+        self.assertEqual(overall["calls"], expected["totals"]["calls"])
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "data")))
 
 
 class TestOpenCodeAt8bca532(Base):

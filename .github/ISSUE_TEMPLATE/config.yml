@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/Adi-debug-source/tokenmeter/security/advisories/new
+    about: Please do not open a public issue for a vulnerability. See SECURITY.md.

@@ -334,6 +334,11 @@ def _decoder():
     return None
 
 
+# The most a .jsonl.zst is decompressed to. It is read whole, and a few
+# kilobytes of zstd can expand to gigabytes. Set above the largest real session.
+MAX_DECOMPRESSED = 512 << 20
+
+
 def _decompress(path: str):
     """The text of a .jsonl.zst file, or None when nothing here can read it.
 
@@ -345,7 +350,11 @@ def _decompress(path: str):
         return None
     try:
         with open_(path) as f:
-            return f.read().decode("utf-8", "ignore")
+            buffered = f if isinstance(f, io.BufferedIOBase) else io.BufferedReader(f)
+            data = buffered.read(MAX_DECOMPRESSED + 1)
+        if len(data) > MAX_DECOMPRESSED:
+            raise ValueError(f"larger than {MAX_DECOMPRESSED} bytes decompressed")
+        return data.decode("utf-8", "ignore")
     except Exception as e:  # EOFError, ZstdError, OSError, a failed zstd command
         raise _Damaged(path) from e
 

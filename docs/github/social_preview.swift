@@ -126,10 +126,10 @@ pill(card, radius: 18, fill: CARD, stroke: LINE)
 let inner = card.minX + 30, edge = card.maxX - 30
 draw([("ALL TIME, AT API RATES", DIM)], font("InterTight-Regular_Medium", 15), x: inner, top: 158,
      tracking: 1.1)
-draw([("$174.69", INK)], font("Fraunces-Regular", 62), x: inner, top: 182, tracking: -1)
+draw([("$171.86", INK)], font("Fraunces-Regular", 62), x: inner, top: 182, tracking: -1)
 let row = font("InterTight-Regular", 22), figure = font("InterTight-Regular_SemiBold", 22)
-for (i, (name, value)) in [("Today", "$3.43"), ("Last 7 days", "$24.60"),
-                           ("Last 30 days", "$72.88")].enumerated() {
+for (i, (name, value)) in [("Today", "$3.65"), ("Last 7 days", "$16.84"),
+                           ("Last 30 days", "$77.92")].enumerated() {
     let top = 282 + CGFloat(i) * 52
     RULE.setFill()
     CGRect(x: inner, y: H - top, width: edge - inner, height: 1).fill()

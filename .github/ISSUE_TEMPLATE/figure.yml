@@ -1,0 +1,35 @@
+name: A figure looks wrong
+description: A cost or token count that does not match the harness's own figure or your invoice
+labels: [accuracy]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not attach a real transcript, ledger or dashboard: they show your projects and working days. A few invented lines in the same shape are enough.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `tokenmeter --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      options: [Claude Code, OpenAI Codex CLI, Gemini CLI, OpenCode, Kilo Code, Kimi Code, DeepSeek Harness, An import file, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: figures
+    attributes:
+      label: What Tokenmeter says, and what you expected
+      description: The figure, the window it covers, and where the figure you are comparing it with comes from.
+    validations:
+      required: true
+  - type: textarea
+    id: narrowing
+    attributes:
+      label: Narrowing it down
+      description: If you can, what `--no-ledger`, `--by model` and `--by source` show. Each rules out one cause.
+      render: text

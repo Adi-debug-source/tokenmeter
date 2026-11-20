@@ -51,7 +51,9 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.3.4"
+__version__ = "1.3.5"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 PROJECTS_DIR = claude_code.default_roots()[0]
 
@@ -170,7 +172,9 @@ def _no_constant(word: str):
     raise ValueError(f"{word} in a saved file")
 
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# C0 and C1, and the marks that set text direction, which can turn a figure
+# after a name around.
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 def printable(text: str) -> str:
@@ -206,7 +210,7 @@ FX_ESTIMATE = "ESTIMATE, no exchange rate fetched and none saved"
 FX_ESTIMATE_OFFLINE = "ESTIMATE, offline and no exchange rate saved"
 
 FX_URL = "https://open.er-api.com/v6/latest/USD"
-FX_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fx_rates.json")
+FX_CACHE = os.path.join(HERE, ".fx_rates.json")
 # Half a day, so a rate checked in the morning is never yesterday afternoon's.
 # The menu bar calls this every 60 seconds, so expiry heals itself with no
 # scheduler, no cron and no agent run.
@@ -214,6 +218,9 @@ FX_TTL = 43200
 # After a failed fetch, how long to wait before trying again. Without it every
 # menu bar refresh on a dead network sat through the whole timeout.
 FX_RETRY = 3600
+# A rate further than this factor from FALLBACK_RATES, read on 15 October
+# 2026, is refused as wrong rather than multiplied into every figure.
+FX_BAND = 3.0
 # The answer, once per process: summary(), set_currency() and the dashboard all
 # ask, and used to ask the network once each.
 _FX_MEMO: list = []
@@ -266,7 +273,10 @@ def _fx_lookup() -> tuple:
         try:
             import urllib.request
             with urllib.request.urlopen(FX_URL, timeout=8) as r:
-                payload = json.load(r)
+                body = r.read(FETCH_LIMIT + 1)
+            if len(body) > FETCH_LIMIT:
+                raise ValueError("rate reply too large")
+            payload = json.loads(body)
             fresh = usable_rates(payload.get("rates")) if payload.get("result") == "success" else None
             if fresh:
                 when = printable(str(payload.get("time_last_update_utc", "")))[:16]
@@ -292,6 +302,9 @@ def usable_rates(rates) -> dict | None:
     there is no such currency. A response or a file is outside this program,
     so a rate that is a string, a bool or a nonsense number is left out
     rather than multiplied; the currency then takes the built-in estimate.
+    A rate more than FX_BAND times away from that estimate condemns the whole
+    set: its other rates came from the same place, and a set with one
+    currency quietly on the estimate would still be labelled live.
     """
     if not isinstance(rates, dict):
         return None
@@ -299,6 +312,8 @@ def usable_rates(rates) -> dict | None:
     for code, value in rates.items():
         if (code in CURRENCIES and isinstance(value, (int, float)) and not isinstance(value, bool)
                 and value > 0 and value != float("inf")):
+            if not 1 / FX_BAND <= value / FALLBACK_RATES[code] <= FX_BAND:
+                return None
             out[code] = float(value)
     out["USD"] = 1.0
     return out if len(out) > 1 else None
@@ -340,12 +355,9 @@ def set_currency(code: str) -> None:
 # today's. When a rate changes, a dated entry is added to that model's list and
 # the old one is left alone, so history stays what it actually was.
 
-# Anthropic's table and multiples under their historical names. Only the
-# tests read them; the engine itself goes through TABLES.
+# Anthropic's table under its historical name. Only the tests read it; the
+# engine itself goes through TABLES.
 PRICES = _anthropic.PRICES
-CACHE_WRITE_5M_MULT = _anthropic.CACHE_WRITE_5M_MULT
-CACHE_WRITE_1H_MULT = _anthropic.CACHE_WRITE_1H_MULT
-WEB_SEARCH_PER_1K = _anthropic.WEB_SEARCH_PER_1K
 
 DEFAULT_PROVIDER = _anthropic.PROVIDER
 
@@ -538,8 +550,7 @@ LITELLM_URL = ("https://raw.githubusercontent.com/BerriAI/litellm/main/"
                "model_prices_and_context_window.json")
 LITELLM_NAME = "LiteLLM's public price list"
 PRICE_CACHE_ENV = "TOKENMETER_PRICE_CACHE"
-PRICE_CACHE = os.environ.get(PRICE_CACHE_ENV) or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".fetched_prices.json")
+PRICE_CACHE = os.environ.get(PRICE_CACHE_ENV) or os.path.join(HERE, ".fetched_prices.json")
 OFFLINE_ENV = "TOKENMETER_OFFLINE"
 
 
@@ -578,8 +589,11 @@ def _price_cache() -> dict:
         try:
             with open(PRICE_CACHE, encoding="utf-8") as f:
                 data = json.load(f, parse_constant=_no_constant)
-            data.setdefault("fetched", {})
-            data.setdefault("misses", {})
+            if not isinstance(data, dict):
+                raise ValueError("not a price cache")
+            for part in ("fetched", "misses"):
+                if not isinstance(data.get(part), dict):
+                    data[part] = {}
             _PRICE_STATE["data"] = data
         except (OSError, ValueError):
             pass
@@ -1274,6 +1288,16 @@ def row_size(row: dict) -> int:
             + int(get("w5", 0)) + int(get("w1", 0)))
 
 
+# A ledger row's counts. usage_to_row() writes each as a whole number.
+LEDGER_COUNTS = ("in", "o", "r", "w5", "w1", "th", "s")
+
+
+def _ledger_count(v) -> bool:
+    """Whether a ledger row's count can be added up: a number, not a bool,
+    finite. Anything else ended every report in int() or in pricing."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
 def read_ledger(path: str = "") -> dict:
     """Every recorded call, keyed by message id, largest copy winning.
 
@@ -1296,9 +1320,10 @@ def read_ledger(path: str = "") -> dict:
                 row = json.loads(line)
             except ValueError:
                 continue  # one bad line must not cost the whole history
-            mid = row.get("i")
-            if not mid:
+            if not (isinstance(row, dict) and isinstance(row.get("i"), str) and row["i"]
+                    and all(_ledger_count(row.get(k, 0)) for k in LEDGER_COUNTS)):
                 continue
+            mid = row["i"]
             prev = out.get(mid)
             if prev is None or row_size(row) > row_size(prev):
                 out[mid] = row
@@ -1601,8 +1626,7 @@ def read_records(adapter, path: str) -> list:
 # run is only ever given entries its own code wrote.
 
 SCAN_CACHE_ENV = "TOKENMETER_SCAN_CACHE"
-SCAN_CACHE = os.environ.get(SCAN_CACHE_ENV) or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".scan_cache.db")
+SCAN_CACHE = os.environ.get(SCAN_CACHE_ENV) or os.path.join(HERE, ".scan_cache.db")
 # How long the entries of a reader no run has used are kept: an older
 # version's after an update, another Python's once it is no longer run.
 SCAN_KEEP_DAYS = 7
@@ -2412,6 +2436,9 @@ def format_money(x: float, sym: str) -> str:
 
     The dollar figure printed beside another currency goes through here too.
     It had a rule of its own, so a sub-penny total read "£0.0057 ($0.01)".
+
+    money() in costbar/main.swift and fmt() in dashboard/dashboard.js keep
+    the same rule, so a change here is a change to both.
     """
     if x == 0:
         return f"{sym}0.00"
@@ -2475,6 +2502,9 @@ def call_word(n: int) -> str:
 
 
 def toks(n: int) -> str:
+    """A token count, short: 999, 1.0k, 1.00M, 1.00B. toks() in
+    costbar/main.swift and dashboard/dashboard.js write it the same way, so
+    a change here is a change to both."""
     if n >= 1_000_000_000:
         return f"{n / 1_000_000_000:.2f}B"
     if n >= 1_000_000:
@@ -2705,9 +2735,9 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     print()
 
 
-FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+FONT_DIR = os.path.join(HERE, "fonts")
 # The dashboard's stylesheet and script, inlined into every page it writes.
-DASH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard")
+DASH_DIR = os.path.join(HERE, "dashboard")
 
 # opsz and SOFT are the axes the headline animates on hover; wght is the rest.
 FONTS = (("Fraunces", "fraunces.woff2", "300 700"),
@@ -3269,7 +3299,7 @@ def render_html(overall, groups, meta, unknown, label, out_path, covered="", vie
         '<script>' + script.replace("__PAYLOAD__", payload) + '</script>'
         '</body></html>')
 
-    with open(out_path, "w", encoding="utf-8") as f:
+    with open_private(out_path) as f:
         f.write(doc)
 
 
@@ -3440,13 +3470,21 @@ def summary(ledger: bool = True) -> dict:
 
 # ---------------------------------------------------------------- checking prices
 
+# The most any one reply is read to. LiteLLM's list, the largest, was 5.1 MB
+# on 20 November 2026; a reply without end was read until memory ran out.
+FETCH_LIMIT = 32 << 20
+
+
 def fetch_text(url: str, timeout: int = 20) -> str:
     """One page, as text. Used by --check-prices and by the online lookup
     (resolve_prices), which passes a shorter timeout."""
     import urllib.request
     req = urllib.request.Request(url, headers={"User-Agent": f"tokenmeter/{__version__}"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode("utf-8", errors="replace")
+        body = r.read(FETCH_LIMIT + 1)
+    if len(body) > FETCH_LIMIT:
+        raise ValueError(f"{url} is larger than {FETCH_LIMIT} bytes")
+    return body.decode("utf-8", errors="replace")
 
 
 def md_tables(text: str) -> list:

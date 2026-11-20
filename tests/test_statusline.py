@@ -284,6 +284,26 @@ class TestStatusLine(Base):
                     want.format(D=D, R=R, cost=tm.money(today_usd), saved=tm.money(999.0)) + R),
                     done.stdout)
 
+    def test_the_model_name_cannot_drive_the_terminal(self):
+        """The model's display name was printed as Claude Code sent it, the one
+        name the engine's printable() never saw: one holding ESC ] 0 ; ... BEL
+        retitled the terminal, and a payload that was not a JSON object ended
+        the status line in a traceback."""
+        path = self.write("sess.jsonl", record("msg_1", out=1000))
+        done = self.run_statusline({"model": {"display_name": "Opus\x1b]0;owned\x07\x9b2J"},
+                                    "transcript_path": path})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("\x1b]", done.stdout)
+        self.assertNotIn("\x07", done.stdout)
+        self.assertNotIn("\x9b", done.stdout)
+        self.assertIn("Opus]0;owned2J", done.stdout)
+        for payload in ([1], "text", {"model": "Opus"}, {"model": {"display_name": 5}}):
+            with self.subTest(payload=payload):
+                shutil.rmtree(os.path.join(self.tmp, "statusline"), ignore_errors=True)
+                done = self.run_statusline(payload)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(len(done.stdout.splitlines()), 2, done.stdout)
+
     def test_its_day_cache_is_the_owners_alone(self):
         """.today_cost.json, today's spend, was written with the umask, 0644
         on a Mac, so any other account could read it. It is its owner's alone

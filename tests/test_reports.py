@@ -1135,7 +1135,7 @@ class TestCommandLine(Base):
         document names a file in the repository, and one to a heading names a
         heading that file has, spelt as GitHub spells its anchor."""
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "adapters/README.md",
+        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "CONTRIBUTING.md", "adapters/README.md",
                  "pricing/README.md", "fonts/README.md"]
         pages += ["docs/" + f for f in sorted(os.listdir(os.path.join(repo, "docs")))
                   if f.endswith(".md")]
@@ -1857,6 +1857,12 @@ class TestControlCharacters(Base):
             self.assertIn("\x1b[1m", out)
             out = self.SGR.sub("", out)
         self.assertNotRegex(out, self.CONTROL)
+
+    def test_a_name_cannot_turn_the_figures_after_it_around(self):
+        """printable() removed C0 and C1 controls but not Unicode's direction
+        overrides and isolates: a model named "x" + U+202E showed every figure
+        after it on its line right to left, in a terminal that applies them."""
+        self.assertEqual(tm.printable("a\u202eb\u2066c\u200fd\u061ce"), "abcde")
 
     def test_names_from_an_import_are_printable_everywhere(self):
         trial = os.path.join(self.tmp, "trial.jsonl")

@@ -682,6 +682,40 @@ class TestExchangeRates(Base):
         with open(tm.FX_CACHE) as f:
             self.assertIn("failed", json.load(f))
 
+    def test_a_rate_far_from_any_real_one_is_not_used(self):
+        """Any finite rate above zero was taken from the reply and saved for
+        half a day, so a reply giving GBP as 760 or EUR as 0.00089 put every
+        figure out a thousandfold, labelled live. A rate more than FX_BAND
+        times away from the built-in estimate refuses the whole reply, its
+        plausible rates too: kept, they would label the set live while the
+        refused currency sat on the estimate."""
+        import io
+        from unittest import mock
+        reply = {"result": "success", "time_last_update_utc": "Fri, 02 Oct 2026 00:02:31 +0000",
+                 "rates": {"GBP": 760.0, "EUR": 0.00089, "AUD": 1.5}}
+        tm.ONLINE_LOOKUP[0] = True
+        with mock.patch("urllib.request.urlopen",
+                        return_value=io.BytesIO(json.dumps(reply).encode())):
+            rates, when, live = self.new_run()
+        self.assertEqual((rates, live), (tm.FALLBACK_RATES, False))
+
+    def test_a_reply_too_large_is_not_read_whole(self):
+        """The rate reply and every price page were read whole, however large,
+        so one answer without end took all the memory the Mac had. Past
+        FETCH_LIMIT bytes a reply is a failed fetch."""
+        import io
+        from unittest import mock
+        tm.ONLINE_LOOKUP[0] = True
+        with mock.patch.object(tm, "FETCH_LIMIT", 64):
+            with mock.patch("urllib.request.urlopen",
+                            return_value=io.BytesIO(b'{"result": "success", "rates": {"GBP": 0.75}}'
+                                                    + b" " * 64)):
+                rates, when, live = self.new_run()
+            self.assertEqual(rates, tm.FALLBACK_RATES)
+            with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(b"x" * 65)):
+                with self.assertRaises(ValueError):
+                    tm.fetch_text("https://example.invalid/")
+
     def test_offline_with_nothing_saved_makes_no_request(self):
         """Offline with no rate saved, it fetched one anyway."""
         rates, when, live = tm.fx_rates()

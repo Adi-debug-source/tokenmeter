@@ -1363,6 +1363,47 @@ def local(*parts):
     return dt.datetime(*parts).astimezone()
 
 
+class TestMistralPageReader(unittest.TestCase):
+    def test_stripping_scripts_takes_one_pass(self):
+        """page_rates() dropped <script> and <style> blocks with
+        re.sub(r"<script.*?</script>|<style.*?</style>", " ", page, flags=re.S),
+        which rescans to the end of the page from every <script with no
+        closing tag: 280 KB of them took 35 seconds, and the daily check's
+        deadline could not end the wait, as the pattern holds the interpreter
+        lock. _drop_blocks() gives the same text in one pass."""
+        import inspect
+        from pricing import mistral
+        pattern = r"<script.*?</script>|<style.*?</style>"
+        for text in ("a<script>x</script>b<style>y</style>c", "<script>never closed<style>s</style>z",
+                     "<style>a</style><script>b", "<scriptx</script><style</style>", "plain", "",
+                     "<script><style></script></style>", "<style><script></style></script>"):
+            self.assertEqual(mistral._drop_blocks(text), re.sub(pattern, " ", text, flags=re.S), text)
+        hostile = "<script" * 200000
+        self.assertEqual(mistral._drop_blocks(hostile), hostile)
+        self.assertNotIn(".*?</script>", inspect.getsource(mistral))
+
+    def test_a_far_tag_is_not_looked_for_again_at_every_block(self):
+        """_drop_blocks() first searched for both tags afresh after every
+        block it dropped, so a page of many <script> blocks with one <style
+        at its end scanned to that <style once per block: the quadratic work
+        the one pass was written to end. Each tag's next place is now kept
+        until the pass has gone by it. Counted here as characters searched,
+        which must stay within a few times the page's length."""
+        from pricing import mistral
+
+        class Counted(str):
+            scanned = 0
+
+            def find(self, sub, start=0):
+                at = str.find(self, sub, start)
+                Counted.scanned += (len(self) if at < 0 else at + len(sub)) - start
+                return at
+
+        page = Counted("<script>x</script>" * 5000 + "<style>y</style>")
+        self.assertEqual(mistral._drop_blocks(page), " " * 5001)
+        self.assertLess(Counted.scanned, 4 * len(page))
+
+
 class TestMistralLarge4DatedRows(Base):
     """Mistral Large 4's three prices, each from the day the table starts
     it: the launch sale, $1.36 from 21 October 2026, $0.70 from 1 November
