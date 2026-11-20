@@ -1382,6 +1382,27 @@ class TestMistralPageReader(unittest.TestCase):
         self.assertEqual(mistral._drop_blocks(hostile), hostile)
         self.assertNotIn(".*?</script>", inspect.getsource(mistral))
 
+    def test_a_far_tag_is_not_looked_for_again_at_every_block(self):
+        """_drop_blocks() first searched for both tags afresh after every
+        block it dropped, so a page of many <script> blocks with one <style
+        at its end scanned to that <style once per block: the quadratic work
+        the one pass was written to end. Each tag's next place is now kept
+        until the pass has gone by it. Counted here as characters searched,
+        which must stay within a few times the page's length."""
+        from pricing import mistral
+
+        class Counted(str):
+            scanned = 0
+
+            def find(self, sub, start=0):
+                at = str.find(self, sub, start)
+                Counted.scanned += (len(self) if at < 0 else at + len(sub)) - start
+                return at
+
+        page = Counted("<script>x</script>" * 5000 + "<style>y</style>")
+        self.assertEqual(mistral._drop_blocks(page), " " * 5001)
+        self.assertLess(Counted.scanned, 4 * len(page))
+
 
 class TestMistralLarge4DatedRows(Base):
     """Mistral Large 4's three prices, each from the day the table starts

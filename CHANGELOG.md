@@ -60,7 +60,7 @@ No figure moves: every report on the demo history is what it was.
 
 ### Tests
 
-- 738, ten of them new, each failing on the code before its fix.
+- 739, eleven of them new, each failing on the code before its fix.
 
 ## 1.3.4, 20 November 2026
 

@@ -149,17 +149,21 @@ FALLBACK_MODEL = "mistral-large-4"
 def _drop_blocks(text: str) -> str:
     """text with each <script ...</script> and <style ...</style> block made a
     space, in one pass. A lazy pattern rescanned to the end of the page from
-    every unclosed <script, which a hostile page made minutes of work."""
-    out, i, tags = [], 0, ["script", "style"]
-    while tags:
-        found = [(text.find("<" + t, i), t) for t in tags]
-        found = [(j, t) for j, t in found if j >= 0]
-        if not found:
+    every unclosed <script, which a hostile page made minutes of work. Each
+    tag's next place is kept until the pass has gone by it, so no stretch of
+    the page is searched again for the same tag."""
+    out, i, nxt = [], 0, {"script": -1, "style": -1}
+    while nxt:
+        for t in [t for t, at in nxt.items() if at < i]:
+            nxt[t] = text.find("<" + t, i)
+            if nxt[t] < 0:
+                del nxt[t]
+        if not nxt:
             break
-        j, t = min(found)
+        j, t = min((at, t) for t, at in nxt.items())
         k = text.find("</" + t + ">", j + len(t) + 1)
         if k < 0:
-            tags.remove(t)  # no closing tag after this one, so none after a later one
+            del nxt[t]  # no closing tag after this one, so none after a later one
             continue
         out.append(text[i:j] + " ")
         i = k + len(t) + 3
