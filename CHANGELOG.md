@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.5, unreleased
+## 1.3.5, 20 November 2026
 
 A security review and a tidier front door. The review read every path that
 touches the network, files, the shell and the login item, and scanned the
