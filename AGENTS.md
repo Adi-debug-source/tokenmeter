@@ -60,7 +60,7 @@ The table in MAINTENANCE.md, "How it fits together", names every part. In short:
 - Parallel work runs one task per worktree (`claude -w <name>`; `.claude/worktrees/` is ignored by git). Each agent is given the list of files it owns and touches nothing outside it. Two agents never share a file.
 - Before a commit: the diff is reviewed in a fresh context (`/code-review`, or `/simplify` for cleanups), then the gate runs again.
 - Commits carry the repository's own git identity and say what changed and why. Claude Code's standard co-author line is left on.
-- Nothing is pushed, tagged or released without the maintainer's yes, given in chat for that push. Force-pushes and pushes to main are denied in `.claude/settings.json`; a release push is the maintainer's own command.
+- Nothing is pushed, tagged or released without the maintainer's yes, given in chat for that push. Force-pushes are denied in `.claude/settings.json`; a push to main needs that yes like any other.
 
 ## Pull requests
 
