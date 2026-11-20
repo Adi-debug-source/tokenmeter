@@ -1135,7 +1135,7 @@ class TestCommandLine(Base):
         document names a file in the repository, and one to a heading names a
         heading that file has, spelt as GitHub spells its anchor."""
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "adapters/README.md",
+        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "CONTRIBUTING.md", "adapters/README.md",
                  "pricing/README.md", "fonts/README.md"]
         pages += ["docs/" + f for f in sorted(os.listdir(os.path.join(repo, "docs")))
                   if f.endswith(".md")]

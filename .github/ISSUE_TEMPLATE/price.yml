@@ -1,0 +1,25 @@
+name: A price is wrong or missing
+description: A rate that differs from the provider's page, or a model with no checked price
+labels: [prices]
+body:
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: Exactly as the API names it
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: The provider's pricing page
+      description: The address where the correct rate is published
+    validations:
+      required: true
+  - type: textarea
+    id: rates
+    attributes:
+      label: The rates
+      description: What the page says per million tokens (input, cached input, cache writes, output) and what `tokenmeter --list-prices` or `--check-prices` says.
+    validations:
+      required: true

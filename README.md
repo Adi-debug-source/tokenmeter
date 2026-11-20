@@ -1,18 +1,37 @@
-<img src="docs/screenshots/icon.png" alt="" width="96" align="right">
+<div align="center">
+
+<img src="docs/screenshots/icon.png" alt="The Tokenmeter icon" width="96">
 
 # Tokenmeter
 
 **What your AI coding would have cost at API rates.**
 
+Tokenmeter reads the logs your coding agent already writes, prices every call at<br>
+the provider's published rates, and keeps the answer in your menu bar.<br>
+Nothing about your usage leaves your Mac.
+
 [![tests](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml/badge.svg)](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml)
-[![release](https://img.shields.io/github/v/release/Adi-debug-source/tokenmeter)](https://github.com/Adi-debug-source/tokenmeter/releases/latest)
-[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+[![release](https://img.shields.io/github/v/release/Adi-debug-source/tokenmeter?color=d97757)](https://github.com/Adi-debug-source/tokenmeter/releases/latest)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-d97757)](LICENSE)
+![macOS 12 or later](https://img.shields.io/badge/macOS-12%2B-5c6371)
+![Python 3.9 or later, no packages](https://img.shields.io/badge/Python-3.9%2B%2C%20no%20packages-5c6371)
 
-On a subscription, a coding agent's usage is not billed per token, so you never see what it would cost. Tokenmeter reads the logs your harness already writes on your Mac and prices every API call at the provider's published rates. It is a counterfactual, not a bill, and nothing about your usage leaves the machine.
+[Install](#install) · [What you get](#what-you-get) · [Why trust it](#why-the-numbers-can-be-trusted) · [How it works](#how-it-works) · [Harnesses](#supported-harnesses) · [Prices](#which-prices-are-confirmed) · [Privacy](#privacy)
 
-![The Tokenmeter dashboard](docs/screenshots/dashboard-overview.jpg)
+</div>
 
-The images in this README show an invented history, made by [`docs/screenshots/make_demo.py`](docs/screenshots/make_demo.py), not anyone's real usage. The menu bar image is the real app running against that demo; it is taller than one screen, so it ends at Show tokens. The status line below is the real script's output for one of the demo's sessions.
+![The dashboard opening: the chart, a day picked out, the currency switched, then each section](docs/screenshots/dashboard.gif)
+
+On a subscription, a coding agent's usage is not billed per token, so you never see what it would cost. Tokenmeter works it out from the logs Claude Code, Codex, Gemini CLI and four other harnesses leave on disk. It is a counterfactual, not a bill.
+
+<table>
+<tr><td><b>Four ways to see it</b></td><td>A menu bar app, a status line for Claude Code, a terminal report and an offline dashboard, all showing one engine's figures.</td></tr>
+<tr><td><b>Numbers you can check</b></td><td>Claude Code's figures match its own <code>total_cost_usd</code> to ten decimal places. 728 tests, each guarding a bug that was once real.</td></tr>
+<tr><td><b>Every rate from its maker</b></td><td>Ten providers' price tables, each rate read from the provider's own page, dated, pinned by a test and compared with the live page daily.</td></tr>
+<tr><td><b>Yours alone</b></td><td>Standard-library Python and a small Swift app. No packages, no account, no telemetry.</td></tr>
+</table>
+
+Everything shown on this page is an invented history, written by [`docs/screenshots/make_demo.py`](docs/screenshots/make_demo.py), not anyone's real usage.
 
 ## Install
 
@@ -33,8 +52,13 @@ Either way the same installer runs. It copies the engine to `~/.claude/tools/tok
 
 It needs macOS 12 or later, Python 3.9 or later with no packages to install, and, for the menu bar app, the Xcode command line tools (`xcode-select --install`; Homebrew installs them for you). The menu bar app runs `/usr/bin/python3`, which those tools provide (3.9.6 in current versions).
 
+<details>
+<summary>Updating and removing</summary>
+
 - **Updating.** Inside the clone, `git pull` and run `./install.sh` again. With Homebrew, `brew upgrade tokenmeter` and run `tokenmeter-setup` again: the formula lives in this repository, and Homebrew cannot write to your home folder itself, which is why setup is a separate step.
 - **Removing.** `./install.sh --uninstall` inside the clone, or `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`. Your usage history is kept. Files are moved to the Bin rather than deleted, except the login item's generated plist, which is removed.
+
+</details>
 
 ## What you get
 
@@ -42,22 +66,29 @@ One engine works everything out, and four faces show it.
 
 ### The menu bar app
 
-<img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="380">
+<img src="docs/screenshots/menu-bar.png" alt="The menu bar app's menu" width="340" align="right">
 
-The running figure, always visible, refreshed every minute: today, the last 7 days, the last 30 and all time, then where it went by model, harness or provider. Show tokens puts each window's tokens beside its cost, and the Currency menu switches between seven currencies.
+The running figure, always visible, refreshed every minute: today, the last 7 days, the last 30 and all time, then where it went by model, harness or provider.
+
+- **Show tokens** puts each window's tokens beside its cost.
+- **Break down by** switches between model, harness and provider.
+- **What caching is worth** prices the same tokens as if none had been cached.
+- **Currency** switches between seven currencies.
+- Every note the engine has, such as which readers are unverified and when each price table was last checked, is in the menu too.
+
+The image is the real app running against the demo history. The menu is taller than one screen, so the image ends at Show tokens.
+
+<br clear="right">
 
 ### The Claude Code status line and `/tokenmeter`
 
-```text
-Opus 5.5 │ ctx  11% │ $1.98 session │ $3.08 today
-███░░░░░░░░░░░░░░░░░░░░░░░░░░░ 112.8k / 1M · would-be API spend
-```
+<img src="docs/screenshots/status-line.png" alt="The status line: model, context, this session's cost and today's" width="611">
 
 Under every prompt: this session's cost, its agents included, today's cost across every project, and how full the context window is, as Claude Code reports it. Inside a conversation, `/tokenmeter` gives any report.
 
 ### The terminal report
 
-![The terminal report](docs/screenshots/terminal-report.png)
+![Two reports typed into a terminal: this week by day, then all time by model](docs/screenshots/terminal.gif)
 
 With Homebrew the `tokenmeter` command is already there. From a clone, make it with:
 
@@ -89,7 +120,9 @@ Every report says what window it covers, when each price table was last checked,
 
 `tokenmeter --html` writes one offline HTML page: spend over time, where the money goes, what caching was worth, the dearest sessions and when in the day the work happens, with a currency switcher and a page per harness when you use several. It prints every section on dark pages.
 
-![Where the money goes](docs/screenshots/dashboard-breakdown.jpg)
+| Where the money goes | Harness by harness, and how far to trust it |
+|---|---|
+| ![Where the money goes, what caching is worth, and cost by model](docs/screenshots/dashboard-breakdown.jpg) | ![By harness, and how much of the total rests on verified readers and prices](docs/screenshots/dashboard-harnesses.jpg) |
 
 ## Why the numbers can be trusted
 
@@ -100,7 +133,7 @@ Tokenmeter's only claim is that its numbers are right, so most of the work in it
 - **Each call is counted once.** Harnesses write the same response several times: once per streamed block, again when a session is resumed or forked. Counting log lines overstates usage several times over; Tokenmeter keys every call by its response id and keeps the complete copy.
 - **History outlives the logs.** Claude Code deletes transcripts after 30 days by default. Tokenmeter keeps its own ledger of tokens, never money, so "all time" does not shrink and the whole history reprices when a rate table changes.
 - **Rates are dated.** A price change is a new dated row, never an edit, so a call is always priced at the rate in force on the day it was made.
-- **Most of its tests guard a bug that was once real.** There are 726, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
+- **Most of its tests guard a bug that was once real.** There are 728, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
 - **No packages, no account, no telemetry.** The engine is standard library Python. A report fetches only public price lists, pricing pages and exchange rates, and `--offline` stops those.
 
 ## How it works
@@ -202,6 +235,11 @@ The Claude app's own token figure for the same work is a different number, and i
 
 ## Settings
 
+Environment variables move the ledger and the caches, set the currency, switch the network off and control colour.
+
+<details>
+<summary>Every setting</summary>
+
 | Variable | Does |
 |---|---|
 | `TOKENMETER_CURRENCY` | Default display currency for the terminal, the dashboard and the status line (USD unless set). The menu bar keeps its own choice, from its Currency menu |
@@ -218,6 +256,8 @@ The Claude app's own token figure for the same work is a different number, and i
 
 The menu bar app is started by launchd and does not see your shell's variables; set them in `~/Library/LaunchAgents/io.github.adi-debug-source.tokenmeter.plist` under `EnvironmentVariables` if you need them there. The installer (`costbar/install-login-item.sh`) writes that file afresh when it sets the login item up, so anything added there must be added again after an uninstall and reinstall.
 
+</details>
+
 ## Limitations
 
 - **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
@@ -226,7 +266,20 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 - **Six of seven harness readers are unverified,** as above: only Claude Code's has been checked against real logs.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
 
+## Privacy
+
+Tokenmeter runs on your Mac and reports to nobody.
+
+- **Reads:** the logs your harnesses already keep under your home folder, and nothing else.
+- **Writes:** its ledger of token counts, `~/.claude/cost-ledger.jsonl`, a few caches beside the engine, and the dashboard page you ask for. The ledger holds tokens, never prompts, replies or money.
+- **Sends:** nothing about you. It fetches public price lists, pricing pages and exchange rates; the one thing that ever names anything of yours is a lookup of an OpenAI model no table has, whose address carries the model's name. `--offline` or `TOKENMETER_OFFLINE=1` stops every request.
+- **No account, no key, no telemetry.** There is nothing to sign in to.
+
+[SECURITY.md](SECURITY.md) says exactly which requests are made and how to report a vulnerability privately.
+
 ## Contributing
+
+The most useful contribution is a check against reality: a figure compared with your own records, or a price compared with an invoice. [CONTRIBUTING.md](CONTRIBUTING.md) says how, and what a pull request needs.
 
 - A new harness: [adapters/README.md](adapters/README.md)
 - A new or changed price: [pricing/README.md](pricing/README.md)
