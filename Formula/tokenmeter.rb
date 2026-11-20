@@ -1,8 +1,8 @@
 class Tokenmeter < Formula
   desc "What your AI coding would cost at API rates"
   homepage "https://github.com/Adi-debug-source/tokenmeter"
-  url "https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/v1.3.3.tar.gz"
-  sha256 "b08fd5dbdd27eb65cc97d66b71c825e03e9ebc7ef6cb9f002ee9233f285d8b54"
+  url "https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/v1.3.4.tar.gz"
+  sha256 "a91010eb623990d99c648b4cc64ae3e99f63deb70aee11b78a8a4ee5743d4ce3"
   license "MIT"
 
   depends_on macos: :monterey
