@@ -185,7 +185,7 @@ Source: <https://aistudio.google.com/docs/pricing>. Last verified 19 Nov 2026, c
 
 ## xAI
 
-Source: <https://docs.x.ai/developers/pricing>. Last verified 26 Sep 2026, checked against the published page; not yet against a real bill.
+Source: <https://docs.x.ai/developers/pricing>. Last verified 20 Nov 2026, checked against the published page; not yet against a real bill.
 
 | Model | Input | Cached input | Cache write | Output | Also |
 |---|---:|---:|---:|---:|---|
@@ -196,7 +196,7 @@ Source: <https://docs.x.ai/developers/pricing>. Last verified 26 Sep 2026, check
 | `grok-4.20-0309-reasoning` | $1.25 | $0.20 | - | $2.50 | over 200K prompt tokens: input x2, output x2; fast $2.50 / $5; also grok-4.20, grok-4.20-0309, grok-4.20-beta and 12 more |
 | `grok-4.20-0309-non-reasoning` | $1.25 | $0.20 | - | $2.50 | over 200K prompt tokens: input x2, output x2; fast $2.50 / $5; also grok-4.20-beta-0309-non-reasoning, grok-4.20-beta-latest-non-reasoning, grok-4.20-beta-non-reasoning and 5 more |
 | `grok-4.20-multi-agent-0309` | $1.25 | $0.20 | - | $2.50 | over 200K prompt tokens: input x2, output x2; fast $2.50 / $5; also grok-4.20-multi-agent, grok-4.20-multi-agent-beta-0309, grok-4.20-multi-agent-beta-latest and 3 more |
-| `grok-build-0.1` | $1 | $0.20 | - | $2 | over 200K prompt tokens: input x2, output x2; fast $2 / $4; also grok-code-fast, grok-code-fast-1, grok-code-fast-1-0825 |
+| `grok-build-0.1` | $1 | $0.20 | - | $2 | over 200K prompt tokens: input x2, output x2; fast $2 / $4; retirement 2026-11-20, kept at the last published price; also grok-code-fast, grok-code-fast-1, grok-code-fast-1-0825 |
 
 ## DeepSeek
 

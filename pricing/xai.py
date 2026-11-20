@@ -2,7 +2,9 @@
 
 Read off https://docs.x.ai/developers/pricing on 26 September 2026, twice,
 independently, and checked against each model's own page. The page is plain
-markdown, so --check-prices reads it exactly.
+markdown, so --check-prices reads it exactly. Read again on 20 November 2026:
+the seven models it lists, web search and the priority multiple are
+unchanged, and grok-build-0.1 has left it (see RETIRED).
 
 **Published, not measured.** Nobody has yet compared these with a real xAI
 bill. Please do, and open an issue either way.
@@ -28,7 +30,7 @@ PROVIDER = "xai"
 NAME = "xAI"
 SOURCE = "https://docs.x.ai/developers/pricing"
 SOURCE_MD = "https://docs.x.ai/developers/pricing.md"
-VERIFIED_ON = "2026-09-26"
+VERIFIED_ON = "2026-11-20"
 MEASURED = False
 
 # No cache write fee: caching is automatic and only reads are discounted.
@@ -59,9 +61,25 @@ PRICES = {
     "grok-4.20-0309-reasoning":     [_row(1.25, 2.50, 0.20)],
     "grok-4.20-0309-non-reasoning": [_row(1.25, 2.50, 0.20)],
     "grok-4.20-multi-agent-0309":   [_row(1.25, 2.50, 0.20)],
-    # The coding model.
+    # The coding model. Retired (see RETIRED), at its last published price.
     "grok-build-0.1":               [_row(1.00, 2.00, 0.20)],
 }
+
+# xAI published no notice for grok-build-0.1: its release notes, read 20
+# November 2026, announce the model and never its removal. The page listed
+# it when this tool's daily check read it on 19 November 2026 (no public
+# copy of that day exists; the archive's last are below) and not on the 20th,
+# when its own page, docs.x.ai/developers/models/grok-build-0.1, answered
+# with a redirect to the models list, which no longer names it either. So
+# the date is the first day the page was read without it, not a shutdown
+# xAI announced, and whether the API still answers to the id is not known.
+# Its price is unchanged from 26 September: the Internet Archive's copy of
+# the page of 14 November 2026 (20261114113159) prints $1.00, $0.20 cached
+# and $2.00, twice that from 200K, and its copy of the model's own page of
+# 17 November (20261117194518) the same, with the three grok-code-fast
+# aliases below. Nothing xAI publishes says the id or those aliases now
+# reach another model, so they are not moved.
+RETIRED = {"grok-build-0.1": "2026-11-20"}
 
 # Every alias the model pages list, to its canonical id.
 ALIASES = {
