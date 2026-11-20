@@ -53,6 +53,8 @@ from pricing.names import NAMES
 
 __version__ = "1.3.4"
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 PROJECTS_DIR = claude_code.default_roots()[0]
 
 # The folders to read instead of the default, so two machines can be counted
@@ -206,7 +208,7 @@ FX_ESTIMATE = "ESTIMATE, no exchange rate fetched and none saved"
 FX_ESTIMATE_OFFLINE = "ESTIMATE, offline and no exchange rate saved"
 
 FX_URL = "https://open.er-api.com/v6/latest/USD"
-FX_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".fx_rates.json")
+FX_CACHE = os.path.join(HERE, ".fx_rates.json")
 # Half a day, so a rate checked in the morning is never yesterday afternoon's.
 # The menu bar calls this every 60 seconds, so expiry heals itself with no
 # scheduler, no cron and no agent run.
@@ -340,12 +342,9 @@ def set_currency(code: str) -> None:
 # today's. When a rate changes, a dated entry is added to that model's list and
 # the old one is left alone, so history stays what it actually was.
 
-# Anthropic's table and multiples under their historical names. Only the
-# tests read them; the engine itself goes through TABLES.
+# Anthropic's table under its historical name. Only the tests read it; the
+# engine itself goes through TABLES.
 PRICES = _anthropic.PRICES
-CACHE_WRITE_5M_MULT = _anthropic.CACHE_WRITE_5M_MULT
-CACHE_WRITE_1H_MULT = _anthropic.CACHE_WRITE_1H_MULT
-WEB_SEARCH_PER_1K = _anthropic.WEB_SEARCH_PER_1K
 
 DEFAULT_PROVIDER = _anthropic.PROVIDER
 
@@ -538,8 +537,7 @@ LITELLM_URL = ("https://raw.githubusercontent.com/BerriAI/litellm/main/"
                "model_prices_and_context_window.json")
 LITELLM_NAME = "LiteLLM's public price list"
 PRICE_CACHE_ENV = "TOKENMETER_PRICE_CACHE"
-PRICE_CACHE = os.environ.get(PRICE_CACHE_ENV) or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".fetched_prices.json")
+PRICE_CACHE = os.environ.get(PRICE_CACHE_ENV) or os.path.join(HERE, ".fetched_prices.json")
 OFFLINE_ENV = "TOKENMETER_OFFLINE"
 
 
@@ -1601,8 +1599,7 @@ def read_records(adapter, path: str) -> list:
 # run is only ever given entries its own code wrote.
 
 SCAN_CACHE_ENV = "TOKENMETER_SCAN_CACHE"
-SCAN_CACHE = os.environ.get(SCAN_CACHE_ENV) or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".scan_cache.db")
+SCAN_CACHE = os.environ.get(SCAN_CACHE_ENV) or os.path.join(HERE, ".scan_cache.db")
 # How long the entries of a reader no run has used are kept: an older
 # version's after an update, another Python's once it is no longer run.
 SCAN_KEEP_DAYS = 7
@@ -2412,6 +2409,9 @@ def format_money(x: float, sym: str) -> str:
 
     The dollar figure printed beside another currency goes through here too.
     It had a rule of its own, so a sub-penny total read "£0.0057 ($0.01)".
+
+    money() in costbar/main.swift and fmt() in dashboard/dashboard.js keep
+    the same rule, so a change here is a change to both.
     """
     if x == 0:
         return f"{sym}0.00"
@@ -2475,6 +2475,9 @@ def call_word(n: int) -> str:
 
 
 def toks(n: int) -> str:
+    """A token count, short: 999, 1.0k, 1.00M, 1.00B. toks() in
+    costbar/main.swift and dashboard/dashboard.js write it the same way, so
+    a change here is a change to both."""
     if n >= 1_000_000_000:
         return f"{n / 1_000_000_000:.2f}B"
     if n >= 1_000_000:
@@ -2705,9 +2708,9 @@ def print_report(overall, groups, meta, unknown, by, label, sessions=False, cove
     print()
 
 
-FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+FONT_DIR = os.path.join(HERE, "fonts")
 # The dashboard's stylesheet and script, inlined into every page it writes.
-DASH_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard")
+DASH_DIR = os.path.join(HERE, "dashboard")
 
 # opsz and SOFT are the axes the headline animates on hover; wght is the rest.
 FONTS = (("Fraunces", "fraunces.woff2", "300 700"),

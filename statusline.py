@@ -187,25 +187,20 @@ def main() -> None:
     def fmt_tok(t):
         return f"{t / 1000:.1f}k" if t >= 1000 else str(t)
 
-    def fmt_usd(x):
-        # Never print a plausible zero when pricing is unavailable. A broken
-        # import once showed "$0.000" for hours and read as an idle session
-        # rather than a fault. "cost n/a" cannot be misread.
-        if money is None:
-            return "cost n/a"
-        return money(x)
-
     sep = f"{DIM}│{RESET}"
     parts = [
         f"{BOLD}{BLUE}{model}{RESET}",
         f"ctx {colour}{pct:3d}%{RESET}",
-        (f"{YELLOW}{fmt_usd(sess_usd)}{RESET}{DIM} session{RESET}" if money is not None
+        # Never a plausible zero when pricing is unavailable. A broken import
+        # once showed "$0.000" for hours and read as an idle session rather
+        # than a fault.
+        (f"{YELLOW}{money(sess_usd)}{RESET}{DIM} session{RESET}" if money is not None
          else f"{RED}pricing unavailable{RESET}"),
     ]
     if day_usd is not None and show_tokens and day_tokens is not None:
-        parts.append(f"{fmt_usd(day_usd)}{DIM} · {RESET}{toks(day_tokens)}{DIM} today{RESET}")
+        parts.append(f"{money(day_usd)}{DIM} · {RESET}{toks(day_tokens)}{DIM} today{RESET}")
     elif day_usd is not None:
-        parts.append(f"{fmt_usd(day_usd)}{DIM} today{RESET}")
+        parts.append(f"{money(day_usd)}{DIM} today{RESET}")
     line1 = f" {sep} ".join(parts)
     cap = {200_000: "200k", 1_000_000: "1M"}.get(limit) or (toks or fmt_tok)(limit)
     line2 = f"{colour}{bar}{RESET} {DIM}{fmt_tok(tokens)} / {cap} · would-be API spend{RESET}"
