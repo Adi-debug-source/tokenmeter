@@ -8,6 +8,7 @@ costbar/.mkicon
 .fx_rates.json
 .today_cost.json
 .fetched_prices.json
+.scan_cache.db*
 *.tmp
 
 # Usage history never belongs in this repository

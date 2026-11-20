@@ -72,6 +72,49 @@ over the series shown, and rounds an exact half to even, as Python does and
 `toFixed()` alone does not; a test runs it against the engine's wherever node
 is installed. Change all three together.
 
+### The scan cache
+
+Every run reads every log, and almost none of them has changed since the run
+before. So what each Claude Code transcript held is kept in a SQLite file,
+`.scan_cache.db` beside the engine (or wherever `TOKENMETER_SCAN_CACHE`
+says), and a transcript is opened again only when its size, the time it was
+last written or the time its inode last changed has moved. On a copy of one
+real history, 2,422 transcripts holding 3 GB, that and a reader that tests a
+line as bytes before decoding it took the menu bar's refresh
+(`--summary-json`) from 14.7 seconds to 4.4 on Python 3.9, which the menu bar
+runs, and from 12.1 to 3.0 on Python 3.15: the fastest of five runs of each,
+old and new in turn, on 19 November 2026. Across the same change, with the
+cache and without it, fourteen runs of the command line (the dashboard's
+page among them), the status line and the ledger's bytes after every run
+were compared on that history, and none differed.
+`python3 tests/bench.py` measures the same things on an invented history of
+that shape, so the figures can be taken again on any machine.
+
+What keeps it honest:
+
+- **It holds calls as read, nothing derived.** An entry is exactly what
+  `read_records()` returned for the file: before merging, pricing and the
+  ledger. A run from the cache and a run that reads every file go through
+  the same code from there on, and `TestScanCache` compares the two.
+- **Only Claude Code's reader is cached.** Its result depends on nothing but
+  the file. The other readers count things for their notes as they read, so
+  a cached file would empty those notes; they are read in full every run.
+- **A run is only given what its own code read.** Every entry is filed
+  under the reader that made it (`SCAN_READER`): the engine's version and
+  the Python running it, which are the running code's own, then the size
+  and times of `adapters/claude_code.py`, `adapters/common.py` and
+  `tokenmeter.py`, which an edit between releases moves. So an update reads
+  every transcript again, a refresh that was already running when the
+  update landed cannot leave the old reader's calls for the new one, and
+  the menu bar's Python 3.9 and a newer `python3` on the PATH each keep
+  their own entries, since `parse_time()` reads a few forms of timestamp
+  only on the newer ones.
+- **It can always be deleted.** The next run reads everything once and
+  writes a new one. A file that is damaged or cannot be written is ignored,
+  and the run reads the transcripts as it did before the cache existed.
+- Once a day it drops the transcripts that are no longer on disk, and the
+  entries of any reader that has not run for a week.
+
 ## When a harness updates
 
 The harness owns its log format, so an update can move the ground.
@@ -344,6 +387,10 @@ In order, because each step rules out the one below:
 4. `--by day`. A day that is wildly out points at one session; find it with
    `--sessions` and price it alone with `--session <id>`.
 
+The scan cache holds no figures, only what each transcript said, and is not
+a likely cause. To rule it out all the same, delete `.scan_cache.db` beside
+the engine and run again: the figures should not move.
+
 ## The ledger
 
 `~/.claude/cost-ledger.jsonl`, one JSON object per line, append only.
@@ -466,7 +513,9 @@ the menu bar image is to be captured from the same history, as step 4 says.
 `docs/screenshots/make_demo.py` writes it: a home folder holding three months
 of a made-up user's Claude Code transcripts, a few Codex, Gemini CLI and
 OpenCode sessions, and a ledger to match. `docs/screenshots/shoot.py` takes
-six of the images from it:
+seven images from it: the six the README shows beside the menu bar's, and
+`status-line.png`, the status line's two lines for the demo's newest
+session, which the README gives as text until that image has been taken:
 
     DEMO=/tmp/tokenmeter-demo
     TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force
@@ -485,7 +534,8 @@ six of the images from it:
    the demo: `HOME` (the only way to move Gemini CLI's folder, and what makes
    every printed path read as `~`), `CLAUDE_CONFIG_DIR`,
    `TOKENMETER_CLAUDE_PROJECTS`, `TOKENMETER_LEDGER`, `TOKENMETER_PRICE_CACHE`,
-   `TOKENMETER_OFFLINE=1`, `TOKENMETER_CURRENCY=USD`, `CODEX_HOME`,
+   `TOKENMETER_SCAN_CACHE`, `TOKENMETER_OFFLINE=1`, `TOKENMETER_CURRENCY=USD`,
+   `CODEX_HOME`,
    `XDG_DATA_HOME` and `OPENCODE_DB`, and `PYTHONDONTWRITEBYTECODE=1`, so no
    Python caches land in the demo's home. `shoot.py` runs the engine with that
    environment, `TZ` when it is set, and nothing else from your own shell.
@@ -522,6 +572,7 @@ six of the images from it:
          TOKENMETER_CLAUDE_PROJECTS="$DEMO/home/.claude/projects" \
          TOKENMETER_LEDGER="$DEMO/home/.claude/cost-ledger.jsonl" \
          TOKENMETER_PRICE_CACHE="$DEMO/fetched-prices.json" TOKENMETER_OFFLINE=1 \
+         TOKENMETER_SCAN_CACHE="$DEMO/scan-cache.db" \
          TOKENMETER_CURRENCY=USD CODEX_HOME="$DEMO/home/.codex" \
          XDG_DATA_HOME="$DEMO/home/.local/share" \
          OPENCODE_DB="$DEMO/home/.local/share/opencode/opencode.db" \

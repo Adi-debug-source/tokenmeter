@@ -2,34 +2,26 @@
 
 # Tokenmeter
 
-What your AI coding would have cost at API rates.
+**What your AI coding would have cost at API rates.**
+
+[![tests](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml/badge.svg)](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/Adi-debug-source/tokenmeter)](https://github.com/Adi-debug-source/tokenmeter/releases/latest)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 On a subscription, a coding agent's usage is not billed per token, so you never see what it would cost. Tokenmeter reads the logs your harness already writes on your Mac and prices every API call at the provider's published rates. It is a counterfactual, not a bill, and nothing about your usage leaves the machine.
 
 ![The Tokenmeter dashboard](docs/screenshots/dashboard-overview.jpg)
 
-The images in this README show an invented history, made by [`docs/screenshots/make_demo.py`](docs/screenshots/make_demo.py), not anyone's real usage. The menu bar image is the real app running against that demo; it is taller than one screen, so it ends at Show tokens.
-
-It has four faces over one engine:
-
-| Face | What it is |
-|---|---|
-| Terminal report | The full breakdown, grouped however you like |
-| Dashboard | One offline HTML page with charts, tables and a currency switcher, which prints every section on dark pages |
-| Menu bar app | The running figure, always visible, with four time windows, and each one's tokens beside its cost if you switch Show tokens on |
-| Claude Code status line and `/tokenmeter` command | This session's cost, its agents included, today's cost, and how full the context window is, as Claude Code reports it, with today's tokens if you ask; `/tokenmeter` gives any report in the conversation |
-
-<img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="420">
-
-## Requirements
-
-- macOS 12 or later
-- Python 3.9 or later, no packages to install. The menu bar app runs `/usr/bin/python3`, which the Xcode command line tools provide (3.9.6 in current versions)
-- The Xcode command line tools, for the menu bar app: `xcode-select --install` (Homebrew installs them for you)
+The images in this README show an invented history, made by [`docs/screenshots/make_demo.py`](docs/screenshots/make_demo.py), not anyone's real usage. The menu bar image is the real app running against that demo; it is taller than one screen, so it ends at Show tokens. The status line below is the real script's output for one of the demo's sessions.
 
 ## Install
 
-With [Homebrew](https://brew.sh):
+```bash
+git clone https://github.com/Adi-debug-source/tokenmeter.git
+./tokenmeter/install.sh
+```
+
+Or with [Homebrew](https://brew.sh):
 
 ```bash
 brew tap adi-debug-source/tokenmeter https://github.com/Adi-debug-source/tokenmeter
@@ -37,21 +29,35 @@ brew install adi-debug-source/tokenmeter/tokenmeter
 tokenmeter-setup
 ```
 
-The formula lives in this repository, so the first line points Homebrew at it once. The second fetches Tokenmeter and adds the `tokenmeter` command. The third installs the menu bar app and, if you use Claude Code, the status line and the `/tokenmeter` command; Homebrew cannot write to your home folder itself, which is why it is a separate step. After `brew upgrade tokenmeter`, run `tokenmeter-setup` again.
+Either way the same installer runs. It copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; add `--statusline` to replace it, or `--no-app` to skip the menu bar app.
 
-Or from a clone:
+It needs macOS 12 or later, Python 3.9 or later with no packages to install, and, for the menu bar app, the Xcode command line tools (`xcode-select --install`; Homebrew installs them for you). The menu bar app runs `/usr/bin/python3`, which those tools provide (3.9.6 in current versions).
 
-```bash
-git clone https://github.com/Adi-debug-source/tokenmeter.git
-cd tokenmeter
-./install.sh
+- **Updating.** Inside the clone, `git pull` and run `./install.sh` again. With Homebrew, `brew upgrade tokenmeter` and run `tokenmeter-setup` again: the formula lives in this repository, and Homebrew cannot write to your home folder itself, which is why setup is a separate step.
+- **Removing.** `./install.sh --uninstall` inside the clone, or `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`. Your usage history is kept. Files are moved to the Bin rather than deleted, except the login item's generated plist, which is removed.
+
+## What you get
+
+One engine works everything out, and four faces show it.
+
+### The menu bar app
+
+<img src="docs/screenshots/menu-bar.png" alt="The menu bar app" width="380">
+
+The running figure, always visible, refreshed every minute: today, the last 7 days, the last 30 and all time, then where it went by model, harness or provider. Show tokens puts each window's tokens beside its cost, and the Currency menu switches between seven currencies.
+
+### The Claude Code status line and `/tokenmeter`
+
+```text
+Opus 5.5 │ ctx  11% │ $1.98 session │ $3.08 today
+███░░░░░░░░░░░░░░░░░░░░░░░░░░░ 112.8k / 1M · would-be API spend
 ```
 
-Either way the same installer runs. It copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; add `--statusline` to replace it, or `--no-app` to skip the menu bar app. From a clone, run `./install.sh` again after `git pull` to update.
+Under every prompt: this session's cost, its agents included, today's cost across every project, and how full the context window is, as Claude Code reports it. Inside a conversation, `/tokenmeter` gives any report.
 
-To remove everything except your usage history: `tokenmeter-setup --uninstall` then `brew uninstall tokenmeter`, or `./install.sh --uninstall` from a clone. Files are moved to the Bin rather than deleted, except the login item's generated plist, which is removed.
+### The terminal report
 
-## Usage
+![The terminal report](docs/screenshots/terminal-report.png)
 
 With Homebrew the `tokenmeter` command is already there. From a clone, make it with:
 
@@ -73,15 +79,60 @@ tokenmeter --currency GBP       # USD is the default; GBP, EUR, INR, CAD, AUD an
 tokenmeter --list-adapters      # which harnesses were found, and how far to trust each
 tokenmeter --list-prices        # every model with a checked price, and its rates
 tokenmeter --check-prices       # compare every price table with the provider's live page
-tokenmeter --import FILE        # price usage from any other harness (see below)
+tokenmeter --import FILE        # price usage from any other harness
 tokenmeter --json               # machine readable
 ```
 
-![The terminal report](docs/screenshots/terminal-report.png)
+Every report says what window it covers, when each price table was last checked, and anything it had to estimate. Nothing is estimated quietly. `--json` gives a script the same run ([what it holds](docs/how-it-works.md#json-for-scripts)), and new keys are only ever added, so a script written for an older version keeps working.
 
-Every report says what window it covers, when each price table was last checked, and anything it had to estimate. Nothing is estimated quietly.
+### The dashboard
 
-`--json` gives a script the same run: the totals with their components and tokens, the version, the window, the covered line, the notes, any model with no price, the cost without cache reads, and the tokens on disk and held only by the ledger. Each tokens object gives every kind of token and then the total and fresh tokens (see [Total tokens](#total-tokens)). With `--by` or `--sessions` it adds the groups or the dearest sessions, in the terminal's order. New keys are only ever added, so a script written for an older version keeps working.
+`tokenmeter --html` writes one offline HTML page: spend over time, where the money goes, what caching was worth, the dearest sessions and when in the day the work happens, with a currency switcher and a page per harness when you use several. It prints every section on dark pages.
+
+![Where the money goes](docs/screenshots/dashboard-breakdown.jpg)
+
+## Why the numbers can be trusted
+
+Tokenmeter's only claim is that its numbers are right, so most of the work in it is checking.
+
+- **Checked against the harness's own figures.** Claude Code's figures match its own `total_cost_usd` to ten decimal places.
+- **Every price in a table comes from its maker's own page.** Each rate was read figure by figure from the provider's pricing page on a recorded date, is pinned by a test, and is compared with the live page once a day. [docs/prices.md](docs/prices.md) lists every model and rate, generated from the tables, so it cannot drift from what the tool charges. A model no table has is looked up online and labelled as looked up wherever it appears.
+- **Each call is counted once.** Harnesses write the same response several times: once per streamed block, again when a session is resumed or forked. Counting log lines overstates usage several times over; Tokenmeter keys every call by its response id and keeps the complete copy.
+- **History outlives the logs.** Claude Code deletes transcripts after 30 days by default. Tokenmeter keeps its own ledger of tokens, never money, so "all time" does not shrink and the whole history reprices when a rate table changes.
+- **Rates are dated.** A price change is a new dated row, never an edit, so a call is always priced at the rate in force on the day it was made.
+- **Most of its tests guard a bug that was once real.** There are 726, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
+- **No packages, no account, no telemetry.** The engine is standard library Python. A report fetches only public price lists, pricing pages and exchange rates, and `--offline` stops those.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Harness logs<br>Claude Code, Codex, Gemini CLI,<br>OpenCode, Kilo Code, Kimi Code,<br>DeepSeek Harness, --import"] --> B["Adapters<br>one reader per harness"]
+    B --> C["Engine<br>de-duplicate, price, total"]
+    P["Price tables<br>one per provider, dated rows"] --> C
+    C <--> L[("Ledger<br>tokens per call,<br>append only")]
+    C --> F1["Menu bar app"]
+    C --> F2["Status line"]
+    C --> F3["Terminal report"]
+    C --> F4["Dashboard"]
+```
+
+1. **Read.** One adapter per harness reads its logs and says what each API call was: model, provider, time, and tokens split into uncached input, cache reads, cache writes and output.
+2. **De-duplicate.** Tokenmeter keys every call by its response id and keeps the complete copy, which is the largest.
+3. **Price.** Each call is priced from its own provider's table at the rate in force that day.
+4. **Remember.** Every priced call is written to a ledger, `~/.claude/cost-ledger.jsonl`, so history outlives the logs.
+
+All the arithmetic lives in `tokenmeter.py`, about 4,500 lines of standard-library Python. The adapters only read, the price tables only hold rates, and the menu bar app (Swift and AppKit), the status line and the dashboard (plain JavaScript and SVG, no libraries) only display what the engine computes. A second copy of any calculation is treated as a bug.
+
+It is quick enough to run every minute. A transcript that has not changed since the last run is not read again, so on a history of 2,422 transcripts holding 3 GB the menu bar's refresh takes 4.4 seconds where it took 14.7, and every figure, note and ledger row comes out the same. `python3 tests/bench.py` measures it on an invented history of the same shape.
+
+```bash
+tokenmeter --no-ledger          # price only what the logs hold
+tokenmeter --ledger FILE        # use a different ledger
+tokenmeter --rebuild-ledger     # rewrite it from every log on disk (takes no filters; every old copy is kept)
+```
+
+[docs/how-it-works.md](docs/how-it-works.md) has the rest: the ledger, how total tokens are defined, rolling windows and calendar periods, what orchestration costs, and what `--json` holds.
 
 ## Supported harnesses
 
@@ -89,50 +140,20 @@ Tokenmeter finds each harness's logs by itself. Each reader carries a verificati
 
 | Harness | Status | What it reads |
 |---|---|---|
-| Claude Code | **verified** | `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects` when that is an absolute path; any other value is named in a note), subagents and workflow agents included. A `CLAUDE_CONFIG_DIR` set in Claude Code's settings files is not followed |
-| OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` (or under `$CODEX_HOME` when that is an absolute path; an empty value counts as unset, and any other is named in a note); the sessions Codex compresses after a week need Python 3.14, the `zstd` command or the `zstandard` package |
-| Gemini CLI | unverified | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp/*/chats` under the macOS sandbox (or the same two under `$GEMINI_CLI_HOME`, which stands in for the home folder) |
-| OpenCode | unverified | `~/.local/share/opencode/opencode*.db` (or under `$XDG_DATA_HOME` when that is an absolute path; an empty value counts as unset, and any other is named in a note) |
-| Kilo Code | unverified | `~/.local/share/kilo/kilo*.db` and `opencode-*.db` (or under `$XDG_DATA_HOME` when that is an absolute path, an empty value counting as unset and any other named in a note; or `$KILO_DB`): the extension, the JetBrains plugin and the CLI from 7.0 on. A call from before 7.4.16 whose record does not say whether its output includes reasoning is left out, and the report says how many. Kilo Code 5 and earlier are not read: they record no model |
-| Kimi Code | unverified | `~/.kimi-code/sessions` (or `$KIMI_CODE_HOME` when that is an absolute path; any other value is named in a note). A call whose model, cached input or thinking tokens Kimi Code did not record is left out, and the report says how many. The older Python kimi-cli is not read: it records no model |
-| DeepSeek Harness | unverified | `~/.dsh/sessions` (or `$DSH_HOME`); compressed sessions (`.jsonl.zstd`, the default) need Python 3.14, the `zstd` command or the `zstandard` package. A call whose usage the harness did not record, a call that wrote to a cache on a route other than DeepSeek's (the write's lifetime is not recorded), and a compaction by another summariser are left out, and the report says how many. So are the calls of subagents it runs in another agent's process: Claude Code and Codex subagents keep no log, so their calls are missing, and the report says how many such runs there were |
-| Anything else | your data | `--import FILE`, in the documented format |
+| Claude Code | **verified** | `~/.claude/projects`, subagents and workflow agents included |
+| OpenAI Codex CLI | unverified | `~/.codex/sessions` and `archived_sessions` |
+| Gemini CLI | unverified | `~/.gemini/tmp/*/chats` |
+| OpenCode | unverified | `~/.local/share/opencode/opencode*.db` |
+| Kilo Code | unverified | `~/.local/share/kilo/kilo*.db`, from version 7.0 on |
+| Kimi Code | unverified | `~/.kimi-code/sessions` |
+| DeepSeek Harness | unverified | `~/.dsh/sessions` |
+| Anything else | your data | `--import FILE`, in the [documented format](docs/import-format.md) |
 
-**Verified** means checked against real logs and against the harness's own cost figures. Claude Code's figures match its own `total_cost_usd` to ten decimal places.
+**Verified** means checked against real logs and against the harness's own cost figures.
 
 **Unverified** means built from the harness's published source code and tested against sample files made to that format, but not yet run against real logs. If you use one of these, please compare a figure against your own records and open an issue with a sample either way. One real sample is what it takes to promote an adapter to verified; see [adapters/README.md](adapters/README.md).
 
-![Adapters and price tables](docs/screenshots/terminal-adapters.png)
-
-### Several at once
-
-Use more than one harness, or one harness with models from several providers,
-and every face adds what comparing them needs. With one of each, nothing
-changes.
-
-- **Dashboard:** a Harness menu beside the currencies shows any one harness on
-  its own page. The spend chart splits each day by harness, models are grouped
-  under the provider that priced them with the harnesses that used each, a
-  By harness table compares cost per call and cache use, and "How far to
-  trust this" shows how much of the total came from verified readers and
-  from checked prices.
-- **Menu bar:** By model stays the default; "Break down by" switches it to
-  harnesses or providers.
-- **Terminal:** `tokenmeter --by source` compares harnesses side by side.
-
-![Harnesses compared, and how far to trust the total](docs/screenshots/dashboard-harnesses.jpg)
-
-### Any other harness
-
-Aider, Cline (its CLI and its VS Code extension), Crush, Goose, Hermes Agent, Qwen Code, kimi-cli (the older Python Kimi CLI), Roo Code, Kilo Code 5 and earlier, Zoo Code, Continue, Cursor CLI, GitHub Copilot CLI, Amp, Grok Build and Antigravity have no reader: none of them writes per-call token counts that can be priced exactly, and [adapters/README.md](adapters/README.md#harnesses-without-a-reader) says what each records and what a reader would need. T3 Code has no reader of its own: its agent turns are counted through the harnesses it drives (Claude Code, Codex, OpenCode and others), but the short calls it makes for thread titles, branch names and commit messages run with logging off and are not counted anywhere, except through Claude Code before 2.0.63, which cannot turn logging off and so keeps them.
-
-For any of these, Cursor, or a script of your own: if you can get at per-call token counts, write one JSON object per call and pass the file with `--import`:
-
-```json
-{"id": "resp_01", "timestamp": "2026-09-20T14:03:11Z", "provider": "openai", "model": "gpt-6-sol", "input": 1200, "cache_read": 8000, "output": 350}
-```
-
-The format, with a worked example for each provider's conventions, is in [docs/import-format.md](docs/import-format.md). Imported calls go into the ledger like any others, so importing the same file twice counts nothing twice, and they appear in every report, the dashboard and the menu bar.
+[docs/harnesses.md](docs/harnesses.md) has each reader's folders and the variables that move them, what each leaves out, how several harnesses are compared side by side, and the harnesses that have no reader and why.
 
 ## Which prices are confirmed
 
@@ -157,108 +178,17 @@ There are three levels of confidence, and every report says which one each figur
 | MiniMax | 2 | 2 Nov 2026 | not yet |
 | Xiaomi MiMo | 3 | 2 Nov 2026 | not yet |
 
-Every price in a table is the one the model's maker publishes on its own site, in US dollars, read on a recorded date: never from memory, a blog or an aggregator such as OpenRouter or LiteLLM. The one other source is an Internet Archive copy of the maker's own pricing page: for a retired model's last price, and for an earlier price of a current model that the live page no longer prints (Mistral Large 4's launch sale and its price from 21 to 31 October 2026), dated from the first capture showing it. Those earlier prices cannot be re-confirmed against the live page. A price published only in another currency is not converted; that model is left out. A retired model keeps its last published price, so older usage is still priced, and the table counts it as retired.
-
-The same rules decide which price a call gets when someone other than the maker served or billed it:
-
-- **An open-weight model** is priced at its maker's rate, whoever served the call. OpenRouter's `moonshotai/kimi-k3` is priced as Moonshot's `kimi-k3`, and `z-ai/glm-4.7-flash` as Z.ai's `glm-4.7-flash`, which Z.ai lists as free.
-- **A model billed through a harness's own plan or credits** is priced at its maker's API rate, because the question this tool answers is what the usage would have cost at API rates.
-- **A frontier model bought per token through a host** such as OpenRouter keeps the host's price, through the online lookup, labelled as looked up. So does a model whose maker sells no per-token API (gpt-oss, Llama, Gemma, Nemotron).
-- **Host and harness spellings** are translated to the maker's id in one place, [`pricing/names.py`](pricing/names.py), for an exact match of the same model only. An id that cannot be mapped with certainty is priced as recorded, by its table or the lookup. A call prices the same whether it is read fresh or from the ledger.
-
-The tables model what each provider publishes and a log can support: cached input rates, cache writes by lifetime, long-context surcharges above a threshold, fast or priority tiers, dated price changes (Gemini 3.6 to 3.8 Flash rise on 1 January 2027, and each call is priced at the rate on its own day), web searches per 1,000, dated where billing started at a set time (DeepSeek's from 16:00 UTC on 31 October 2026), and DeepSeek's off-peak discount by time of day.
-
-**A model the tables do not have is looked up online at startup,** once: first on the provider's own pricing page where Tokenmeter can read it, otherwise in [LiteLLM's public price list](https://github.com/BerriAI/litellm). The result is saved locally with its source and date, rechecked weekly, and labelled in every report as looked up, not checked by hand. Each provider's pricing page is also read once a day, after a report is written, to check it still agrees with the table (see below). Only price lists and pricing pages are downloaded; no usage data, totals or model names are sent anywhere except the one case of reading an OpenAI model's own page. A lookup that cannot reach its sources is tried again ten minutes later rather than remembered as not found. `TOKENMETER_OFFLINE=1` or `--offline` switches it off, along with the exchange-rate request, and an unknown model is then priced at a flagged stand-in rate.
-
-## How accurate is this?
-
-**Anthropic rates are verified.** Every rate in the table has been checked against Anthropic's published pricing, and spot-checked against Claude Code's own reported cost figures, which match to the cent. Claude Code is the author's daily driver, so these are the numbers that get used and noticed.
-
-**Other providers are best-effort.** Their tables were read from each provider's own pricing pages, figure by figure, and `--check-prices` confirms they still match those pages. What has not been done is comparing them with a real bill from someone who uses those models daily. If you do, please check a month against your invoice and open an issue whether it matches or not.
-
-**Checked prices do not update themselves.** The tables are hand-maintained and each carries the date a person last read every figure off its page, shown in every report, with a warning once it is more than 90 days old. **The live pages are checked once a day.** After a report or the menu bar's run has written its output, Tokenmeter rereads the pricing page of each provider not yet checked that day and compares it with the table, using the same comparison as `tokenmeter --check-prices`. The pages are read side by side, and the whole check gives up after 8 seconds, so a run is held at most once a day, and for no longer than one lookup's timeout. The report's note then adds the day the live page last matched ("live page matched 2 Nov 2026"). If the page differs, the note becomes a warning that names the models whose rates differ, that the page no longer lists, or that it lists and the table lacks, and says to run `--check-prices`. If the page could not be read on two days in a row, the warning says since when; one failed fetch on a bad connection is not taken as evidence that a price moved. The outcome is saved in the price cache, with the looked-up prices. Neither the daily check nor `--check-prices` ever changes a table or its hand-checked date: a rate change is recorded as a new dated entry, so a call is always priced at the rate in force on the day it was made (`--current-rates` prices the whole history at today's rates instead). The status line never fetches, and offline nothing is read. The one price that is fetched and used automatically is for a model no table has, and that is labelled wherever it is used. Exchange rates refresh automatically every 12 hours; the tables' prices do not. Offline, the last saved exchange rate is used at any age and gives its date, and with none saved a built-in estimate is used and labelled as one.
-
 ![Checking the tables against the live pages](docs/screenshots/terminal-check-prices.png)
 
-**The 5-minute cache write is measured.** Anthropic's 5-minute cache write multiplier (1.25x) was checked on 19 November 2026 against the per-model cost Claude Code records in its transcripts: 53 sessions that made such writes, on Opus 5.5, Sonnet 5.5, Fable 5.2 and Opus 4.8, 29 of them with no other kind of cache write. With every other component priced from the table, each session's recorded cost gives a multiplier of 1.25 to thirteen decimal places.
+If you use one of the providers not yet compared with a real bill, please check a month against your invoice and open an issue whether it matches or not. [docs/accuracy.md](docs/accuracy.md) says where every price comes from, which price a call gets when someone other than the maker served it, what has been measured and how, and what is not modelled.
 
-**Not modelled, by design:** batch and flex discounts (coding harnesses are interactive), regional or data-residency uplifts, cache storage fees billed by the hour, and search-grounding fees that depend on a monthly free allowance. Qwen has no table because its price depends on region, tier, thinking mode and cache type, which logs do not record; its models are priced by the online lookup and labelled.
+## Questions
 
-![Where the money goes](docs/screenshots/dashboard-breakdown.jpg)
-
-## How it works
-
-1. **Read.** One adapter per harness reads its logs and says what each API call was: model, provider, time, and tokens split into uncached input, cache reads, cache writes and output.
-2. **De-duplicate.** Harnesses write the same response more than once: once per streamed content block, again when a session is resumed or forked. Tokenmeter keys every call by its response id and keeps the complete copy, which is the largest. Counting log lines instead overstates usage several times over.
-3. **Price.** Each call is priced from its own provider's table at the rate in force that day.
-4. **Remember.** Every priced call is written to a ledger, so history outlives the logs.
-
-All the arithmetic lives in `tokenmeter.py`. The menu bar and status line only display what it computes.
-
-### The ledger: an "all time" that lasts
-
-Claude Code deletes transcripts after 30 days by default, and Codex compresses them after a week, so a tool that reads only logs has an "all time" that quietly shrinks. Tokenmeter keeps its own record, `~/.claude/cost-ledger.jsonl`, one line per call:
-
-- **Tokens, never money.** A ledger of dollars would be frozen at the prices on the day it was written; a ledger of tokens reprices the whole history whenever a table changes.
-- **Append only.** A row that supersedes an earlier one is appended, never edited, so the file is safe to keep in git and every diff is only the new lines.
-- **Updated by every run that uses it, never on a schedule.** The menu bar's 60-second refresh keeps it current.
-- **Small.** About 220 bytes a call, a couple of megabytes a year.
-- **Losing it degrades, it does not break.** Without it the tool falls back to the logs on disk.
-
-```bash
-tokenmeter --no-ledger          # price only what the logs hold
-tokenmeter --ledger FILE        # use a different ledger
-tokenmeter --rebuild-ledger     # rewrite it from every log on disk (takes no filters; every old copy is kept)
-```
-
-### What "all time" means
+### What does "all time" mean?
 
 Every API call in the logs on this Mac, plus every call the ledger remembers. Not your subscription, your account or when you installed anything; the tool knows none of those. The window it prints is the oldest and newest call it can see. Changing or pausing a plan changes nothing: everything is priced at public API rates, which is the point.
 
-### Total tokens
-
-One definition, used wherever a total is given: **total tokens = uncached input + cache writes + cache reads + output.** Thinking is already part of output, so it is not added again, and web searches are counted as requests, not as tokens. Each call is counted once, from its complete copy, however many times its log wrote it.
-
-The report gives the total under the cost, in the same shape, and under that the fresh tokens: the total less cache reads. Cache reads are the context read again on every turn, usually the great majority of a total, so the total mostly measures re-reading and the fresh figure is the one that follows how much new work went in.
-
-```
-  $1,024.50   8,120 API calls
-  1.62B tokens   8,120 API calls
-  of which fresh (excluding cache reads): 61.30M
-  21 Jul 2026 to 14 Oct 2026 · 214 transcripts on disk · ledger holds 8,120, 1,410 of them no longer in any transcript
-  kept by the ledger 1.62B · on disk now 1.31B · 310.40M from 12 sessions whose transcripts are gone
-```
-
-The last line splits the same total by where its calls are now. Deleting a session deletes its transcript, so a total read from the transcripts goes down; the on-disk figure falls with it, while the kept figure does not, because the ledger keeps every call. A window or a filter applies to all three figures as it does to the money. With `--no-ledger` there is no such line, and the total, which is then only what the transcripts on disk hold, says so: `transcripts on disk only`.
-
-`--by`, in every grouping, and `--sessions` give each row its total tokens beside its cost and calls.
-
-The dashboard gives the total in a tile beside the API calls, with the fresh tokens under it. When the ledger holds calls no transcript has any more, a note under the tiles gives the same kept and on-disk split, and why: deleted sessions take their transcripts with them, and Tokenmeter keeps the record. The Tokens view of its Spend over time chart counts each day the same way, the days only the ledger still has included.
-
-The status line can give today's total beside today's cost, `$4.56 · 1.20M today`, when `TOKENMETER_STATUS_TOKENS` is set to `1` (see [Settings](#settings)). The menu bar's Show tokens switch, in its menu, gives each window's total beside its cost: in the menu bar for the window shown, `$4.56 · 1.20M`, and on the four window rows of the menu, lined up:
-
-```
-Today                $4.56 ·   1.20M
-Last 7 days         $61.20 ·  98.40M
-Last 30 days       $250.75 · 410.00M
-All time         $1,024.50 ·   1.62B
-```
-
-Flipping it changes the menu bar and every row at once and leaves the menu open. From the keyboard, Command-T toggles it while the menu is open. The status line's setting and the menu bar's switch are both off unless asked for, so each is otherwise exactly as it was.
-
-`--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
-
-### Rolling windows and calendar periods
-
-`--since` is rolling and always the same length, so `--since 30d` is comparable with the thirty days before it. `--period` is the calendar, which is what you want when checking against a bill: `lastmonth` is whichever month just ended. Weeks start on Monday. The menu bar uses rolling windows, because "this week" on a Monday morning is an hour long.
-
-`--since` and `--until` also take a date or a date and time, such as `2026-09-01` or `2026-09-01T10:00`. Both are local time unless they carry an offset or a `Z`, so a date starts at local midnight, as the calendar periods do. `--until` stops just before the moment it names.
-
-### What orchestration costs
-
-A session that spawns subagents costs more because every subagent makes its own API calls. Tokenmeter reads subagents' and workflow agents' transcripts too, and files their calls under the session that started them, so that cost is counted. On one real history a quarter of all spend was subagents. `--by session` and the dashboard show where it went. Effort settings change how many tokens a model produces, never the price per token, so they need no special handling.
-
-### Reading it next to Claude Code's Stats tab
+### Why doesn't this match Claude Code's Stats tab?
 
 The two answer different questions and will not match. The Stats tab counts every log line and adds cache reads into one headline token figure; Tokenmeter counts each API response once and prices the components separately. Cache reads are around 95% of prompt tokens and cost a tenth of the input rate, so a token total is a measure of text moved, not of money.
 
@@ -266,7 +196,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 
 The Claude app's own token figure for the same work is a different number, and it can go down. Comparing the two showed three things. They are what was observed, not a description of how the app counts inside.
 
-1. **Deleted sessions.** The app's figure fell when sessions were deleted, as a count of the transcripts on disk would. Tokenmeter also counts its ledger, so a deleted session stays counted; the report's "kept by the ledger" line ([Total tokens](#total-tokens)) gives both figures.
+1. **Deleted sessions.** The app's figure fell when sessions were deleted, as a count of the transcripts on disk would. Tokenmeter also counts its ledger, so a deleted session stays counted; the report's "kept by the ledger" line ([Total tokens](docs/how-it-works.md#total-tokens)) gives both figures.
 2. **Streamed replies.** A streamed reply leaves partial copies of itself in its transcript. Tokenmeter takes the largest copy of each message, once. The app's figure was well above that count, so it appears to count some replies more than once; its exact rule was not reproduced.
 3. **So they move differently.** For the same work Tokenmeter's total was the lower of the two, and with the ledger it does not go down when a session is deleted.
 
@@ -279,6 +209,7 @@ The Claude app's own token figure for the same work is a different number, and i
 | `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups, no daily check of the price pages and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
+| `TOKENMETER_SCAN_CACHE` | Where the scan cache is kept (default `.scan_cache.db` beside the engine): what each Claude Code transcript held when it was last read, so one that has not changed is not read again. It can be deleted at any time; the next run reads everything once and writes it again |
 | `TOKENMETER_STATUS_TOKENS` | `1` to have the status line give today's total tokens beside today's cost, as `$4.56 · 1.20M today`. Off unless set to something other than `0`, so the line stays as it was. The menu bar has a switch of its own, Show tokens, in its menu |
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
 | `NO_COLOR` | Any value but an empty one turns colour off in everything `tokenmeter` prints. Without it, colour is used only when the output goes to a terminal, so a pipe, a file and Claude Code's `/tokenmeter` get plain text. The status line keeps its colours, which Claude Code shows |
@@ -291,15 +222,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 
 - **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
 - **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
-- **Side calls with no usable record.** Some harnesses make small extra calls whose usage they keep nowhere, or keep in a form that cannot be priced exactly, so these are not counted:
-  - Claude Code's WebSearch calls and some of its WebFetch calls, which it runs through a second, smaller model (Haiku 5.5 in the logs checked) and keeps only in a session's running cost total, the price of each web search with them; on the history this was measured on, 19 November 2026, they came to under 1% of the cost Claude Code recorded;
-  - T3 Code's thread titles, branch names, commit messages, pull request text and review guides, which it has Claude Code (2.0.63 or later), Codex or Pi write with session saving off;
-  - Gemini CLI's chat compression, its choice of model while the model is left on auto, and its loop checks once a request runs past 30 turns, plus its next speaker check and edit repair when those are turned on;
-  - OpenCode's title calls, whose tokens it keeps without the model, and its compaction calls, which it keeps per call without the model, and with the model only as one total over all of them;
-  - DeepSeek Harness's Claude Code and Codex subagents, which it runs with session saving off (Claude Code) or in a throwaway thread (Codex); the report says how many subagent runs went to another agent's process;
-  - Codex's remote compactions that ran while its settings were changing (after a model switch it compacts on the previous model, or on the new one when that fails), which it keeps per call without the model (the report says how many), and those it runs in the background, which leave no record at all;
-  - Kilo Code's title, commit message, branch name and prompt enhancement calls, which it keeps nowhere, and the calls of a compaction split into chunks, whose messages it deletes when each chunk ends; Kilo Code also deletes the record of a call when a message is reverted, a failed reply is cleaned up or a session is deleted, so only calls read before that are counted.
-- **A harness folder named relative to where the harness ran.** An empty or relative `CLAUDE_CONFIG_DIR` or `KIMI_CODE_HOME`, a relative `CODEX_HOME`, or a relative `XDG_DATA_HOME` for OpenCode or Kilo Code, or one that still starts with `~` when the harness reads it, points wherever the harness was working; Tokenmeter cannot know that folder, so it reads the default folder instead and says so in the report.
+- **Side calls with no usable record.** Some harnesses make small extra calls whose usage they keep nowhere, or keep in a form that cannot be priced exactly, so these are not counted. For Claude Code that is its WebSearch calls and some of its WebFetch calls, which came to under 1% of the cost Claude Code recorded on the history this was measured on, 19 November 2026. [docs/harnesses.md](docs/harnesses.md#what-a-reader-cannot-see) lists them for every harness.
 - **Six of seven harness readers are unverified,** as above: only Claude Code's has been checked against real logs.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
 
@@ -307,8 +230,10 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 
 - A new harness: [adapters/README.md](adapters/README.md)
 - A new or changed price: [pricing/README.md](pricing/README.md)
-- Before anything else: `python3 tests/test_tokenmeter.py` (standard library only, a few seconds)
+- Before anything else: `python3 tests/test_tokenmeter.py` (standard library only, about ten seconds)
+- How fast it is: `python3 tests/bench.py`
 - How it is kept correct: [MAINTENANCE.md](MAINTENANCE.md)
+- What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
 ## Licence
 

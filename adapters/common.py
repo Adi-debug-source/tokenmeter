@@ -95,8 +95,9 @@ def texts(d: dict, *keys) -> bool:
 LEFT_OUT: dict = {}
 
 
-def left_out(name: str) -> None:
-    LEFT_OUT[name] = LEFT_OUT.get(name, 0) + 1
+def left_out(name: str, n: int = 1) -> None:
+    if n:
+        LEFT_OUT[name] = LEFT_OUT.get(name, 0) + n
 
 
 def usage(input=0, output=0, cache_read=0, cache_write_5m=0, cache_write_1h=0,

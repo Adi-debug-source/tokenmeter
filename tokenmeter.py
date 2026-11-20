@@ -36,10 +36,12 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
+import zlib
 from collections import defaultdict
 
 from adapters import ADAPTERS, ALL as ALL_SOURCES
@@ -49,7 +51,7 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.3.2"
+__version__ = "1.3.3"
 
 PROJECTS_DIR = claude_code.default_roots()[0]
 
@@ -368,6 +370,9 @@ def rate_on(rows: list, when=None) -> dict:
     the work would cost now. Taking the newest row instead charged a price not
     yet in force, such as a 2027 rate for work priced today.
     """
+    if len(rows) == 1:
+        # Most models have had one price: no date to work out, for every call.
+        return rows[0]
     day = None
     if when is not None and not CURRENT_RATES:
         try:
@@ -484,9 +489,12 @@ def maker_name(source: str, provider: str, model: str) -> tuple:
 def maker_names(events) -> None:
     """maker_name() applied to each event in place, by the harness that
     recorded it."""
+    names = {}
     for ev in events:
-        ev["provider"], ev["model"] = maker_name(ev.get("source") or "", ev["provider"],
-                                                 ev["model"])
+        recorded = (ev.get("source") or "", ev["provider"], ev["model"])
+        if recorded not in names:
+            names[recorded] = maker_name(*recorded)
+        ev["provider"], ev["model"] = names[recorded]
 
 
 def verification(provider: str) -> dict:
@@ -1261,7 +1269,9 @@ def row_to_usage(row: dict) -> dict:
 
 def row_size(row: dict) -> int:
     """Total tokens in a row, for picking the complete copy of a call."""
-    return sum(int(row.get(k, 0)) for k in ("in", "o", "r", "w5", "w1"))
+    get = row.get
+    return (int(get("in", 0)) + int(get("o", 0)) + int(get("r", 0))
+            + int(get("w5", 0)) + int(get("w1", 0)))
 
 
 def read_ledger(path: str = "") -> dict:
@@ -1516,7 +1526,7 @@ def scan_transcripts(paths) -> dict:
     reset_adapters()
     best = {}
     for path in paths:
-        found = list(read_records(adapter_for(path), path))
+        found = read_records(adapter_for(path), path)
         end = max((ev["when"] for _, ev in found if ev["when"] is not None), default=None)
         for key, ev in found:
             ev["_end"] = end
@@ -1547,14 +1557,183 @@ def admitted(ev: dict) -> bool:
     return True
 
 
-def read_records(adapter, path: str):
+def read_records(adapter, path: str) -> list:
     """adapter.records(path) without the calls admitted() refuses, each
-    counted for the report's notes."""
+    counted for the report's notes.
+
+    A Claude Code transcript no run has read since it last changed is read
+    here and its calls saved in the scan cache; one that has not changed
+    comes from the cache, with the count of calls left out of it, and is not
+    opened. Only Claude Code's: its reader's result depends on nothing but
+    the file, where others keep counts for their notes as they read."""
+    stamp = scan_stamp(path) if adapter is claude_code else ""
+    if stamp:
+        saved = scan_cached(path, stamp)
+        if saved is not None:
+            claude_code.reading(path)
+            left_out(adapter.NAME, saved[0])
+            return saved[1]
+    before = LEFT_OUT.get(adapter.NAME, 0)
+    found = []
     for key, ev in adapter.records(path):
         if admitted(ev):
-            yield key, ev
+            found.append((key, ev))
         else:
             left_out(adapter.NAME)
+    if stamp:
+        scan_store(path, stamp, LEFT_OUT.get(adapter.NAME, 0) - before, found)
+    return found
+
+
+# ---------------------------------------------------------------- the scan cache
+#
+# Every run reads every transcript on disk, and almost none of them has
+# changed since the run before: on one real history, 58 of 2,420 in a day.
+# Reading the other 3 GB again was most of each of the menu bar's refreshes.
+# So what a Claude Code transcript held is kept, in a SQLite file beside the
+# engine, against the file's size and the times it and its inode last
+# changed, and read from there until one of the three moves.
+#
+# It is a cache and nothing else: the calls exactly as read_records() returned
+# them, before any is merged, priced or written to the ledger, so a run with
+# it and a run without it see the same calls. Deleting the file costs one slow
+# run. Each entry is filed under the code that read it (SCAN_READER), and a
+# run is only ever given entries its own code wrote.
+
+SCAN_CACHE_ENV = "TOKENMETER_SCAN_CACHE"
+SCAN_CACHE = os.environ.get(SCAN_CACHE_ENV) or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".scan_cache.db")
+# How long the entries of a reader no run has used are kept: an older
+# version's after an update, another Python's once it is no longer run.
+SCAN_KEEP_DAYS = 7
+# This run's connection under "db": None once the cache has proved unusable.
+_SCAN: dict = {}
+
+
+def scan_stamp(path: str) -> str:
+    """What says a file has not changed since it was read: its size, when it
+    was last written and when its inode last changed, which a write that
+    keeps the size and puts the time back still moves. "" for a file that
+    cannot be examined, which is then read and not cached."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    return f"{st.st_size} {st.st_mtime_ns} {st.st_ctime_ns}"
+
+
+def _scan_reader() -> str:
+    """The code that reads a transcript in this process, which every entry
+    it caches is filed under: this version and this Python, then
+    scan_stamp() of each file that decides what a Claude Code call is (the
+    reader, the helpers it shares and this file, for admitted()).
+
+    The version and the Python are the running code's own. A run that began
+    before an update finished files what it reads under the old version, so
+    the new one is never given calls the old reader made; taken from the
+    files alone, a refresh that overlapped an install filed them under the
+    new code. The files' stamps are for an edit between releases. Each
+    Python has its own entries because parse_time() reads a few forms of
+    timestamp only on the newer ones."""
+    files = (claude_code.__file__, sys.modules[parse_time.__module__].__file__, __file__)
+    return " | ".join([__version__, "%d.%d" % sys.version_info[:2]]
+                      + [scan_stamp(f) for f in files])
+
+
+SCAN_READER = _scan_reader()
+
+
+def _scan_db():
+    """The scan cache, opened once a run and made if it is not there, or None
+    where it cannot be used (a folder that cannot be written to, a damaged
+    file), when every transcript is read as it was before the cache existed.
+    A damaged file is removed, so the next run starts a new one.
+
+    The first run of a day also tidies it: the transcripts no longer on
+    disk go, which Claude Code deletes after 30 days, and so do the entries
+    of any reader that has not run for SCAN_KEEP_DAYS."""
+    if "db" in _SCAN:
+        return _SCAN["db"]
+    _SCAN["db"] = db = None
+    try:
+        open_private(SCAN_CACHE, "a").close()
+        # A store that finds the file locked gives up at once: the status
+        # line must not wait on the menu bar's refresh.
+        db = sqlite3.connect(SCAN_CACHE, timeout=0.05, isolation_level=None)
+        # Written without waiting for the disk and safe if this process is
+        # killed part-way; readers and a writer do not hold each other up.
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=NORMAL")
+        db.execute("CREATE TABLE IF NOT EXISTS calls (path TEXT, reader TEXT, stamp TEXT, "
+                   "calls BLOB, PRIMARY KEY (path, reader))")
+        db.execute("CREATE TABLE IF NOT EXISTS readers (reader TEXT PRIMARY KEY, used TEXT)")
+        used = dict(db.execute("SELECT reader, used FROM readers"))
+        today = dt.date.today()
+        if used.get(SCAN_READER) != today.isoformat():
+            db.execute("REPLACE INTO readers VALUES (?, ?)", (SCAN_READER, today.isoformat()))
+            oldest = (today - dt.timedelta(days=SCAN_KEEP_DAYS)).isoformat()
+            db.execute("DELETE FROM readers WHERE reader != ? AND used < ?", (SCAN_READER, oldest))
+            db.execute("DELETE FROM calls WHERE reader NOT IN (SELECT reader FROM readers)")
+            gone = [(p,) for (p,) in db.execute("SELECT DISTINCT path FROM calls")
+                    if not os.path.isfile(p)]
+            db.executemany("DELETE FROM calls WHERE path = ?", gone)
+        _SCAN["db"] = db
+    except (OSError, sqlite3.Error) as e:
+        if db is not None:
+            db.close()
+        if isinstance(e, sqlite3.DatabaseError) and not isinstance(e, sqlite3.OperationalError):
+            try:
+                os.remove(SCAN_CACHE)
+            except OSError:
+                pass
+    return _SCAN["db"]
+
+
+def scan_cached(path: str, stamp: str):
+    """(calls left out, the calls) as this run's reader saved them for a
+    file with this stamp, or None: never read, changed since, or not
+    readable back, which zlib's own checksum decides for a damaged entry."""
+    db = _scan_db()
+    if db is None:
+        return None
+    try:
+        row = db.execute("SELECT stamp, calls FROM calls WHERE path = ? AND reader = ?",
+                         (path, SCAN_READER)).fetchone()
+        if row is None or row[0] != stamp:
+            return None
+        left, calls = json.loads(zlib.decompress(row[1]))
+        found = []
+        for key, ev in calls:
+            ev["when"] = dt.datetime.fromisoformat(ev["when"]) if ev["when"] else None
+            found.append((key, ev))
+    except (sqlite3.Error, zlib.error, ValueError, TypeError, KeyError):
+        return None
+    return left, found
+
+
+def scan_store(path: str, stamp: str, left: int, found: list) -> None:
+    """Save what read_records() made of one file. A call's time is kept as
+    isoformat() writes it, which fromisoformat() reads back exactly, offset
+    included; everything else in a call is JSON already. A file that cannot
+    be saved (the cache locked by another run, a usage block nested too deep
+    to write out) is simply read again next time."""
+    db = _scan_db()
+    if db is None:
+        return
+    calls = [[key, dict(ev, when=ev["when"].isoformat() if ev["when"] else None)]
+             for key, ev in found]
+    try:
+        blob = zlib.compress(json.dumps([left, calls], separators=(",", ":")).encode("utf-8"), 1)
+        db.execute("REPLACE INTO calls VALUES (?, ?, ?, ?)", (path, SCAN_READER, stamp, blob))
+    except (sqlite3.Error, ValueError, TypeError, RecursionError):
+        pass
+
+
+def close_scan_cache() -> None:
+    """Close this run's connection, so the next run opens SCAN_CACHE afresh."""
+    db = _SCAN.pop("db", None)
+    if db is not None:
+        db.close()
 
 
 def reset_adapters() -> None:
@@ -1695,15 +1874,29 @@ def empty_row() -> dict:
 
 
 def add_to_row(row, ev) -> None:
-    """One priced call, added into a totals row."""
+    """One priced call, added into a totals row.
+
+    Written out name by name, with no loop: every call is added to some
+    fifteen rows, and this was a third of a run once the logs came from the
+    scan cache. The total takes the components one at a time in COMPONENTS'
+    order, as the loop did, so no figure moves by a rounding."""
     c = ev["cost"]
-    for comp in COMPONENTS:
-        row[comp] += c[comp]
-        row["total"] += c[comp]
+    i, w, r, o, s = c["input"], c["cache_write"], c["cache_read"], c["output"], c["web_search"]
+    row["input"] += i
+    row["cache_write"] += w
+    row["cache_read"] += r
+    row["output"] += o
+    row["web_search"] += s
+    row["total"] = row["total"] + i + w + r + o + s
     row["calls"] += 1
     row["no_cache"] += c["_no_cache"]
-    for k, v in c["_tokens"].items():
-        row["tokens"][k] += v
+    t, into = c["_tokens"], row["tokens"]
+    into["input"] += t["input"]
+    into["cache_write"] += t["cache_write"]
+    into["cache_read"] += t["cache_read"]
+    into["output"] += t["output"]
+    into["thinking"] += t["thinking"]
+    into["searches"] += t["searches"]
 
 
 def add_rows(into, row) -> None:
@@ -1812,7 +2005,7 @@ class _Tally:
             add_to_row(g["day"][day], ev)
             add_to_row(g["day_source"][(day, ev["source"])], ev)
             add_to_row(g["day_provider"][(day, ev["provider"])], ev)
-            add_to_row(g["hour"][local.strftime("%H")], ev)
+            add_to_row(g["hour"]["%02d" % local.hour], ev)
             add_to_row(g["weekday"][str(local.weekday())], ev)
         if ev["cost"]["_unknown_model"]:
             self.unknown.add(unknown_label(ev["model"], ev["provider"]))
@@ -3881,6 +4074,7 @@ def reset_run() -> None:
     LEDGER_STATE.update(LEDGER_UNUSED)
     _PRICE_STATE.update(loaded=False, data={"fetched": {}, "misses": {}})
     reset_adapters()
+    close_scan_cache()
 
 
 # The examples --help ends with: commands from the README's usage block, which

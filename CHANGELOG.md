@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.3.3, 20 November 2026
+
+No figure changes. Tokenmeter is three to four times faster on a large
+history, because a transcript that has not changed is no longer read again,
+and the README is rewritten around what the tool does, with its reference
+sections moved into pages under `docs/`.
+
+### Speed
+
+- A Claude Code transcript no run has read since it last changed is read
+  once and what it held is kept in a scan cache, `.scan_cache.db` beside the
+  engine (`TOKENMETER_SCAN_CACHE` moves it). A transcript is opened again
+  only when its size, the time it was last written or the time its inode
+  last changed has moved. The cache holds calls exactly as they were read,
+  before merging, pricing and the ledger, so it cannot change a figure. A
+  run is only given entries its own version, on its own Python, wrote; the
+  cache drops transcripts that have gone and can be deleted at any time. A
+  damaged cache is replaced, and one that cannot be written to is ignored.
+- The Claude Code reader tests each line for a usage block as bytes and
+  decodes only the lines that have one. Two lines in three are tool output
+  and were decoded to be skipped.
+- The tally adds each call into its rows without a loop per figure, a
+  model with one price is not dated on every call, and a host's spelling of
+  a model is worked out once a run. The order of every addition is
+  unchanged.
+- Measured on a copy of one real history, 2,422 transcripts holding 3 GB:
+  the menu bar's refresh went from 14.7 seconds to 4.4 on Python 3.9, which
+  the menu bar runs, and from 12.1 to 3.0 on Python 3.15. Fourteen runs of
+  the command line, the dashboard's page, the status line and the ledger's
+  bytes were the same before and after, with the cache and without it.
+- `python3 tests/bench.py` times each face as a fresh process on an
+  invented history of that shape, and compares two sets of figures.
+
+### Documents
+
+- README leads with what Tokenmeter does, how to install it and what each
+  of its four faces looks like, then why its numbers can be trusted and how
+  it works. The detail it carried is in `docs/how-it-works.md`,
+  `docs/harnesses.md` and `docs/accuracy.md`, word for word.
+- A test follows every link between the documents to a file and a heading
+  that exist.
+- `docs/github/` holds a suggested description, topics and social preview
+  image for the repository's page, with the Swift source that draws the
+  image. Nothing on GitHub is changed by them.
+- `docs/screenshots/shoot.py` also takes the status line's two lines as an
+  image, `status-line.png`.
+
 ## 1.3.2, 19 November 2026
 
 No figure changes. Three rates in Anthropic's table that had been taken from

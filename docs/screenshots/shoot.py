@@ -6,8 +6,9 @@ Take the README's screenshots from a demo made by make_demo.py.
     TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-10-16T17:40 --force
     TZ=Europe/London python3 docs/screenshots/shoot.py "$DEMO"
 
-The last command rewrites six images in docs/screenshots: the three
-terminal images and the three dashboard crops. menu-bar.png is captured by
+The last command rewrites seven images in docs/screenshots: the three
+terminal images, the status line and the three dashboard crops. menu-bar.png
+is captured by
 hand from the menu bar app run against the same demo (MAINTENANCE.md says
 how), then made plain like the others with
 
@@ -31,6 +32,9 @@ How each image is made
    terminal_page.py, and screenshotted by headless Chrome at twice the size.
    A first pass with --dump-dom reads the size the page asks for, so the
    second takes the window at exactly that size.
+   The status line is drawn the same way from what statusline.py prints
+   for the demo's newest session, given the two things Claude Code sends
+   it that it needs: the model's name and the transcript's path.
 2. The dashboard is the engine's --html page, drawn by headless Chrome 1400
    CSS pixels wide at twice the size, in dark mode and with reduced motion,
    which shows every section at once instead of fading each in on scroll.
@@ -93,6 +97,10 @@ TERMINAL = [
     ("terminal-check-prices.png", ["--check-prices"]),
 ]
 COLUMNS = 120
+# The status line's image, and the model name Claude Code would send for the
+# demo's newest session.
+STATUS = "status-line.png"
+STATUS_MODEL = "Opus 5.5"
 
 # Where each dashboard crop starts and ends, as (section, edge, offset in CSS
 # pixels). Sections are the page's numbered sections, 1 to 6, in the first
@@ -460,15 +468,41 @@ def jpeg_segments(path: str) -> list:
 
 # MARK: - The images
 
+def status_line(folder: str, work: str) -> str:
+    """What statusline.py prints for the demo's newest session. A copy of
+    the script is run, with the engine from this repository, so the day's
+    figure it saves beside itself lands in the demo and not here."""
+    projects = make_demo.demo_env(folder)["TOKENMETER_CLAUDE_PROJECTS"]
+    sessions = [os.path.join(projects, d, f) for d in os.listdir(projects)
+                for f in os.listdir(os.path.join(projects, d)) if f.endswith(".jsonl")]
+    newest = max(sessions, key=os.path.getmtime)
+    here = os.path.join(work, "statusline")
+    os.makedirs(here, exist_ok=True)
+    with open(os.path.join(REPO, "statusline.py"), encoding="utf-8") as f:
+        script = f.read()
+    with open(os.path.join(here, "statusline.py"), "w", encoding="utf-8") as f:
+        f.write(script)
+    env = dict(engine_env(folder), PYTHONPATH=REPO)
+    out = subprocess.run([sys.executable, os.path.join(here, "statusline.py")], env=env,
+                         input=json.dumps({"model": {"display_name": STATUS_MODEL},
+                                           "transcript_path": newest}),
+                         capture_output=True, text=True, timeout=600)
+    if out.returncode or not out.stdout.strip():
+        sys.exit(f"shoot.py: statusline.py failed:\n{out.stderr}")
+    return out.stdout + "\n"
+
+
 def terminal_images(folder: str, out_dir: str, work: str) -> list:
     made = []
-    for name, args in TERMINAL:
-        text = tokenmeter(folder, *args)
+    shots = [(name, "python3 tokenmeter.py " + " ".join(args), tokenmeter(folder, *args))
+             for name, args in TERMINAL]
+    shots.append((STATUS, "Claude Code's status line", status_line(folder, work)))
+    for name, title, text in shots:
         with open(os.path.join(work, name + ".txt"), "w", encoding="utf-8") as f:
             f.write(text)
         page = os.path.join(work, name + ".html")
         with open(page, "w", encoding="utf-8") as f:
-            f.write(terminal_page.page(text, "python3 tokenmeter.py " + " ".join(args), COLUMNS))
+            f.write(terminal_page.page(text, title, COLUMNS))
         size = dumped(folder, page, "data-size", "3000,3000")
         raw = os.path.join(work, name)
         chrome(folder, f"--window-size={size}", f"--screenshot={raw}", "file://" + page)

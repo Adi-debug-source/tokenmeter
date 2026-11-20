@@ -89,7 +89,7 @@ class TestStatusLine(Base):
     def run_statusline(self, payload, counted=False, day_cache=None, **env):
         """statusline.py as Claude Code runs it, sealed: a copy in the temp
         folder (so its day cache lands there), the engine from this checkout,
-        a temp home, ledger and price cache, and no network. day_cache, when
+        a temp home, ledger, price cache and scan cache, and no network. day_cache, when
         given, is written as a fresh .today_cost.json first."""
         import subprocess
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,6 +106,7 @@ class TestStatusLine(Base):
                       TOKENMETER_CLAUDE_PROJECTS=os.path.join(self.tmp, "projects"),
                       TOKENMETER_LEDGER=self.ledger,
                       TOKENMETER_PRICE_CACHE=os.path.join(self.tmp, "prices.json"),
+                      TOKENMETER_SCAN_CACHE=os.path.join(self.tmp, "scan_cache.db"),
                       TOKENMETER_OFFLINE="1", TOKENMETER_CURRENCY="USD")
         sealed.update(env)
         script = [os.path.join(here, "statusline.py")]

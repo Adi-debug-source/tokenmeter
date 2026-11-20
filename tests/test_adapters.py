@@ -3453,5 +3453,192 @@ class TestWrongShapes(Base):
                     self.spoil(laid, *(case or (None, None)))
                     self.report_runs()
 
+class TestScanCache(Base):
+    """A Claude Code transcript that has not changed since a run read it
+    comes from the scan cache and is not opened. The cache holds only what
+    read_records() returned, so each test compares a cached read with the
+    read that filled it."""
+
+    LINES = (record("msg_1", ts="2026-09-01T12:00:00.123Z", out=4),
+             record("msg_1", ts="2026-09-01T13:00:00.5+01:00", out=900, read=5000, w1=70),
+             record("msg_2", ts="", inp=7, searches=2, speed="fast"),
+             json.dumps({"type": "assistant", "message": {"id": "msg_3", "model": 5,
+                                                          "usage": usage(out=1)}}))
+
+    def read(self, path):
+        """(the calls, how many were left out, whether the reader noted the
+        file) for one read of a transcript, as a new run makes it."""
+        tm.reset_adapters()
+        found = tm.read_records(claude_code, path)
+        return found, dict(tm.LEFT_OUT), dict(claude_code._READ)
+
+    def unread(self):
+        """Fail the test if the reader opens a transcript."""
+        return unittest.mock.patch.object(claude_code, "records",
+                                          side_effect=AssertionError("read again"))
+
+    def test_an_unchanged_transcript_is_not_read_twice_and_reads_the_same(self):
+        """Guards against a cached call differing from the one first read:
+        its time with its own offset and fraction, its whole usage block, the
+        count of calls left out and the reader's note of where it read. A
+        time kept as UTC, or a left-out count kept nowhere, would change the
+        ledger's rows and the report's notes on every run but the first."""
+        path = self.write("a.jsonl", *self.LINES)
+        first = self.read(path)
+        self.assertEqual(len(first[0]), 3)
+        self.assertEqual(first[1], {"claude-code": 1})
+        with self.unread():
+            again = self.read(path)
+        self.assertEqual(again, first)
+        # As written, so 4 is not taken for 4.0 or True for 1.
+        self.assertEqual(repr(again), repr(first))
+        for (_, was), (_, now) in zip(first[0], again[0]):
+            self.assertEqual(was["when"] and was["when"].isoformat(),
+                             now["when"] and now["when"].isoformat())
+
+    def test_a_run_from_the_cache_reports_and_records_what_the_first_did(self):
+        """Guards against the cache changing a figure: the same report, and
+        nothing new for the ledger, from a run that opens no transcript."""
+        self.write("a.jsonl", *self.LINES)
+        first = cli("--json", "--by", "session")
+        rows = slurp(self.ledger)
+        with self.unread():
+            again = cli("--json", "--by", "session")
+        self.assertEqual(json.loads(again), json.loads(first))
+        self.assertEqual(slurp(self.ledger), rows)
+
+    def test_a_transcript_that_grew_is_read_again(self):
+        """Guards against a session in use being priced as it stood when it
+        was first read."""
+        path = self.write("a.jsonl", *self.LINES)
+        self.read(path)
+        with open(path, "a") as f:
+            f.write(record("msg_9", out=10) + "\n")
+        self.assertEqual([key for key, _ in self.read(path)[0]],
+                         ["msg_1", "msg_1", "msg_2", "msg_9"])
+
+    def test_a_rewrite_of_the_same_size_and_time_is_read_again(self):
+        """Guards against trusting size and modification time alone: a file
+        rewritten to the same length with its time put back, as a sync or a
+        restore can do, held different calls and was served from the cache."""
+        path = self.write("a.jsonl", record("msg_1", out=111))
+        self.read(path)
+        before = os.stat(path)
+        with open(path, "w") as f:
+            f.write(record("msg_1", out=222) + "\n")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = os.stat(path)
+        self.assertEqual((after.st_size, after.st_mtime_ns), (before.st_size, before.st_mtime_ns))
+        self.assertEqual(self.read(path)[0][0][1]["_usage"]["output_tokens"], 222)
+
+    def test_calls_read_by_other_code_are_never_served(self):
+        """Guards against calls read by one reader being given to another:
+        an older version's after an update, or another Python's, which reads
+        a few timestamps differently. The reader was once taken from the
+        files on disk when the cache was opened, so a refresh that began
+        before an install finished filed the old reader's calls under the
+        new code, which served them for as long as each transcript lasted.
+        It is the running code's own version and Python now, with the
+        files' stamps for an edit between releases."""
+        self.assertTrue(tm.SCAN_READER.startswith(
+            "%s | %d.%d | " % (tm.__version__, sys.version_info[0], sys.version_info[1])))
+        self.assertIn(tm.scan_stamp(claude_code.__file__), tm.SCAN_READER)
+        self.assertIn(tm.scan_stamp(tm.__file__), tm.SCAN_READER)
+        path = self.write("a.jsonl", *self.LINES)
+        first = self.read(path)
+        with unittest.mock.patch.object(tm, "SCAN_READER", "9.9.9 | 3.99 | other files"):
+            with self.assertRaises(AssertionError), self.unread():
+                self.read(path)
+            self.assertEqual(self.read(path), first)
+        with self.unread():
+            self.assertEqual(self.read(path), first)
+
+    def test_what_is_gone_or_unused_is_dropped_on_another_day(self):
+        """Guards against the cache growing for ever: Claude Code deletes a
+        transcript after 30 days and its calls stayed in the file, as did
+        every entry an older version or another Python had written."""
+        gone, kept = self.write("gone.jsonl", *self.LINES), self.write("kept.jsonl", *self.LINES)
+        for other in ("an older version", "another Python"):
+            with unittest.mock.patch.object(tm, "SCAN_READER", other):
+                self.read(kept)
+            tm.close_scan_cache()
+        self.read(gone), self.read(kept)
+        os.remove(gone)
+        db = tm._scan_db()
+        long_ago = (dt.date.today() - dt.timedelta(days=tm.SCAN_KEEP_DAYS + 1)).isoformat()
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        db.execute("UPDATE readers SET used = ? WHERE reader = 'an older version'", (long_ago,))
+        db.execute("UPDATE readers SET used = ? WHERE reader != 'an older version'", (yesterday,))
+        tm.close_scan_cache()
+        left = sorted(tm._scan_db().execute("SELECT path, reader FROM calls"))
+        self.assertEqual(left, sorted([(kept, tm.SCAN_READER), (kept, "another Python")]))
+        self.assertEqual(sorted(r for (r,) in tm._scan_db().execute("SELECT reader FROM readers")),
+                         sorted([tm.SCAN_READER, "another Python"]))
+
+    def test_a_damaged_or_unwritable_cache_costs_nothing_but_time(self):
+        """Guards against the cache ending a report: an entry cut short, a
+        file that is not a database, a folder that is not there, one that
+        cannot be written to and a call too deeply nested to save each fall
+        back to reading the transcript, with the same result."""
+        path = self.write("a.jsonl", *self.LINES)
+        first = self.read(path)
+
+        tm._scan_db().execute("UPDATE calls SET calls = substr(calls, 1, 20)")
+        self.assertEqual(self.read(path), first)
+
+        tm.close_scan_cache()
+        with open(tm.SCAN_CACHE, "w") as f:
+            f.write("not a database " * 400)
+        self.assertEqual(self.read(path), first)
+        tm.close_scan_cache()
+        self.assertEqual(self.read(path), first)
+        with self.unread():
+            self.assertEqual(self.read(path), first)
+
+        tm.close_scan_cache()
+        tm.SCAN_CACHE = os.path.join(self.tmp, "no-such-folder", "scan_cache.db")
+        self.assertEqual(self.read(path), first)
+
+        tm.close_scan_cache()
+        locked = os.path.join(self.tmp, "read-only")
+        os.makedirs(locked)
+        os.chmod(locked, 0o500)
+        tm.SCAN_CACHE = os.path.join(locked, "scan_cache.db")
+        self.assertEqual(self.read(path), first)
+
+        tm.close_scan_cache()
+        tm.SCAN_CACHE = os.path.join(self.tmp, "deep.db")
+        deep = self.write("deep.jsonl", record("msg_1", out=5))
+        with unittest.mock.patch.object(tm.json, "dumps", side_effect=RecursionError):
+            found = self.read(deep)[0]
+        self.assertEqual([key for key, _ in found], ["msg_1"])
+        self.assertEqual(self.read(deep)[0], found)
+
+    def test_only_claude_code_transcripts_are_cached(self):
+        """Guards against caching a reader that counts as it reads: Codex's
+        and the others' notes come from what records() saw this run, so a
+        cached file would empty them."""
+        day = os.path.join(self.tmp, "codex-home", "sessions", "2026", "09", "24")
+        os.makedirs(day)
+        path = os.path.join(day, "rollout-2026-09-24T14-07-33-"
+                                 "0198f3c1-6d2a-7b41-9e05-3c8d5a27b110.jsonl")
+        shutil.copy(os.path.join(FIXTURES, "codex", "gen4_current_paginated.jsonl"), path)
+        self.assertTrue(tm.read_records(codex_module, path))
+        self.assertFalse(os.path.exists(tm.SCAN_CACHE))
+
+    def test_the_cache_is_its_owners_alone(self):
+        """Guards against the cache, which names projects, folders and
+        models, being readable by another account, as the other caches once
+        were under the umask."""
+        import stat
+        self.addCleanup(os.umask, os.umask(0o022))
+        self.read(self.write("a.jsonl", *self.LINES))
+        for name in os.listdir(self.tmp):
+            if name.startswith("scan_cache.db"):
+                with self.subTest(name=name):
+                    mode = stat.S_IMODE(os.stat(os.path.join(self.tmp, name)).st_mode)
+                    self.assertEqual(mode, 0o600)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

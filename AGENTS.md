@@ -36,7 +36,7 @@ The table in MAINTENANCE.md, "How it fits together", names every part. In short:
 - An element hidden until it scrolls into view needs a line in the stylesheet's `@media print` block; a test in `tests/test_dashboard.py` fails for any it does not cover.
 - A harness update can change its log format. After one: the tests, then `--by model` for a model with no price, then whether the call count is still plausible.
 - When a number looks wrong, in this order: `--no-ledger`, `--by model`, `--by source`, `--by day`. Each rules out the one below.
-- The caches beside the engine (`.fx_rates.json`, `.today_cost.json`, `.fetched_prices.json`) and any `cost-ledger.jsonl` are usage data and git-ignored; they are never committed.
+- The caches beside the engine (`.fx_rates.json`, `.today_cost.json`, `.fetched_prices.json`, `.scan_cache.db`) and any `cost-ledger.jsonl` are usage data and git-ignored; they are never committed.
 - A published tag never moves: the Homebrew formula pins the checksum of its tarball.
 
 ## Tests and code

@@ -93,10 +93,11 @@ class Base(unittest.TestCase):
             if name != "claude-code":
                 tm.ADAPTER_ROOTS[name] = [os.path.join(self.tmp, "no-" + name)]
         tm.ONLINE_LOOKUP[0] = False
-        # No saved price lookups and no exchange rates: both caches live in the
-        # temp folder, never beside the engine.
+        # No saved price lookups, no exchange rates and no transcripts read
+        # before: the caches live in the temp folder, never beside the engine.
         tm.PRICE_CACHE = os.path.join(self.tmp, "prices.json")
         tm.FX_CACHE = os.path.join(self.tmp, "fx_rates.json")
+        tm.SCAN_CACHE = os.path.join(self.tmp, "scan_cache.db")
         self._fx = tm.fx_rates
         tm.fx_rates = lambda: (dict(tm.FALLBACK_RATES), "test", False)
 

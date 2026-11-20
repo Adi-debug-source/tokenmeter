@@ -18,7 +18,7 @@ import time
 import unittest.mock
 
 from helpers import (ANTHROPIC_PAGE, FIXTURES, GOOD_IMPORT, Base, as_a_new_run, cli,
-                     lay_out_three_harnesses, noon, payload_of, record, slurp, terminal, tm)
+                     lay_out_three_harnesses, noon, payload_of, record, slurp, terminal, tm, usage)
 
 
 class TestProjectNames(Base):
@@ -1128,6 +1128,42 @@ class TestCommandLine(Base):
             for name in re.findall(r"TOKENMETER_[A-Z_]+", source):
                 self.assertIn(name, names)
 
+    def test_every_link_between_the_documents_leads_somewhere(self):
+        """Guards the links between README.md and the pages under docs/,
+        which the README was split into: a page moved or a heading reworded
+        leaves a link that opens nothing on GitHub. Every relative link in a
+        document names a file in the repository, and one to a heading names a
+        heading that file has, spelt as GitHub spells its anchor."""
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        pages = ["README.md", "MAINTENANCE.md", "SECURITY.md", "adapters/README.md",
+                 "pricing/README.md", "fonts/README.md"]
+        pages += ["docs/" + f for f in sorted(os.listdir(os.path.join(repo, "docs")))
+                  if f.endswith(".md")]
+        pages += ["docs/github/about.md"]
+
+        def anchors(path):
+            text = re.sub(r"```.*?```", "", slurp(path, encoding="utf-8"), flags=re.S)
+            return {re.sub(r"[^a-z0-9 _-]", "", title.strip().lower()).replace(" ", "-")
+                    for title in re.findall(r"^#+ (.+)$", text, re.M)}
+
+        seen = 0
+        for page in pages:
+            text = re.sub(r"```.*?```", "", slurp(os.path.join(repo, page), encoding="utf-8"),
+                          flags=re.S)
+            links = re.findall(r"\]\(([^)\s]+)\)", text) + re.findall(r'src="([^"]+)"', text)
+            for link in links:
+                if re.match(r"[a-z]+:", link):
+                    continue
+                seen += 1
+                target, _, anchor = link.partition("#")
+                path = os.path.normpath(os.path.join(repo, os.path.dirname(page), target)
+                                        if target else os.path.join(repo, page))
+                with self.subTest(page=page, link=link):
+                    self.assertTrue(os.path.exists(path), f"{page} links to {link}")
+                    if anchor and path.endswith(".md"):
+                        self.assertIn(anchor, anchors(path))
+        self.assertGreater(seen, 30)
+
 
 class TestOpeningTheDashboard(Base):
     """--html ran macOS's open on every platform, so a machine without it
@@ -1370,6 +1406,34 @@ class TestEmptyAndNoMatch(Base):
             with self.subTest(text=name):
                 self.assertIn(url, text)
                 self.assertEqual(text.count("docs/import-format.md"), text.count(url))
+
+
+class TestAddToRow(Base):
+    def test_every_component_and_every_kind_of_token_is_added(self):
+        """Guards add_to_row(), which names each figure it adds instead of
+        looping over them: a component added to COMPONENTS, or a kind of
+        token price_record() starts to count, that it did not also name
+        would be priced and then left out of every total."""
+        cost = tm.price_record("claude-opus-5-5", usage(inp=11, out=13, read=17, w5=19, w1=23,
+                                                        think=5, searches=3))
+        for c in tm.COMPONENTS:
+            self.assertGreater(cost[c], 0, c)
+        self.assertEqual(set(cost["_tokens"]), set(tm.empty_row()["tokens"]))
+        self.assertTrue(all(cost["_tokens"].values()))
+        row = tm.empty_row()
+        for _ in range(2):
+            tm.add_to_row(row, {"cost": cost})
+        for c in tm.COMPONENTS:
+            self.assertEqual(row[c], cost[c] + cost[c], c)
+        total = 0.0
+        for _ in range(2):
+            for c in tm.COMPONENTS:
+                total += cost[c]
+        self.assertEqual(row["total"], total)
+        self.assertEqual(row["no_cache"], cost["_no_cache"] * 2)
+        self.assertEqual(row["calls"], 2)
+        self.assertEqual(row["tokens"], {k: v * 2 for k, v in cost["_tokens"].items()})
+        self.assertEqual(set(row), set(tm.COMPONENTS) | {"total", "no_cache", "calls", "tokens"})
 
 
 class TestTokenTotals(Base):
