@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.3, unreleased
+## 1.3.3, 20 November 2026
 
 No figure changes. Tokenmeter is three to four times faster on a large
 history, because a transcript that has not changed is no longer read again,
