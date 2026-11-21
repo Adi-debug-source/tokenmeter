@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0, 21 November 2026
 
 The menu bar's menu is short again: about twelve rows, where it was about
 40 lines and taller than a 13-inch screen. It follows the same pattern as
