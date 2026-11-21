@@ -31,8 +31,8 @@ changes.
   By harness table compares cost per call and cache use, and "How far to
   trust this" shows how much of the total came from verified readers and
   from checked prices.
-- **Menu bar:** By model stays the default; "Break down by" switches it to
-  harnesses or providers.
+- **Menu bar:** By model stays the default; Break Down By, inside Where
+  Today Went, switches it to harnesses or providers.
 - **Terminal:** `tokenmeter --by source` compares harnesses side by side.
 
 ![Harnesses compared, and how far to trust the total](screenshots/dashboard-harnesses.jpg)

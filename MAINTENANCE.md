@@ -25,7 +25,7 @@ release or retakes the README's images. Read the section the task needs.
   - [Screenshots](#screenshots)
 - **The menu bar app**
   - [Rebuilding the menu bar app](#rebuilding-the-menu-bar-app)
-  - [The menu bar's Show tokens switch](#the-menu-bars-show-tokens-switch)
+  - [The menu](#the-menu)
   - [The app icon](#the-app-icon)
 - **The dashboard**
   - [The dashboard's fonts](#the-dashboards-fonts)
@@ -118,8 +118,8 @@ figure off a pricing page and formats nothing.
 exists three times, because `--summary-json` and the dashboard's payload send
 numbers.
 
-- `toks()` in `costbar/main.swift` writes the token figures the Show tokens
-  switch adds to the menu bar's title and window rows; `String(format:)`
+- `toks()` in `costbar/main.swift` writes the token figures the Show Tokens
+  switch adds to the menu bar's title and period rows; `String(format:)`
   rounds the same double as Python does.
 - `toks()` in `dashboard/dashboard.js` writes the one count the browser adds
   up itself, the chart's running total over the series shown, and rounds an
@@ -196,7 +196,7 @@ each, every face is exactly what it was, and tests hold it there.
 - **Shared helpers** feed every face the same numbers: `harness_rows()`,
   `models_by_provider()` and `trust_summary()`.
 - **By model is the default everywhere.** The dashboard shows it first; the
-  menu bar shows it unless 'Break down by' is changed; the terminal adds
+  menu bar shows it unless Break Down By is changed; the terminal adds
   nothing unless asked with `--by source`. Harness views are a choice, not
   the page's first word.
 - **Colours follow the harness, not its rank.** `chart_series()` takes
@@ -531,7 +531,7 @@ the menu bar image is to be captured from the same history, as step 4 says.
 
 ```bash
 DEMO=/tmp/tokenmeter-demo
-TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-11-20T17:40 --force
+TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-11-21T12:20 --force
 TZ=Europe/London python3 docs/screenshots/shoot.py "$DEMO"
 TZ=Europe/London python3 docs/screenshots/clip.py "$DEMO"
 ```
@@ -548,7 +548,7 @@ again when they move; `docs/github/about.md` has the commands.
    another history; the README's were made in `Europe/London`, which is why
    both commands set `TZ`. The engine takes today and the last 7 and 30 days
    from the real clock, so make the demo on the day the images are taken,
-   with that day's date in `--now`; the README's were made on 20 November 2026
+   with that day's date in `--now`; the README's were made on 21 November 2026
    with the commands above. Another `--now` gives another history, equally
    invented.
 2. **Nothing real is read.** `$DEMO/env.sh` points every reader and cache at
@@ -590,58 +590,38 @@ again when they move; `docs/github/about.md` has the commands.
    `shoot.py` lists each file's chunks or segments to show it. If the
    dashboard's sections move, the crops follow them; `CROPS` in `shoot.py`
    holds only the margins.
-4. **`menu-bar.png` is the real menu, running against the same demo.** The
-   app finds the installed engine through your real home folder, which a
-   changed `HOME` does not move, and the engine inherits the app's
-   environment, so a second copy started like this shows the demo and
-   nothing else:
+4. **`menu-bar.png` is the real menu, running against the same demo.**
+   `docs/screenshots/menu_shot.swift` takes it: it starts the app built
+   beside its source with `env.sh` and `--open-menu`, has `screencapture`
+   take the menu's own window, trims it to the menu's edge, ends that copy by
+   its process id and makes the file plain sRGB with `shoot.py --plain`.
 
    ```bash
-   env TZ=Europe/London HOME="$DEMO/home" \
-     CLAUDE_CONFIG_DIR="$DEMO/home/.claude" \
-     TOKENMETER_CLAUDE_PROJECTS="$DEMO/home/.claude/projects" \
-     TOKENMETER_LEDGER="$DEMO/home/.claude/cost-ledger.jsonl" \
-     TOKENMETER_PRICE_CACHE="$DEMO/fetched-prices.json" TOKENMETER_OFFLINE=1 \
-     TOKENMETER_SCAN_CACHE="$DEMO/scan-cache.db" \
-     TOKENMETER_CURRENCY=USD CODEX_HOME="$DEMO/home/.codex" \
-     XDG_DATA_HOME="$DEMO/home/.local/share" \
-     OPENCODE_DB="$DEMO/home/.local/share/opencode/opencode.db" \
-     PYTHONDONTWRITEBYTECODE=1 \
-     ~/Applications/Tokenmeter.app/Contents/MacOS/Tokenmeter
+   swiftc -O -o costbar/costbar costbar/main.swift -framework AppKit
+   TZ=Europe/London swift docs/screenshots/menu_shot.swift "$DEMO" docs/screenshots/menu-bar.png
    ```
 
-   That is `env.sh` spelled out, with the time zone the demo was made in.
-
-   Before capturing:
-
-   - The copy runs the installed engine, so install the version the images
-     are for first.
-   - Capture it on the `--now` day: Today, Last 7 days and Last 30 days come
-     from the real clock, so only then does the menu match the dashboard
-     images (20 November 2026 for the README's demo).
-   - The copy shares the installed app's settings, its currency included, so
-     make the capture while the app is set to US dollars, or it will not
-     match the dollar images.
-
-   Then:
-
-   1. Find the demo's menu: two identical Tokenmeter icons are now in the
-      menu bar, and the demo's menu is the one whose All time reads $171.86,
-      for the README's demo.
-   2. Open the demo's menu, capture it (Cmd+Shift+4, then drag a box just
-      inside the menu's edge, so there is no shadow) and save it as
-      `docs/screenshots/menu-bar.png`.
-   3. Make it plain, which swaps the display's colour profile for sRGB:
-
-      ```bash
-      python3 docs/screenshots/shoot.py --plain docs/screenshots/menu-bar.png
-      ```
-
-   4. Choose Quit from the demo's menu to end the copy.
-
-   Leave Show tokens as it is, since the setting is shared, and do not choose
-   Open the full dashboard from the copy: that writes the demo's page over
-   `~/Downloads/Tokenmeter.html`.
+   - **Nothing real can get in.** Only the menu's window is captured, never
+     the screen, so the menu bar and its real figure are not in the picture.
+     The app finds the installed engine through your real home folder, which
+     `env.sh`'s `HOME` does not move, and the engine reads only the demo.
+   - **The installed app's settings are never read or written.** The script
+     passes the copy its settings on the command line, in the argument
+     domain: US dollars, Show Tokens on and Today ticked unless `--currency`,
+     `--tokens` or `--mode` say otherwise. Nothing is clicked, so nothing is
+     saved.
+   - **Submenus too.** Each `--open TITLE` opens the submenu whose title holds
+     TITLE, one level deeper each time, and saves it as `menu-bar-1.png` and
+     so on, for checking: `--open Where --open "Break Down By"`. It works
+     through the accessibility interface, since a key posted to the copy
+     closes its menu and one posted to the system goes to the app in front,
+     so the shell needs permission to control the computer as well as to
+     record the screen.
+   - **Before capturing:** install the version the image is for, since the
+     copy runs the installed engine, and capture on the `--now` day: Today
+     and the last 7 and 30 days come from the real clock, so only then does
+     the menu match the dashboard images. Take it in dark mode, as the
+     dashboard is dark, on a Retina screen.
 
 ## Rebuilding the menu bar app
 
@@ -652,24 +632,45 @@ Do not 'simplify' that to `kickstart`: launchd caches the signature it
 registered, an ad hoc signature changes on every build, and the kernel kills
 the new binary with `OS_REASON_CODESIGNING`.
 
-## The menu bar's Show tokens switch
+## The menu
 
-One switch, kept under the `showTokens` key, adds each window's total tokens
-to the title and to the four window rows; `windowLine()` writes a row, and
-off it is the name and the cost exactly as before.
+Short on purpose, the same pattern as Bytemeter's: four period rows, one
+line on caching, a warning row only when a note needs attention, Where Today
+Went, then Open Dashboard, Refresh Now, Preferences and Quit. Everything
+else is on the dashboard. The rows are copied from Bytemeter's
+`Sources/Bytemeter/MenuRows.swift` into `costbar/main.swift` (`MenuRows`,
+`MenuRowView`), since each app must build alone.
 
-The switch is an `NSSwitch` in a custom view, `SwitchRow`, which AppKit gives
-mouse events but no keys, so its menu item keeps the title and Command-T for
-the keyboard. Flipping it calls `tokensChanged()`, which changes the title,
-the rows and the switch of the menu in place: a menu built afresh only shows
-the next time it opens, and the switch leaves this one open.
-
-AppKit has no call for where a plain item's title starts or how tall it is,
-so `SwitchRow.metrics` works them out from the sizes AppKit gives a scratch
-menu, taking the room around a title as even on both sides. If a macOS
-update leaves the label or the switch out of line with the other rows, look
-there first. A switch reports its small size only once it is in a window, so
-constraints place it, not its size at build time.
+- **The period rows are standard menu items; every other row is a drawn
+  view.** AppKit gives a view in a menu item no key events, so a drawn period
+  row could not be chosen with Return (tested on macOS 27, 21 November 2026).
+  Each period row's figures sit at right tab stops (`MenuRows.period`): the
+  cost, and with Show Tokens on the tokens in grey, the costs set in by the
+  widest token count so both columns line up. AppKit keeps its shortcut
+  column to the right of a standard item's title, so the figures end about 30
+  points short of the ⌘D column, and the drawn rows end theirs on the same
+  edge (`MenuRows.figureColumn`). The rows that only inform stay views,
+  because AppKit draws a disabled item grey whatever its title's colour.
+- **Where Today Went follows the tick**: "Where 7 Days Went", "Where It All
+  Went". It holds the ticked period's cost split, with a bar and dots in the
+  dashboard's colours for the parts of a bill (`--s1` to `--s5` in
+  `dashboard/dashboard.css`, typed into `MenuRows`; a test holds them
+  equal), then the breakdown, which the engine sends for all time only, so it
+  is headed "By model, all time". Break Down By, below it, switches the
+  breakdown to harness or provider when either is mixed, saved under
+  `breakdown`.
+- **The warning row** counts the notes whose `attention` the engine sets
+  ("1 Note Needs Attention") and holds every note in its submenu. With
+  nothing to act on there is no row; the dashboard's footer prints every
+  note either way.
+- **Preferences is a window, not a submenu**, because a menu item with a
+  submenu cannot take Command-comma, and the app has only one: a second
+  opening brings it forward. It is modelled on Bytemeter's
+  `PreferencesWindow.swift` and holds Currency, with the rates line, and Show
+  Tokens. Escape and Command-W close it, since the app has no menu bar of
+  its own to carry Close. Both settings are saved under the keys they always
+  had, `currency` and `showTokens`, and a change calls `render()`, which
+  redraws the menu bar's figure and rebuilds the menu at once.
 
 ## The app icon
 

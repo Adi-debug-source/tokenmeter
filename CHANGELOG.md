@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.4.0, 21 November 2026
+
+The menu bar's menu is short again: about twelve rows, where it was about
+40 lines and taller than a 13-inch screen. It follows the same pattern as
+Bytemeter's menu. No figure moves.
+
+### Menu bar
+
+- **Four period rows**, Today, Last 7 days, Last 30 days and All time, the
+  cost in full contrast and, with Show Tokens on, the tokens grey beside it.
+  Click one, or reach it with the arrow keys and Return, to put it in the
+  menu bar.
+- **One line on caching**: "Caching saved $744.38 all time, 5.9x", or what
+  it cost when caching was dearer. The With and Without cache reads rows,
+  the percentage cheaper, the cache hit line and the text sparkline leave
+  the menu; the dashboard and the terminal report still give them.
+- **A warning row only when a note needs attention**, with every note in
+  its submenu. The Notes item goes; the dashboard's footer has every note.
+- **Where Today Went** follows the ticked period ("Where 7 Days Went") and
+  holds its cost split, with a bar in the dashboard's colours, then the
+  all-time breakdown by model. **Break Down By** moves inside it and still
+  switches between model, harness and provider.
+- **Preferences** (Cmd+comma, or a click) opens a small window with
+  Currency and Show Tokens. Your choices carry over. Command-T, which
+  flipped Show Tokens while the menu was open, goes with the switch.
+- Commands are in title case: Open Dashboard (Cmd+D, new), Refresh Now,
+  Quit Tokenmeter.
+
+### Screenshots
+
+- `docs/screenshots/menu_shot.swift` takes the menu's picture from the demo
+  history unaided, with the app's new `--open-menu`. Every README image and
+  the social preview are retaken from one demo, made on 21 November 2026.
+- `make_demo.py` always gives the `--now` day some work, even at a weekend,
+  so a capture made on a Saturday no longer shows Today at nothing. No other
+  day of the history changes.
+
+### Tests
+
+- 744, two of them new: the bar's colours match the dashboard's, and the
+  capture script and the app agree on `--open-menu` and the settings' names.
+  The tests that read the old menu's source now read the new one.
+
 ## 1.3.6, 21 November 2026
 
 The menu bar's menu fits the screen again. It printed every note whole on

@@ -17,7 +17,7 @@ TIME is a local date and time such as 2026-10-16T17:40. The history ends at
 that minute, and nothing is dated after it. Without --now it ends at the
 current minute. Tokenmeter works out today, the last 7 days and the last 30
 from the real clock, so make the demo on the day it is used: the README's
-images were made with --now 2026-11-20T17:40 on 20 November 2026, in
+images were made with --now 2026-11-21T12:20 on 21 November 2026, in
 Europe/London (TZ=Europe/London).
 
 Every figure is invented
@@ -470,7 +470,9 @@ def plan(dice: Dice, now: dt.datetime):
         if day in crunch:
             n = 5
         elif weekend:
-            n = 1 if dice.chance(0.35) else 0
+            # The --now day always has work in it, even at a weekend, or a
+            # capture made on a Saturday shows Today at nothing.
+            n = 1 if dice.chance(0.35) or today else 0
         elif today or dice.chance(0.94):
             n = max(1, round(1.3 + 1.2 * progress + dice.uniform(-0.8, 0.8)))
         else:
@@ -478,7 +480,7 @@ def plan(dice: Dice, now: dt.datetime):
         version = f"2.{3 + int(progress * 3.2)}.{1 + (i * 7) % 13}"
         starts = []
         for _ in range(n):
-            if weekend:
+            if weekend and not today:
                 h = dice.uniform(10.5, 16.5)
             elif today:
                 # A working day so far: every session has had time to run.

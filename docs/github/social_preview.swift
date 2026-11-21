@@ -28,8 +28,8 @@ func hex(_ h: UInt32, _ a: CGFloat = 1) -> NSColor {
 // dashboard.css: --bg, --card, --line2, --ink, --dim, --acc, then the series.
 let BG = hex(0x090A0C), CARD = hex(0x121417), LINE = hex(0x2C313A), RULE = hex(0x212429)
 let INK = hex(0xEEF0F4), DIM = hex(0x8C94A2), ACC = hex(0xD97757)
-let SERIES: [(NSColor, CGFloat)] = [(ACC, 0.46), (hex(0x5B9DD9), 0.27), (hex(0xD4A03C), 0.18),
-                                    (hex(0x9085E9), 0.09)]
+let SERIES: [(NSColor, CGFloat)] = [(ACC, 0.282), (hex(0x5B9DD9), 0.536), (hex(0xD4A03C), 0.178),
+                                    (hex(0x9085E9), 0.004)]
 
 let args = CommandLine.arguments
 guard args.count == 3 else {
@@ -126,10 +126,10 @@ pill(card, radius: 18, fill: CARD, stroke: LINE)
 let inner = card.minX + 30, edge = card.maxX - 30
 draw([("ALL TIME, AT API RATES", DIM)], font("InterTight-Regular_Medium", 15), x: inner, top: 158,
      tracking: 1.1)
-draw([("$171.86", INK)], font("Fraunces-Regular", 62), x: inner, top: 182, tracking: -1)
+draw([("$151.71", INK)], font("Fraunces-Regular", 62), x: inner, top: 182, tracking: -1)
 let row = font("InterTight-Regular", 22), figure = font("InterTight-Regular_SemiBold", 22)
-for (i, (name, value)) in [("Today", "$3.65"), ("Last 7 days", "$16.84"),
-                           ("Last 30 days", "$77.92")].enumerated() {
+for (i, (name, value)) in [("Today", "$0.50"), ("Last 7 days", "$18.63"),
+                           ("Last 30 days", "$59.60")].enumerated() {
     let top = 282 + CGFloat(i) * 52
     RULE.setFill()
     CGRect(x: inner, y: H - top, width: edge - inner, height: 1).fill()

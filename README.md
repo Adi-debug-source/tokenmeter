@@ -68,15 +68,14 @@ One engine works everything out, and four faces show it.
 
 <img src="docs/screenshots/menu-bar.png" alt="The menu bar app's menu" width="340" align="right">
 
-The running figure, always visible, refreshed every minute: today, the last 7 days, the last 30 and all time, then where it went by model, harness or provider.
+The running figure, always visible, refreshed every minute, and a short menu under it: today, the last 7 days, the last 30 and all time, each with its tokens beside it if you like. Click one to put it in the menu bar.
 
-- **Show tokens** puts each window's tokens beside its cost.
-- **Break down by** switches between model, harness and provider.
-- **What caching is worth** prices the same tokens as if none had been cached.
-- **Currency** switches between seven currencies.
-- **Notes** holds every note the engine has, such as which readers are unverified and when each price table was last checked. A note that needs attention, such as a price page that no longer matches, stays in the menu itself.
+- **Caching saved** says in one line what caching was worth, all time.
+- **A warning row** appears only when a note needs attention, such as unverified readers carrying a real share of the total or a price page that no longer matches. Every note is in its submenu and on the dashboard.
+- **Where Today Went** follows the period you ticked: its cost split into cache writes, cache reads, output and input, in the dashboard's colours, then the all-time split by model. **Break Down By** inside it switches that to harness or provider.
+- **Preferences** (Cmd+comma) holds the currency, one of seven, and Show Tokens.
 
-The image is the real app running against the demo history. The menu is taller than one screen, so the image ends before its notes, the Currency menu and Show tokens.
+The image is the real app running against the demo history.
 
 <br clear="right">
 
@@ -248,7 +247,7 @@ Environment variables move the ledger and the caches, set the currency, switch t
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups, no daily check of the price pages and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |
 | `TOKENMETER_PRICE_CACHE` | Where looked-up prices are saved (default `.fetched_prices.json` beside the engine) |
 | `TOKENMETER_SCAN_CACHE` | Where the scan cache is kept (default `.scan_cache.db` beside the engine): what each Claude Code transcript held when it was last read, so one that has not changed is not read again. It can be deleted at any time; the next run reads everything once and writes it again |
-| `TOKENMETER_STATUS_TOKENS` | `1` to have the status line give today's total tokens beside today's cost, as `$4.56 · 1.20M today`. Off unless set to something other than `0`, so the line stays as it was. The menu bar has a switch of its own, Show tokens, in its menu |
+| `TOKENMETER_STATUS_TOKENS` | `1` to have the status line give today's total tokens beside today's cost, as `$4.56 · 1.20M today`. Off unless set to something other than `0`, so the line stays as it was. The menu bar has a switch of its own, Show Tokens, in its Preferences window |
 | `OPENCODE_DB` | Another OpenCode database to read, as a full path or a name inside OpenCode's data folder, as well as its `opencode*.db` files |
 | `NO_COLOR` | Any value but an empty one turns colour off in everything `tokenmeter` prints. Without it, colour is used only when the output goes to a terminal, so a pipe, a file and Claude Code's `/tokenmeter` get plain text. The status line keeps its colours, which Claude Code shows |
 | `FORCE_COLOR` | Any value but `0` or an empty one keeps the colour when the output is piped or saved, as a screenshot of captured output needs; `CLICOLOR_FORCE` does the same. `NO_COLOR` wins over both |

@@ -3,7 +3,7 @@
 Record the README's two short clips from a demo made by make_demo.py.
 
     DEMO=/tmp/tokenmeter-demo
-    TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-11-20T17:40 --force
+    TZ=Europe/London python3 docs/screenshots/make_demo.py "$DEMO" --now 2026-11-21T12:20 --force
     TZ=Europe/London python3 docs/screenshots/clip.py "$DEMO"
 
 It writes dashboard.gif and terminal.gif beside itself. Like shoot.py, whose
