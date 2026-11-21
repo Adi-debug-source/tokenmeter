@@ -905,17 +905,20 @@ class TestMenuBarTokens(Base):
     def test_every_period_row_gives_its_tokens_when_the_switch_is_on(self):
         """Each of the four rows gives its cost and, with the switch on, its
         total tokens in the title's shape, grey at the figure edge, the costs
-        set in from it by the widest count so they line up. Off, a row is
-        the name and the cost at the edge."""
+        set in from it by the widest count so they line up, and further out
+        when the widest label and cost need it, which a large yen total once
+        did. Off, a row is the name and the cost at the edge."""
         swift = self.swift()
         self.assertIn('static let windowKeys = ["today", "week", "month", "all"]', swift)
         menu = swift[swift.index("func buildMenu()"):swift.index("func whereMenu()")]
-        self.assertIn("let tokens = Controller.windowKeys.map { toks(window($0).tokens) }\n"
-                      "        let tokensWidth = MenuRows.figureWidth(tokens)", menu)
+        self.assertIn("tokens: showTokens ? tokens : nil)", menu)
         self.assertIn("windowName(key), cost: money(w.total), tokens: showTokens ? count : nil, "
-                      "tokensWidth: tokensWidth", menu)
+                      "edges: edges", menu)
+        edges = swift[swift.index("static func periodEdges("):swift.index("static func period(")]
+        # A wide cost in yen or rupees once could run past its tab stop.
+        self.assertIn("let needed = label + 16 + figureWidth(costs)", edges)
+        self.assertIn("let cost = max(figureColumn - tokensWidth - gap, needed)", edges)
         period = swift[swift.index("static func period("):swift.index("static func text(")]
-        self.assertIn("NSTextTab(textAlignment: .right, location: figureColumn - tokensWidth - gap)", period)
         self.assertIn(".foregroundColor: NSColor.secondaryLabelColor", period)
 
     def test_flipping_it_changes_the_menu_bar_at_once(self):

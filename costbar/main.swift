@@ -288,20 +288,30 @@ enum MenuRows {
         return item(view)
     }
 
+    /// Where the period rows' costs and tokens end: at the figure column, the
+    /// costs set in by the widest token count, unless the widest label and
+    /// cost need more, as a large total in yen or rupees can. A cost that ran
+    /// past its tab stop would jump to the next one and break both columns.
+    static func periodEdges(labels: [String], costs: [String], tokens: [String]?) -> (cost: CGFloat, tokens: CGFloat) {
+        let label = labels.map { ceil(($0 as NSString).size(withAttributes: [.font: textFont]).width) }.max() ?? 0
+        let needed = label + 16 + figureWidth(costs)
+        guard let tokens = tokens else { return (max(figureColumn, needed), 0) }
+        let tokensWidth = figureWidth(tokens)
+        let cost = max(figureColumn - tokensWidth - gap, needed)
+        return (cost, cost + gap + tokensWidth)
+    }
+
     /// One of the four periods the menu bar can show: the cost in full
     /// contrast and, with Show Tokens on, the tokens grey beside it, ticked
     /// when it is the one showing, and chosen with a click, Return or
-    /// VoiceOver, which send the item's action. `tokensWidth` is the widest
-    /// of the four token figures, so the costs line up too.
-    static func period(_ label: String, cost: String, tokens: String?, tokensWidth: CGFloat, chosen: Bool,
-                       toolTip: String?, action: Selector, target: AnyObject, representedObject: Any) -> NSMenuItem {
+    /// VoiceOver, which send the item's action. `edges` come from
+    /// `periodEdges`, the same for all four, so the columns line up.
+    static func period(_ label: String, cost: String, tokens: String?, edges: (cost: CGFloat, tokens: CGFloat),
+                       chosen: Bool, toolTip: String?, action: Selector, target: AnyObject,
+                       representedObject: Any) -> NSMenuItem {
         let style = NSMutableParagraphStyle()
-        if tokens == nil {
-            style.tabStops = [NSTextTab(textAlignment: .right, location: figureColumn)]
-        } else {
-            style.tabStops = [NSTextTab(textAlignment: .right, location: figureColumn - tokensWidth - gap),
-                              NSTextTab(textAlignment: .right, location: figureColumn)]
-        }
+        style.tabStops = [NSTextTab(textAlignment: .right, location: edges.cost)]
+            + (tokens == nil ? [] : [NSTextTab(textAlignment: .right, location: edges.tokens)])
         // No colour on the label or the cost, so AppKit draws them in its
         // own, white while highlighted.
         let title = NSMutableAttributedString(string: label + "\t", attributes: [.font: textFont, .paragraphStyle: style])
@@ -578,17 +588,25 @@ final class PreferencesWindow: NSWindowController {
 
     /// The controls from the settings and the latest figures: the currencies
     /// the engine offers, at its rates, and when those were fetched.
+    /// The list is rebuilt only when it has changed, since a refresh comes
+    /// every minute and may land while the list is open.
     func refresh(_ snap: Snapshot) {
-        currencyPopUp.removeAllItems()
-        for code in currencyOrder {
+        let titles = currencyOrder.map { code -> String in
             let sym = currencySymbols[code] ?? ""
-            currencyPopUp.addItem(withTitle: code == "USD"
-                ? "\(sym) USD  (billed)"
-                : String(format: "%@ %@  %.4f", sym, code, rate(code)))
-            currencyPopUp.lastItem?.representedObject = code
-            if code == displayCurrency { currencyPopUp.select(currencyPopUp.lastItem) }
+            return code == "USD" ? "\(sym) USD  (billed)" : String(format: "%@ %@  %.4f", sym, code, rate(code))
         }
-        ratesNote.stringValue = snap.rateLive ? "Live rates, \(snap.rateWhen)" : "Rates: \(snap.rateWhen)"
+        if currencyPopUp.itemTitles != titles {
+            currencyPopUp.removeAllItems()
+            for (code, title) in zip(currencyOrder, titles) {
+                currencyPopUp.addItem(withTitle: title)
+                currencyPopUp.lastItem?.representedObject = code
+            }
+        }
+        if let index = currencyOrder.firstIndex(of: displayCurrency) { currencyPopUp.selectItem(at: index) }
+        // After a failed read there is no date to give; the last one stays.
+        if snap.failed == nil {
+            ratesNote.stringValue = snap.rateLive ? "Live rates, \(snap.rateWhen)" : "Rates: \(snap.rateWhen)"
+        }
         tokensSwitch.state = controller.showTokens ? .on : .off
     }
 
@@ -799,13 +817,15 @@ final class Controller: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(MenuRows.header("At API rates"))
-        let tokens = Controller.windowKeys.map { toks(window($0).tokens) }
-        let tokensWidth = MenuRows.figureWidth(tokens)
-        for (key, count) in zip(Controller.windowKeys, tokens) {
+        let keys = Controller.windowKeys
+        let tokens = keys.map { toks(window($0).tokens) }
+        let edges = MenuRows.periodEdges(labels: keys.map(windowName), costs: keys.map { money(window($0).total) },
+                                         tokens: showTokens ? tokens : nil)
+        for (key, count) in zip(keys, tokens) {
             let w = window(key)
             let calls = "\(w.calls) API call" + (w.calls == 1 ? "" : "s")
             menu.addItem(MenuRows.period(
-                windowName(key), cost: money(w.total), tokens: showTokens ? count : nil, tokensWidth: tokensWidth,
+                windowName(key), cost: money(w.total), tokens: showTokens ? count : nil, edges: edges,
                 chosen: mode == key,
                 toolTip: key == "all" && !snap.covered.isEmpty
                     ? "\(calls), covering \(snap.covered). Show this one in the menu bar."

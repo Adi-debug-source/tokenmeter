@@ -54,13 +54,14 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+/// Runs a tool and fails with its own words if it does.
 func run(_ tool: String, _ arguments: [String]) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: tool)
     process.arguments = arguments
-    process.standardError = FileHandle.nullDevice
     do { try process.run() } catch { fail("Could not run \(tool): \(error)") }
     process.waitUntilExit()
+    guard process.terminationStatus == 0 else { fail("\(tool) \(arguments.joined(separator: " ")) failed.") }
 }
 
 let usage = "Usage: swift docs/screenshots/menu_shot.swift <demo folder> <output.png> "
