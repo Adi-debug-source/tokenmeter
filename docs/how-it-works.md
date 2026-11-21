@@ -43,16 +43,9 @@ The last line splits the same total by where its calls are now. Deleting a sessi
 
 The dashboard gives the total in a tile beside the API calls, with the fresh tokens under it. When the ledger holds calls no transcript has any more, a note under the tiles gives the same kept and on-disk split, and why: deleted sessions take their transcripts with them, and Tokenmeter keeps the record. The Tokens view of its Spend over time chart counts each day the same way, the days only the ledger still has included.
 
-The status line can give today's total beside today's cost, `$4.56 · 1.20M today`, when `TOKENMETER_STATUS_TOKENS` is set to `1` (see [Settings](../README.md#settings)). The menu bar's Show tokens switch, in its menu, gives each window's total beside its cost: in the menu bar for the window shown, `$4.56 · 1.20M`, and on the four window rows of the menu, lined up:
+The status line can give today's total beside today's cost, `$4.56 · 1.20M today`, when `TOKENMETER_STATUS_TOKENS` is set to `1` (see [Settings](../README.md#settings)). The menu bar's Show Tokens switch, in its Preferences window, gives each period's total beside its cost: in the menu bar for the period shown, `$4.56 · 1.20M`, and on the menu's four period rows, the tokens grey beside each cost and lined up.
 
-```
-Today                $4.56 ·   1.20M
-Last 7 days         $61.20 ·  98.40M
-Last 30 days       $250.75 · 410.00M
-All time         $1,024.50 ·   1.62B
-```
-
-Flipping it changes the menu bar and every row at once and leaves the menu open. From the keyboard, Command-T toggles it while the menu is open. The status line's setting and the menu bar's switch are both off unless asked for, so each is otherwise exactly as it was.
+Flipping it changes the menu bar and the rows at once. The status line's setting and the menu bar's switch are both off unless asked for, so each is otherwise exactly as it was.
 
 `--summary-json`, which the menu bar reads, gives the same figures: a `tokens` object (`input`, `cache_write`, `cache_read`, `output`, `thinking`, `total` and `fresh`) for today, the last 7 days, the last 30 and all time, and for all time `tokens_on_disk` and `tokens_ledger_only`. `--json` gives them for its run.
 
