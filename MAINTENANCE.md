@@ -446,6 +446,10 @@ it:
    tag:** the formula pins the checksum of the tag's tarball, so a moved tag
    breaks every install until the formula is updated.
 3. Point the formula at the new tag, as [Homebrew](#homebrew) describes.
+4. Publish the release page, with no files attached: `gh release create
+   vX.Y.Z --verify-tag --title "Tokenmeter X.Y.Z" --notes-file notes.md`. The
+   notes are that version's CHANGELOG section with each paragraph and list
+   item on one line, because a release page keeps every newline.
 
 ## Homebrew
 

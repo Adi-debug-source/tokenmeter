@@ -13,7 +13,7 @@ Claude Code deletes transcripts after 30 days by default, and Codex compresses t
 
 - **Tokens, never money.** A ledger of dollars would be frozen at the prices on the day it was written; a ledger of tokens reprices the whole history whenever a table changes.
 - **Append only.** A row that supersedes an earlier one is appended, never edited, so the file is safe to keep in git and every diff is only the new lines.
-- **Updated by every run that uses it, never on a schedule.** The menu bar's 60-second refresh keeps it current.
+- **Updated by every run that uses it, never on a schedule.** The menu bar's 90-second refresh keeps it current.
 - **Small.** About 220 bytes a call, a couple of megabytes a year.
 - **Losing it degrades, it does not break.** Without it the tool falls back to the logs on disk.
 

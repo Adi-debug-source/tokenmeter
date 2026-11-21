@@ -10,11 +10,11 @@ Tokenmeter reads the logs your coding agent already writes, prices every call at
 the provider's published rates, and keeps the answer in your menu bar.<br>
 Nothing about your usage leaves your Mac.
 
-[![tests](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml/badge.svg)](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml)
-[![release](https://img.shields.io/github/v/release/Adi-debug-source/tokenmeter?color=d97757)](https://github.com/Adi-debug-source/tokenmeter/releases/latest)
+[![tests](https://img.shields.io/github/actions/workflow/status/Adi-debug-source/tokenmeter/test.yml?branch=main&label=tests)](https://github.com/Adi-debug-source/tokenmeter/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/Adi-debug-source/tokenmeter?label=release&color=d97757)](https://github.com/Adi-debug-source/tokenmeter/releases/latest)
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-d97757)](LICENSE)
-![macOS 12 or later](https://img.shields.io/badge/macOS-12%2B-5c6371)
-![Python 3.9 or later, no packages](https://img.shields.io/badge/Python-3.9%2B%2C%20no%20packages-5c6371)
+[![macOS 12 or later](https://img.shields.io/badge/macOS-12%20or%20later-5c6371)](#install)
+[![Python 3.9 or later, no packages](https://img.shields.io/badge/Python-3.9%2B%2C%20no%20packages-5c6371)](#install)
 
 [Install](#install) · [What you get](#what-you-get) · [Why trust it](#why-the-numbers-can-be-trusted) · [How it works](#how-it-works) · [Harnesses](#supported-harnesses) · [Prices](#which-prices-are-confirmed) · [Privacy](#privacy)
 
@@ -26,7 +26,7 @@ On a subscription, a coding agent's usage is not billed per token, so you never 
 
 <table>
 <tr><td><b>Four ways to see it</b></td><td>A menu bar app, a status line for Claude Code, a terminal report and an offline dashboard, all showing one engine's figures.</td></tr>
-<tr><td><b>Numbers you can check</b></td><td>Claude Code's figures match its own <code>total_cost_usd</code> to ten decimal places. 744 tests, each guarding a bug that was once real.</td></tr>
+<tr><td><b>Numbers you can check</b></td><td>Claude Code's figures match its own <code>total_cost_usd</code> to ten decimal places. 744 tests, most guarding a bug that was once real.</td></tr>
 <tr><td><b>Every rate from its maker</b></td><td>Ten providers' price tables, each rate read from the provider's own page, dated, pinned by a test and compared with the live page daily.</td></tr>
 <tr><td><b>Yours alone</b></td><td>Standard-library Python and a small Swift app. No packages, no account, no telemetry.</td></tr>
 </table>
@@ -156,7 +156,7 @@ flowchart LR
 
 All the arithmetic lives in `tokenmeter.py`, about 4,500 lines of standard-library Python. The adapters only read, the price tables only hold rates, and the menu bar app (Swift and AppKit), the status line and the dashboard (plain JavaScript and SVG, no libraries) only display what the engine computes. A second copy of any calculation is treated as a bug.
 
-It is quick enough to run every minute. A transcript that has not changed since the last run is not read again, so on a history of 2,422 transcripts holding 3 GB the menu bar's refresh takes 4.4 seconds where it took 14.7, and every figure, note and ledger row comes out the same. `python3 tests/bench.py` measures it on an invented history of the same shape.
+It is quick enough for the menu bar to run every 90 seconds. A transcript that has not changed since the last run is not read again, so on a history of 2,422 transcripts holding 3 GB the menu bar's refresh takes 4.4 seconds where it took 14.7, and every figure, note and ledger row comes out the same. `python3 tests/bench.py` measures it on an invented history of the same shape.
 
 ```bash
 tokenmeter --no-ledger          # price only what the logs hold
@@ -241,7 +241,7 @@ Environment variables move the ledger and the caches, set the currency, switch t
 
 | Variable | Does |
 |---|---|
-| `TOKENMETER_CURRENCY` | Default display currency for the terminal, the dashboard and the status line (USD unless set). The menu bar keeps its own choice, from its Currency menu |
+| `TOKENMETER_CURRENCY` | Default display currency for the terminal, the dashboard and the status line (USD unless set). The menu bar keeps its own choice, set in its Preferences window |
 | `TOKENMETER_LEDGER` | Where the ledger lives |
 | `TOKENMETER_CLAUDE_PROJECTS` | The Claude Code projects folders to read, colon separated, instead of the default. Include `~/.claude/projects` to count this Mac and a copied folder as one history |
 | `TOKENMETER_OFFLINE` | `1` to make no network requests: no price lookups, no daily check of the price pages and no exchange rates; a saved rate is used at any age, else a built-in estimate. `--check-prices` still reads the pages it is asked to check |

@@ -212,7 +212,7 @@ FX_ESTIMATE_OFFLINE = "ESTIMATE, offline and no exchange rate saved"
 FX_URL = "https://open.er-api.com/v6/latest/USD"
 FX_CACHE = os.path.join(HERE, ".fx_rates.json")
 # Half a day, so a rate checked in the morning is never yesterday afternoon's.
-# The menu bar calls this every 60 seconds, so expiry heals itself with no
+# The menu bar calls this every 90 seconds, so expiry heals itself with no
 # scheduler, no cron and no agent run.
 FX_TTL = 43200
 # After a failed fetch, how long to wait before trying again. Without it every

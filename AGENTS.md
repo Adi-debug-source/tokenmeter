@@ -10,7 +10,7 @@ A Python tool that prices the local usage logs of Claude Code and other harnesse
 
 ## Commands
 
-- Test: `python3 tests/test_tokenmeter.py` (the gate: a Stop hook runs it at the end of every turn; a few hundred tests in about five seconds, standard library only, no network; one area alone runs as `python3 tests/test_ledger.py`)
+- Test: `python3 tests/test_tokenmeter.py` (the gate: a Stop hook runs it at the end of every turn; the whole suite in about ten seconds, standard library only, no network; one area alone runs as `python3 tests/test_ledger.py`)
 - Run: `python3 tokenmeter.py`, with `--by model`, `--by source`, `--sessions`, `--json`, `--summary-json`, `--html`, `--check-prices`
 - Prices document: `python3 tokenmeter.py --list-prices --markdown > docs/prices.md`
 - Install locally: `./install.sh`
