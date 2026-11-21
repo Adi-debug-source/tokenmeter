@@ -55,7 +55,7 @@ struct Snapshot {
                      models: [(String, Double, Int)])] = []
     // What the engine says must be shown beside the figures: when each price
     // table was checked, and any warning about how far to trust a number.
-    var notes: [(level: String, text: String)] = []
+    var notes: [(level: String, text: String, attention: Bool)] = []
     var failed: String?
 }
 
@@ -257,7 +257,13 @@ func loadSnapshot() -> Snapshot {
         }
     }
     if let ns = root["notes"] as? [[String: Any]] {
-        snap.notes = ns.map { (($0["level"] as? String) ?? "info", ($0["text"] as? String) ?? "") }
+        // The engine says which notes need attention. One from before 1.3.6
+        // does not, and its warnings are taken to.
+        snap.notes = ns.map {
+            let level = ($0["level"] as? String) ?? "info"
+            return (level, ($0["text"] as? String) ?? "",
+                    ($0["attention"] as? Bool) ?? (level == "warn"))
+        }
     }
     return snap
 }
@@ -609,15 +615,27 @@ final class Controller: NSObject, NSApplicationDelegate {
         // printing 96% and 95.5% for one number.
         add(menu, String(format: "%.1f%% of prompt tokens served from cache", snap.cacheHit), indent: 1)
 
-        // Provenance and warnings, exactly as the terminal report words them.
-        // Long lines are shortened here and kept whole in the tooltip.
+        // Provenance and warnings, exactly as the terminal report words them,
+        // each shown whole, wrapped onto as many lines as it needs. What needs
+        // attention stays in the menu; every note is under Notes. All of them
+        // in the menu itself pushed Currency and Show tokens off a 900 point
+        // screen on a day with nothing wrong.
+        func noteLine(_ note: (level: String, text: String, attention: Bool)) -> String {
+            wrapped((note.level == "warn" ? "\u{26A0}\u{FE0E} " : "") + note.text, 58)
+        }
         if !snap.notes.isEmpty {
             menu.addItem(.separator())
-            for note in snap.notes {
-                let prefix = note.level == "warn" ? "\u{26A0}\u{FE0E} " : ""
-                // Shown whole, wrapped onto as many lines as it needs.
-                add(menu, wrapped(prefix + note.text, 58), indent: 1).toolTip = note.text
+            for note in snap.notes where note.attention {
+                add(menu, noteLine(note), indent: 1).toolTip = note.text
             }
+            let notesItem = NSMenuItem(title: "Notes", action: nil, keyEquivalent: "")
+            let notesMenu = NSMenu()
+            notesMenu.autoenablesItems = false
+            for note in snap.notes {
+                add(notesMenu, noteLine(note)).toolTip = note.text
+            }
+            notesItem.submenu = notesMenu
+            menu.addItem(notesItem)
         }
 
         menu.addItem(.separator())
