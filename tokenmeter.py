@@ -51,7 +51,7 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
