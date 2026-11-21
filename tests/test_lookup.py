@@ -46,7 +46,7 @@ class TestOnlineLookup(Base):
         self.fetched.append(url)
         if url == tm.LITELLM_URL:
             return self.LITELLM
-        if "platform.claude.com" in url:
+        if url == tm.TABLES["anthropic"].SOURCE_MD:
             return self.PAGE
         raise OSError("offline in tests")
 
