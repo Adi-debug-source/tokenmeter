@@ -68,7 +68,7 @@ One engine works everything out, and four faces show it.
 
 <img src="docs/screenshots/menu-bar.png" alt="The menu bar app's menu" width="340" align="right">
 
-The running figure, always visible, refreshed every minute, and a short menu under it: today, the last 7 days, the last 30 and all time, each with its tokens beside it if you like. Click one to put it in the menu bar.
+The running figure, always visible, refreshed every 90 seconds, and a short menu under it: today, the last 7 days, the last 30 and all time, each with its tokens beside it if you like. Click one to put it in the menu bar.
 
 - **Caching saved** says in one line what caching was worth, all time.
 - **A warning row** appears only when a note needs attention, such as unverified readers carrying a real share of the total or a price page that no longer matches. Every note is in its submenu and on the dashboard.

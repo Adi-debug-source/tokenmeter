@@ -9,7 +9,7 @@
 Not a test, and the gate does not run it. It writes an invented Claude Code
 history into a temp folder, copies the engine beside it, as install.sh does,
 and times each face as a fresh process, because that is how the menu bar
-(every 60 seconds), the status line (every prompt) and the command line run
+(every 90 seconds), the status line (every prompt) and the command line run
 it. Nothing real is read or written: the copy's home, ledger and caches are
 all inside the temp folder, and it runs offline.
 
@@ -27,7 +27,7 @@ run is the machine doing something else as well:
                being short enough for the machine's noise to show)
   first run    --summary-json with no ledger and no caches yet
   refresh      --summary-json again, after one session has made one more call:
-               what the menu bar does every minute
+               what the menu bar does every 90 seconds
   report       the terminal report
   dashboard    --html, written and not opened
   status line  statusline.py for the longest session, its today figure cached

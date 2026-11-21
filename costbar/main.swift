@@ -9,7 +9,10 @@ import AppKit
 import Foundation
 
 let engine = ("~/.claude/tools/tokenmeter/tokenmeter.py" as NSString).expandingTildeInPath
-let refreshSeconds: TimeInterval = 60
+// Each refresh runs the engine, about 4 seconds of one core on a large
+// history (measured 21 November 2026), so 90 seconds rather than 60 costs a
+// third less; Refresh Now gives a fresh figure at once.
+let refreshSeconds: TimeInterval = 90
 
 // Which currencies exist, in what order and what they look like is
 // tokenmeter.py's business, not this file's. These are only what shows before
@@ -589,7 +592,7 @@ final class PreferencesWindow: NSWindowController {
     /// The controls from the settings and the latest figures: the currencies
     /// the engine offers, at its rates, and when those were fetched.
     /// The list is rebuilt only when it has changed, since a refresh comes
-    /// every minute and may land while the list is open.
+    /// every 90 seconds and may land while the list is open.
     func refresh(_ snap: Snapshot) {
         let titles = currencyOrder.map { code -> String in
             let sym = currencySymbols[code] ?? ""

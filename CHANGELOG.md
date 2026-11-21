@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1, 21 November 2026
+
+The menu bar refreshes every 90 seconds rather than every minute. Each
+refresh runs the engine, about 4 seconds of one core on a large history, so
+this costs a third less battery. Refresh Now (Cmd+R) still gives a fresh
+figure at once. No figure moves.
+
 ## 1.4.0, 21 November 2026
 
 The menu bar's menu is short again: about twelve rows, where it was about
