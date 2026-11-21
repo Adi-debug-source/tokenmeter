@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.4.2, 21 November 2026
+
+A wording release: the help text, the docs and one stricter test. No figure
+moves.
+
+- `--help` says what repeating `--projects-dir` does: 'repeat it, this
+  Mac's folder included, to count them as one history', where it said 'to
+  combine machines'.
+- The docs say Mac where they said 'the machine', and put quoted words in
+  single quotes. They count all 11 retired Anthropic models, the accuracy
+  page says ten decimal places as the README does, and they describe the
+  90-second refresh and the currency in the Preferences window. The README
+  ends with a link to Bytemeter.
+- The online lookup's test answers only the exact Anthropic page the lookup
+  reads, so it also pins which page is fetched. This clears a CodeQL alert,
+  and only the test changed.
+- For contributors: a verify skill, `.claude/skills/verify/SKILL.md`,
+  smoke-tests the engine, the dashboard and the menu bar app on invented
+  data before a commit, and 'Releasing a change' in MAINTENANCE.md gains
+  the release page step.
+
 ## 1.4.1, 21 November 2026
 
 The menu bar refreshes every 90 seconds rather than every minute. Each

@@ -51,7 +51,7 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.4.1"
+__version__ = "1.4.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -187,7 +187,7 @@ def printable(text: str) -> str:
 # dollars, as each provider publishes its rates. Display happens in whatever
 # currency is selected; only the last step converts. TOKENMETER_CURRENCY
 # changes the default for the command line, the status line and the dashboard
-# at once; the menu bar keeps the choice made in its own Currency menu.
+# at once; the menu bar keeps the choice made in its Preferences window.
 CURRENCY_ENV = "TOKENMETER_CURRENCY"
 DEFAULT_CURRENCY = (os.environ.get(CURRENCY_ENV, "").strip() or "USD").upper()
 
@@ -4181,7 +4181,7 @@ def build_parser() -> argparse.ArgumentParser:
                            "help), from any harness; - reads standard input; repeatable")
     read.add_argument("--projects-dir", action="append", default=[], metavar="DIR",
                       help="a Claude Code projects folder to read instead of the default; "
-                           "repeat it, this Mac's folder included, to combine machines "
+                           "repeat it, this Mac's folder included, to count them as one history "
                            f"(or set {PROJECTS_ENV}, colon separated)")
     read.add_argument("--list-adapters", action="store_true",
                       help="show each adapter, what it found, and how far to trust it")
