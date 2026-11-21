@@ -28,8 +28,8 @@ changes.
 - **Dashboard:** a Harness menu beside the currencies shows any one harness on
   its own page. The spend chart splits each day by harness, models are grouped
   under the provider that priced them with the harnesses that used each, a
-  By harness table compares cost per call and cache use, and "How far to
-  trust this" shows how much of the total came from verified readers and
+  By harness table compares cost per call and cache use, and 'How far to
+  trust this' shows how much of the total came from verified readers and
   from checked prices.
 - **Menu bar:** By model stays the default; Break Down By, inside Where
   Today Went, switches it to harnesses or providers.

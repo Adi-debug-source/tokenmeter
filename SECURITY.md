@@ -1,8 +1,8 @@
 # Security
 
 Tokenmeter reads the logs your coding harness writes on your Mac and prices
-them. Nothing about your usage leaves the machine. The only requests it makes
-are these: exchange rates, which send only the string "USD"; published price
+them. Nothing about your usage leaves your Mac. The only requests it makes
+are these: exchange rates, which send only the string 'USD'; published price
 lists for a model no table has, where an OpenAI model is looked up on its own
 page, whose address names the model, the one case in which a model name is
 sent; and each provider's pricing page, reread at most once a day after a

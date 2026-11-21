@@ -1,11 +1,11 @@
 # Tokenmeter
 
-A Python tool that prices the local usage logs of Claude Code and other harnesses at API rates, with a dashboard, a menu bar app and a status line. Its only claim is that its numbers are right, so every rule below protects that.
+A Python tool that prices the local usage logs of Claude Code and other harnesses at API rates, with a dashboard, a macOS menu bar app and a status line. Its only claim is that its numbers are right, so every rule below protects that.
 
 ## The worst mistakes here
 
 - Editing the installed copy in `~/.claude/tools/tokenmeter/`: it is the live tool, and the next install overwrites it. Change the repo, run the gate, then `./install.sh`.
-- Rewriting the real ledger, `~/.claude/cost-ledger.jsonl`, or running `--rebuild-ledger` on it: calls whose logs have been swept are lost for good. Tests build their own in a temp folder; the real one is only appended to (MAINTENANCE.md, "The ledger").
+- Rewriting the real ledger, `~/.claude/cost-ledger.jsonl`, or running `--rebuild-ledger` on it: calls whose logs have been swept are lost for good. Tests build their own in a temp folder; the real one is only appended to (MAINTENANCE.md, 'The ledger').
 - Real usage in anything that goes online, a README image or pull request evidence: it shows someone's spend, projects and working days. Capture from the invented history `docs/screenshots/make_demo.py` writes.
 
 ## Commands
@@ -18,7 +18,7 @@ A Python tool that prices the local usage logs of Claude Code and other harnesse
 
 ## Layout
 
-The table in MAINTENANCE.md, "How it fits together", names every part. In short: `tokenmeter.py` is the engine; `adapters/` has one reader per harness; `pricing/` one table per provider; `dashboard/`, `costbar/` and `statusline.py` display only; `tests/` one module per area, with `test_tokenmeter.py` running them all.
+The table in MAINTENANCE.md, 'How it fits together', names every part. In short: `tokenmeter.py` is the engine; `adapters/` has one reader per harness; `pricing/` one table per provider; `dashboard/`, `costbar/` and `statusline.py` display only; `tests/` one module per area, with `test_tokenmeter.py` running them all.
 
 ## Conventions this code keeps
 

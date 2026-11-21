@@ -44,7 +44,7 @@ Open `http://127.0.0.1:8765/Tokenmeter.html` in a browser with JavaScript on. Wo
 swiftc -O -o "$T/costbar" costbar/main.swift -framework AppKit
 ```
 
-Working means it compiles with no errors. This writes only to the temp folder. Do not verify with `costbar/build.sh` or `./install.sh`: both replace the installed app. The menu itself needs a click, so a change to how it looks is checked by eye against the demo (MAINTENANCE.md, "Screenshots").
+Working means it compiles with no errors. This writes only to the temp folder. Do not verify with `costbar/build.sh` or `./install.sh`: both replace the installed app. The menu itself needs a click, so a change to how it looks is checked by eye against the demo (MAINTENANCE.md, 'Screenshots').
 
 The temp folder holds only invented data; delete it by its printed path when done.
 

@@ -421,14 +421,14 @@ class TestKeptAndOnDisk(Base):
                          {"kept": 5000, "on_disk": 5000, "ledger_only": 0, "sessions": 0})
 
     def test_the_readme_answers_why_the_claude_app_differs(self):
-        """README's "Why doesn't this match the Claude app?" gives its three
-        points and sends the reader to the report's "kept by the ledger"
+        """README's 'Why doesn't this match the Claude app?' gives its three
+        points and sends the reader to the report's 'kept by the ledger'
         line, so that line must still start with those words."""
         readme = slurp(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "README.md"), encoding="utf-8")
         faq = readme.split("### Why doesn't this match the Claude app?\n", 1)[1].split("\n#", 1)[0]
         self.assertEqual(len(re.findall(r"^\d\. \*\*", faq, re.M)), 3)
-        self.assertIn('"kept by the ledger" line', faq)
+        self.assertIn("'kept by the ledger' line", faq)
         self.assertTrue(self.line(cli(), "kept by").startswith("kept by the ledger "))
 
     def test_filters_apply_to_all_three_as_to_the_money(self):

@@ -6,7 +6,7 @@ counterfactual: the same work, driven through the provider's raw API at its
 published rates.
 
 Everything comes from the logs your coding harness already writes on this Mac,
-read by one adapter per harness. Nothing about your usage leaves the machine.
+read by one adapter per harness. Nothing about your usage leaves your Mac.
 A run asks for exchange rates and, for a model no price table has, downloads
 published price lists (for OpenAI, that model's own page, by name); --offline
 stops both. --check-prices reads each provider's pricing page when asked.

@@ -1,5 +1,5 @@
 class Tokenmeter < Formula
-  desc "What your AI coding would cost at API rates"
+  desc "What your AI coding would have cost at API rates"
   homepage "https://github.com/Adi-debug-source/tokenmeter"
   url "https://github.com/Adi-debug-source/tokenmeter/archive/refs/tags/v1.4.1.tar.gz"
   sha256 "6760f6f7eafcad3c80b8990af51cb6af5002c901f030b2f3d2ea90ce408dcd0a"

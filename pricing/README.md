@@ -19,12 +19,12 @@ recorded, and pinned by a test. Never from memory, a blog, or an aggregator.
 | `CACHE_WRITE_5M_MULT`, `CACHE_WRITE_1H_MULT` | Default cache write multiples of input. `1.0` if writes are not billed extra. |
 | `WEB_SEARCH_PER_1K` | Dollars per 1,000 searches, or `0.0` if not modelled. With `WEB_SEARCH_RATES`, the rate in force now, which must equal its newest entry. |
 | `WEB_SEARCH_RATES` *(optional)* | Dated web search rates, oldest first: `[{"from": "", "per_1k": 0.0}, {"from": "2026-10-31T16:00:00Z", "per_1k": 0.75}]`. `from` is an instant in UTC, not a day, because billing can start at a time of day; `""` means always. A call's searches are priced at the entry its own timestamp has reached; without this list, `WEB_SEARCH_PER_1K` applies to every call. A rate change is a new entry, as for `PRICES`. |
-| `SNAPSHOT` | Regex for a dated suffix that means "the same model", or `r"(?!)"` for none. |
+| `SNAPSHOT` | Regex for a dated suffix that means 'the same model', or `r"(?!)"` for none. |
 | `PRICES` | `{model id: [rows]}`, dollars per million tokens. |
 | `FALLBACK_MODEL` | The row an unknown id is priced at, flagged in every report. |
 | `ALIASES` *(optional)* | Other published names for the same model. |
 | `RETIRED` *(optional)* | `{model id: "YYYY-MM-DD"}`: models the page no longer lists, kept at their last published price so older usage is still priced, with the retirement date from the provider's own deprecation notice. |
-| `LONG_OVER` *(optional)* | The provider's long-context threshold in prompt tokens, as the engine tests it ("more than"). Its rows' `long` use it, and the startup lookup gives it to a looked-up model the page lists long-context rates for. |
+| `LONG_OVER` *(optional)* | The provider's long-context threshold in prompt tokens, as the engine tests it ('more than'). Its rows' `long` use it, and the startup lookup gives it to a looked-up model the page lists long-context rates for. |
 | `page_rates(fetch, tables, want=None)` *(optional)* | Reads the live page, for `--check-prices`, the daily check and the startup lookup. |
 | `SOURCE_MD`, `PAGE_NAMES` *(optional)* | Read only by the file's own `page_rates()`: the page in markdown, and the page's model names mapped to ids. |
 
@@ -61,10 +61,10 @@ them into rows, one per dated price.
 `common.py` is not a table. It holds what the page readers share:
 `money(cell)` reads the first dollar figure in a page's cell, so
 `"$1,250.00 / MTok"` gives `1250.0` and a cell with no figure gives `None`;
-`free_is_zero=True` reads a cell that says only "Free" as `0.0`, and
+`free_is_zero=True` reads a cell that says only 'Free' as `0.0`, and
 `commas=False` stops a figure at a comma. Use it rather than writing another.
 
-`names.py` is not a table either: see "Host and harness spellings" below.
+`names.py` is not a table either: see 'Host and harness spellings' below.
 
 ## Adding a provider or a model
 
@@ -132,7 +132,7 @@ charged.
 the provider's own deprecation notice or changelog. If it was retired at its
 existing price, keep its row, so older usage is still priced, and add it to
 `RETIRED` with the retirement date and a comment naming the source. The
-README's price table counts it as retired, as in "12 (3 retired)". If it was
+README's price table counts it as retired, as in '12 (3 retired)'. If it was
 renamed, add the new name instead. Never delete a row that history still uses.
 
 ## Checking a table is still right
@@ -178,13 +178,13 @@ ledger rows alike. The ledger keeps the spelling as recorded.
 
 ## MiniMax and Xiaomi MiMo
 
-**MiniMax** (`minimax.py`) is read from the "LLM" section of its pricing
+**MiniMax** (`minimax.py`) is read from the 'LLM' section of its pricing
 overview, in its markdown form. MiniMax-M3 is priced by prompt length: over
 512,000 input tokens (MiniMax writes its 1M window as 1,000,000) the whole
-request pays twice every rate. Its "Priority" tab is the `fast` price, and
+request pays twice every rate. Its 'Priority' tab is the `fast` price, and
 the page reader returns that tab's cache and over-512k figures as printed,
 for `--check-prices` to compare with what the engine charges. Every MiniMax-M3
-rate is a "Permanent 50% off" with no end date, so it is priced as the page
+rate is a 'Permanent 50% off' with no end date, so it is priced as the page
 charges now and the struck list prices are noted in the docstring. The M2
 models are left out: no current MiniMax page prices them and no archive
 price was taken, so a call to one goes to the startup lookup.
@@ -193,7 +193,7 @@ price was taken, so a call to one goes to the startup lookup.
 pay-as-you-go page; the yuan section is never converted. Only the real-time
 rows are priced, as a log cannot tell a batch call.
 `mimo-v2.6-pro-ultraspeed` is its own id with its own row, not the `fast`
-price of `mimo-v2.6-pro`. Cache writes are "Limited-time Free" with no end
+price of `mimo-v2.6-pro`. Cache writes are 'Limited-time Free' with no end
 date, so a write is priced as ordinary input. The retired v2 and v2.5 models
 are left out: the current page prices none of them and no archive price was
 taken.

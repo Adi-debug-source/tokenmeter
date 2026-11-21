@@ -50,7 +50,7 @@ tokenmeter-setup
 
 Either way the same installer runs. It copies the engine to `~/.claude/tools/tokenmeter/`, builds the menu bar app into `~/Applications`, sets it to start at login, and, if you use Claude Code, adds the `/tokenmeter` command and the status line. If you already have a status line it is left alone; add `--statusline` to replace it, or `--no-app` to skip the menu bar app.
 
-It needs macOS 12 or later, Python 3.9 or later with no packages to install, and, for the menu bar app, the Xcode command line tools (`xcode-select --install`; Homebrew installs them for you). The menu bar app runs `/usr/bin/python3`, which those tools provide (3.9.6 in current versions).
+It needs macOS 12 or later, Python 3.9 or later with no packages to install, and, for the menu bar app, the Xcode Command Line Tools (`xcode-select --install`; Homebrew installs them for you). The menu bar app runs `/usr/bin/python3`, which those tools provide (3.9.6 in current versions).
 
 <details>
 <summary>Updating and removing</summary>
@@ -110,7 +110,7 @@ tokenmeter --list-adapters      # which harnesses were found, and how far to tru
 tokenmeter --list-prices        # every model with a checked price, and its rates
 tokenmeter --check-prices       # compare every price table with the provider's live page
 tokenmeter --import FILE        # price usage from any other harness
-tokenmeter --json               # machine readable
+tokenmeter --json               # the report as JSON, for scripts
 ```
 
 Every report says what window it covers, when each price table was last checked, and anything it had to estimate. Nothing is estimated quietly. `--json` gives a script the same run ([what it holds](docs/how-it-works.md#json-for-scripts)), and new keys are only ever added, so a script written for an older version keeps working.
@@ -130,10 +130,10 @@ Tokenmeter's only claim is that its numbers are right, so most of the work in it
 - **Checked against the harness's own figures.** Claude Code's figures match its own `total_cost_usd` to ten decimal places.
 - **Every price in a table comes from its maker's own page.** Each rate was read figure by figure from the provider's pricing page on a recorded date, is pinned by a test, and is compared with the live page once a day. [docs/prices.md](docs/prices.md) lists every model and rate, generated from the tables, so it cannot drift from what the tool charges. A model no table has is looked up online and labelled as looked up wherever it appears.
 - **Each call is counted once.** Harnesses write the same response several times: once per streamed block, again when a session is resumed or forked. Counting log lines overstates usage several times over; Tokenmeter keys every call by its response id and keeps the complete copy.
-- **History outlives the logs.** Claude Code deletes transcripts after 30 days by default. Tokenmeter keeps its own ledger of tokens, never money, so "all time" does not shrink and the whole history reprices when a rate table changes.
+- **History outlives the logs.** Claude Code deletes transcripts after 30 days by default. Tokenmeter keeps its own ledger of tokens, never money, so 'all time' does not shrink and the whole history reprices when a rate table changes.
 - **Rates are dated.** A price change is a new dated row, never an edit, so a call is always priced at the rate in force on the day it was made.
 - **Most of its tests guard a bug that was once real.** There are 744, standard library only, with no network, and they run in about ten seconds. Each names in its docstring the bug it guards. CI runs them on macOS and, on Linux, under Python 3.9, 3.13, 3.14 and 3.15, where everything must also compile with warnings as errors.
-- **No packages, no account, no telemetry.** The engine is standard library Python. A report fetches only public price lists, pricing pages and exchange rates, and `--offline` stops those.
+- **No packages, no account, no telemetry.** The engine is standard-library Python. A report fetches only public price lists, pricing pages and exchange rates, and `--offline` stops those.
 
 ## How it works
 
@@ -193,7 +193,7 @@ Every rate is in `pricing/`, one file per provider, each saying where its figure
 
 There are three levels of confidence, and every report says which one each figure has:
 
-1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models, 21 read from its current page and 8 retired ones at the last price Anthropic published for them, and the table measured against Claude Code's own cost figures on nine of those 21.
+1. **Confirmed against real usage.** Checked against the provider's published page *and* against real bills or the harness's own cost figures. Anthropic: all 29 models. 21 are read from its current page, three of them retired but still shown there; the other 8 are retired and no longer shown, kept at the last price Anthropic published. The table has been measured against Claude Code's own cost figures on nine of the 21.
 2. **Confirmed against the published page.** Read figure by figure from the provider's own pricing page, checked a second time independently, and pinned by a test; every report rereads the live page once a day, and `--check-prices` re-confirms it at any time. Not yet compared with anyone's real bill. OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot, Z.ai, MiniMax and Xiaomi MiMo.
 3. **Looked up online.** Any model not in the tables, priced at startup from the provider's page or LiteLLM's public list, and labelled as looked up wherever it appears. This is how Qwen and every other provider are priced.
 
@@ -216,7 +216,7 @@ If you use one of the providers not yet compared with a real bill, please check 
 
 ## Questions
 
-### What does "all time" mean?
+### What does 'all time' mean?
 
 Every API call in the logs on this Mac, plus every call the ledger remembers. Not your subscription, your account or when you installed anything; the tool knows none of those. The window it prints is the oldest and newest call it can see. Changing or pausing a plan changes nothing: everything is priced at public API rates, which is the point.
 
@@ -228,7 +228,7 @@ The two answer different questions and will not match. The Stats tab counts ever
 
 The Claude app's own token figure for the same work is a different number, and it can go down. Comparing the two showed three things. They are what was observed, not a description of how the app counts inside.
 
-1. **Deleted sessions.** The app's figure fell when sessions were deleted, as a count of the transcripts on disk would. Tokenmeter also counts its ledger, so a deleted session stays counted; the report's "kept by the ledger" line ([Total tokens](docs/how-it-works.md#total-tokens)) gives both figures.
+1. **Deleted sessions.** The app's figure fell when sessions were deleted, as a count of the transcripts on disk would. Tokenmeter also counts its ledger, so a deleted session stays counted; the report's 'kept by the ledger' line ([Total tokens](docs/how-it-works.md#total-tokens)) gives both figures.
 2. **Streamed replies.** A streamed reply leaves partial copies of itself in its transcript. Tokenmeter takes the largest copy of each message, once. The app's figure was well above that count, so it appears to count some replies more than once; its exact rule was not reproduced.
 3. **So they move differently.** For the same work Tokenmeter's total was the lower of the two, and with the ledger it does not go down when a session is deleted.
 
@@ -260,7 +260,7 @@ The menu bar app is started by launchd and does not see your shell's variables; 
 ## Limitations
 
 - **macOS only, today.** The engine is plain Python and works as is on Linux, where `--html` opens the page with `xdg-open` when there is one and writes it to the current folder when there is no `~/Downloads`; the menu bar app is AppKit and would need a separate tray front end over the same `--summary-json`.
-- **Only what is on this Mac.** Usage on a phone, in a browser, or on another machine leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
+- **Only what is on this Mac.** Usage on a phone, in a browser, or on another computer leaves no local log and is not counted, unless you import it or point `TOKENMETER_CLAUDE_PROJECTS` at a copied folder as well as `~/.claude/projects`.
 - **Side calls with no usable record.** Some harnesses make small extra calls whose usage they keep nowhere, or keep in a form that cannot be priced exactly, so these are not counted. For Claude Code that is its WebSearch calls and some of its WebFetch calls, which came to under 1% of the cost Claude Code recorded on the history this was measured on, 19 November 2026. [docs/harnesses.md](docs/harnesses.md#what-a-reader-cannot-see) lists them for every harness.
 - **Six of seven harness readers are unverified,** as above: only Claude Code's has been checked against real logs.
 - **Not a bill.** It prices what the logs record at public rates. Enterprise discounts, credits, taxes and failed requests are not in the logs.
@@ -289,6 +289,8 @@ The most useful contribution is a check against reality: a figure compared with 
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). The dashboard embeds Fraunces and Inter Tight under the SIL Open Font License; see [fonts/README.md](fonts/README.md).
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Aditya Kumar. The dashboard embeds Fraunces and Inter Tight under the SIL Open Font License; see [fonts/README.md](fonts/README.md).
 
 Tokenmeter is an independent project. It is not affiliated with, endorsed by, or connected to Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Moonshot AI, Z.ai or any other provider it prices, and model and product names belong to their owners.
+
+Also by Aditya Kumar: [Bytemeter](https://github.com/Adi-debug-source/bytemeter), a macOS menu bar app that counts every byte your Mac sends and receives.

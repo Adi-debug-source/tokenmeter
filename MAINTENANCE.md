@@ -655,16 +655,16 @@ else is on the dashboard. The rows are copied from Bytemeter's
   points short of the ⌘D column, and the drawn rows end theirs on the same
   edge (`MenuRows.figureColumn`). The rows that only inform stay views,
   because AppKit draws a disabled item grey whatever its title's colour.
-- **Where Today Went follows the tick**: "Where 7 Days Went", "Where It All
-  Went". It holds the ticked period's cost split, with a bar and dots in the
+- **Where Today Went follows the tick**: 'Where 7 Days Went', 'Where It All
+  Went'. It holds the ticked period's cost split, with a bar and dots in the
   dashboard's colours for the parts of a bill (`--s1` to `--s5` in
   `dashboard/dashboard.css`, typed into `MenuRows`; a test holds them
   equal), then the breakdown, which the engine sends for all time only, so it
-  is headed "By model, all time". Break Down By, below it, switches the
+  is headed 'By model, all time'. Break Down By, below it, switches the
   breakdown to harness or provider when either is mixed, saved under
   `breakdown`.
 - **The warning row** counts the notes whose `attention` the engine sets
-  ("1 Note Needs Attention") and holds every note in its submenu. With
+  ('1 Note Needs Attention') and holds every note in its submenu. With
   nothing to act on there is no row; the dashboard's footer prints every
   note either way.
 - **Preferences is a window, not a submenu**, because a menu item with a

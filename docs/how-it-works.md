@@ -7,9 +7,9 @@
 
 All the arithmetic lives in `tokenmeter.py`. The menu bar and status line only display what it computes.
 
-## The ledger: an "all time" that lasts
+## The ledger: an 'all time' that lasts
 
-Claude Code deletes transcripts after 30 days by default, and Codex compresses them after a week, so a tool that reads only logs has an "all time" that quietly shrinks. Tokenmeter keeps its own record, `~/.claude/cost-ledger.jsonl`, one line per call:
+Claude Code deletes transcripts after 30 days by default, and Codex compresses them after a week, so a tool that reads only logs has an 'all time' that quietly shrinks. Tokenmeter keeps its own record, `~/.claude/cost-ledger.jsonl`, one line per call:
 
 - **Tokens, never money.** A ledger of dollars would be frozen at the prices on the day it was written; a ledger of tokens reprices the whole history whenever a table changes.
 - **Append only.** A row that supersedes an earlier one is appended, never edited, so the file is safe to keep in git and every diff is only the new lines.
@@ -51,7 +51,7 @@ Flipping it changes the menu bar and the rows at once. The status line's setting
 
 ## Rolling windows and calendar periods
 
-`--since` is rolling and always the same length, so `--since 30d` is comparable with the thirty days before it. `--period` is the calendar, which is what you want when checking against a bill: `lastmonth` is whichever month just ended. Weeks start on Monday. The menu bar uses rolling windows, because "this week" on a Monday morning is an hour long.
+`--since` is rolling and always the same length, so `--since 30d` is comparable with the thirty days before it. `--period` is the calendar, which is what you want when checking against a bill: `lastmonth` is whichever month just ended. Weeks start on Monday. The menu bar uses rolling windows, because 'this week' on a Monday morning is an hour long.
 
 `--since` and `--until` also take a date or a date and time, such as `2026-09-01` or `2026-09-01T10:00`. Both are local time unless they carry an offset or a `Z`, so a date starts at local midnight, as the calendar periods do. `--until` stops just before the moment it names.
 
@@ -65,4 +65,4 @@ A session that spawns subagents costs more because every subagent makes its own 
 
 ## Next to other counters
 
-Why the figures differ from Claude Code's Stats tab and from the Claude app, and what "all time" covers, are answered in the [README](../README.md#questions).
+Why the figures differ from Claude Code's Stats tab and from the Claude app, and what 'all time' covers, are answered in the [README](../README.md#questions).
