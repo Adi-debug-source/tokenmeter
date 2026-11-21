@@ -171,8 +171,9 @@ class TestWhenCachingCostsMore(Base):
     def test_the_menu_bar_names_it_a_cost(self):
         swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
                       encoding="utf-8")
-        self.assertIn('(dearer ? "Caching cost" : "Saved", shownSaved)', swift)
-        self.assertIn('"%.1f%% dearer"', swift)
+        self.assertIn('? "Caching cost \\(money(shownSaved)) extra all time, " '
+                      '+ String(format: "%.1f%% dearer", -snap.savedPct)', swift)
+        self.assertIn(': "Caching saved \\(money(shownSaved)) all time, "', swift)
         self.assertIn("shownDifference(snap.all.total, snap.withoutCache)", swift)
 
     def test_a_saving_still_reads_as_one(self):
@@ -272,7 +273,7 @@ class TestWindowsAndCaching(Base):
         self.assertIn('snap.savedPct = root["saved_pct"] as? Double ?? 0', swift)
         self.assertIn('snap.multiple = root["multiple"] as? Double ?? 0', swift)
         self.assertIn('String(format: "%.1f%% dearer", -snap.savedPct)', swift)
-        self.assertIn('max(snap.savedPct, 0), snap.multiple)', swift)
+        self.assertIn('String(format: "%.1fx", snap.multiple)', swift)
         for division in ("/ snap.withoutCache", "snap.withoutCache /", "/ snap.all.total"):
             self.assertNotIn(division, swift)
 

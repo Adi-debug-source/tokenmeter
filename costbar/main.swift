@@ -38,8 +38,6 @@ struct Window {
 struct Snapshot {
     var today = Window(), week = Window(), month = Window(), all = Window()
     var models: [(String, Double, Int)] = []
-    var days: [Double] = []
-    var cacheHit = 0.0
     var withoutCache = 0.0
     // The engine works these out (caching_summary()); the menu only shows them.
     var savedPct = 0.0
@@ -122,54 +120,6 @@ func cachingDearer(_ withoutCache: Double, _ withCache: Double) -> Bool {
     withCache - withoutCache > 1e-9 * max(withCache, withoutCache)
 }
 
-// Column padding. String(format:) ignores a width on %@, so "%-16@" never
-// padded anything and every column in the menu sat ragged. These pad by
-// character count, which is exact in the monospaced font the rows use.
-func padRight(_ s: String, _ width: Int) -> String {
-    s.count >= width ? s : s + String(repeating: " ", count: width - s.count)
-}
-
-func padLeft(_ s: String, _ width: Int) -> String {
-    s.count >= width ? s : String(repeating: " ", count: width - s.count) + s
-}
-
-// The font the padded rows are drawn in; the padding above counts on it.
-func monospaced(_ s: String) -> NSAttributedString {
-    NSAttributedString(string: s, attributes: [
-        .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    ])
-}
-
-// A long note, broken into lines at word boundaries rather than cut off.
-func wrapped(_ text: String, _ width: Int) -> String {
-    var lines: [String] = [], line = ""
-    for word in text.split(separator: " ") {
-        if !line.isEmpty && line.count + 1 + word.count > width {
-            lines.append(line)
-            line = String(word)
-        } else {
-            line = line.isEmpty ? String(word) : line + " " + word
-        }
-    }
-    if !line.isEmpty { lines.append(line) }
-    return lines.joined(separator: "\n")
-}
-
-func sparkline(_ values: [Double]) -> String {
-    let blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
-    guard let peak = values.max(), peak > 0 else { return "" }
-    let top: Int = blocks.count - 1
-    var out = ""
-    for v in values {
-        let scaled: Double = (v / peak) * Double(top)
-        var i: Int = Int(scaled.rounded())
-        if i < 0 { i = 0 }
-        if i > top { i = top }
-        out += blocks[i]
-    }
-    return out
-}
-
 func loadSnapshot() -> Snapshot {
     var snap = Snapshot()
 
@@ -215,7 +165,6 @@ func loadSnapshot() -> Snapshot {
     snap.week = window("week")
     snap.month = window("month")
     snap.all = window("all")
-    snap.cacheHit = root["cache_hit_pct"] as? Double ?? 0
     snap.withoutCache = root["without_cache"] as? Double ?? 0
     snap.savedPct = root["saved_pct"] as? Double ?? 0
     snap.multiple = root["multiple"] as? Double ?? 0
@@ -238,9 +187,6 @@ func loadSnapshot() -> Snapshot {
         snap.models = ms.map { (($0["name"] as? String) ?? "?",
                                 ($0["total"] as? Double) ?? 0,
                                 ($0["calls"] as? Int) ?? 0) }
-    }
-    if let ds = root["days"] as? [[String: Any]] {
-        snap.days = ds.map { ($0["total"] as? Double) ?? 0 }
     }
     snap.multi = root["multi"] as? Bool ?? false
     if let hs = root["harnesses"] as? [[String: Any]] {
@@ -268,80 +214,443 @@ func loadSnapshot() -> Snapshot {
     return snap
 }
 
-// The Show tokens row: its label and a small switch, set out like the menu's
-// plain rows, in the menu's font and the system's own colours, so it follows
-// the light or dark menu as they do. Clicking the switch leaves the menu open,
-// so the change shows at once. A view in a menu gets no keyboard events; its
-// menu item keeps the title and a key equivalent for that.
-final class SwitchRow: NSView {
-    // Where a plain item's title starts, where its key equivalent ends and
-    // how tall it is, in this macOS's menus, which have changed with its
-    // versions. AppKit has no call for these, but it gives a menu's size
-    // without showing it: a view item is the view plus the menu's border, a
-    // plain item its title plus the room around it, and a ticked one the
-    // checkmark column as well. The room is taken as even on both sides, the
-    // checkmark column on the left; this menu always has that column.
-    static let metrics: (leading: CGFloat, trailing: CGFloat, height: CGFloat) = {
-        func size(_ item: NSMenuItem) -> NSSize {
-            let menu = NSMenu()
-            menu.addItem(item)
-            return menu.size
-        }
-        let probe = NSMenuItem()
-        probe.view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
-        let border = NSSize(width: size(probe).width - 100, height: size(probe).height - 20)
-        let title = "Show tokens"
-        let text = (title as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width
-        let plain = size(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
-        let ticked = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        ticked.state = .on
-        let side = max(0, (plain.width - border.width - text) / 2)
-        let column = max(0, size(ticked).width - plain.width)
-        return ((side + column).rounded(), side.rounded(), max(22, plain.height - border.height))
-    }()
-    static let gap: CGFloat = 16
+// The rows of the menu, copied from Bytemeter's Sources/Bytemeter/MenuRows.swift
+// so the two apps' menus share one set of measurements, and adapted to this
+// one-file build.
+//
+// The rows that only inform are drawn by views: AppKit draws a disabled menu
+// item grey whatever colour its attributed title asks for, and these rows
+// must stay disabled, or they would highlight on hover and look clickable. A
+// view is drawn exactly as it is.
+//
+// The four period rows are standard items, because they are chosen, and
+// AppKit gives a view item no key events, so Return cannot choose one
+// (tested on macOS 27): as standard items Return, the tick, the highlight and
+// VoiceOver are AppKit's own. Their figures sit at right tab stops, and the
+// views draw to the same edge, so every figure lines up.
+enum MenuRows {
 
-    let label = NSTextField(labelWithString: "")
-    let toggle = NSSwitch()
+    /// Where a standard item's title starts. Measured on macOS 27: AppKit pads
+    /// a titled item by 34 points in all, and while any item shows a tick it
+    /// adds a 14 point column on the left. The period rows always carry a
+    /// tick, so the column is always there.
+    static let inset: CGFloat = 17 + 14
+    /// Where a submenu's rows start: it has no ticks, so no tick column.
+    static let plainInset: CGFloat = 17
+    /// The right edge of the figures, measured from the text start. AppKit
+    /// keeps its shortcut column, about 47 points, to the right of a standard
+    /// item's title, so this makes the menu 316 points wide.
+    static let figureColumn: CGFloat = 235
+    /// How wide a sentence may run before it wraps: to the shortcuts' right
+    /// edge, past the figures, since a sentence has no figure to line up.
+    static let textColumn: CGFloat = 268
+    /// The notes are long sentences, so their submenu is wider.
+    static let noteColumn: CGFloat = 360
+    static let trailingInset: CGFloat = 17
+    /// The height AppKit gives a standard item here, so the rows keep the
+    /// same rhythm as the commands below them.
+    static let rowHeight: CGFloat = 24
+    /// Between a figure and the grey one beside it.
+    static let gap: CGFloat = 12
 
-    init(title: String, on: Bool, tip: String, target: AnyObject, action: Selector) {
-        let m = SwitchRow.metrics
-        super.init(frame: .zero)
-        label.stringValue = title
-        label.font = NSFont.menuFont(ofSize: 0)
-        label.textColor = .labelColor
-        // The switch names itself; the label read out as well would say it twice.
-        label.setAccessibilityElement(false)
-        toggle.controlSize = .small
-        toggle.state = on ? .on : .off
-        toggle.target = target
-        toggle.action = action
-        toggle.setAccessibilityLabel(title)
-        toggle.setAccessibilityHelp(tip)
-        for v in [self, label, toggle] as [NSView] { v.toolTip = tip }
-        for v in [label, toggle] as [NSView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
-        }
-        // The width the row asks of the menu, which widens it to its own.
-        // Outside a window a switch can give its regular size, larger than
-        // the small one it takes in the menu, so this is never too narrow.
-        // The constraints place the switch at whatever size it takes there.
-        frame = NSRect(x: 0, y: 0, width: m.leading + label.intrinsicContentSize.width.rounded(.up)
-                           + SwitchRow.gap + toggle.intrinsicContentSize.width + m.trailing,
-                       height: m.height)
-        autoresizingMask = [.width]
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m.leading),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            toggle.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor,
-                                            constant: SwitchRow.gap),
-            toggle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m.trailing),
-            toggle.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+    /// One size for every row, AppKit's own menu size, so the rows read at
+    /// the same size as the commands; 11 points for headers.
+    static let textFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    static let figureFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+    static let headerFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+
+    /// The parts of a bill in the dashboard's colours, --s1 to --s5 in
+    /// dashboard/dashboard.css, which a test holds these to. The only colour
+    /// in the menu.
+    static let cacheReadColour = colour(0xd97757)
+    static let cacheWriteColour = colour(0x5b9dd9)
+    static let outputColour = colour(0xd4a03c)
+    static let inputColour = colour(0x9085e9)
+    static let webSearchColour = colour(0x1aa382)
+
+    static func colour(_ hex: Int) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
+                blue: CGFloat(hex & 0xff) / 255, alpha: 1)
     }
 
-    required init?(coder: NSCoder) { fatalError("SwitchRow is built in code") }
+    static func width(inset: CGFloat) -> CGFloat { inset + textColumn + trailingInset }
+
+    /// The widest of these figures, so a column of them can be lined up.
+    static func figureWidth(_ texts: [String]) -> CGFloat {
+        texts.map { ceil(($0 as NSString).size(withAttributes: [.font: figureFont]).width) }.max() ?? 0
+    }
+
+    // MARK: - Items
+
+    static func header(_ text: String, inset: CGFloat = inset, width: CGFloat? = nil) -> NSMenuItem {
+        let view = MenuRowView(content: .header(text), inset: inset, height: rowHeight, width: width)
+        view.setAccessibilityLabel(text)
+        return item(view)
+    }
+
+    /// One of the four periods the menu bar can show: the cost in full
+    /// contrast and, with Show Tokens on, the tokens grey beside it, ticked
+    /// when it is the one showing, and chosen with a click, Return or
+    /// VoiceOver, which send the item's action. `tokensWidth` is the widest
+    /// of the four token figures, so the costs line up too.
+    static func period(_ label: String, cost: String, tokens: String?, tokensWidth: CGFloat, chosen: Bool,
+                       toolTip: String?, action: Selector, target: AnyObject, representedObject: Any) -> NSMenuItem {
+        let style = NSMutableParagraphStyle()
+        if tokens == nil {
+            style.tabStops = [NSTextTab(textAlignment: .right, location: figureColumn)]
+        } else {
+            style.tabStops = [NSTextTab(textAlignment: .right, location: figureColumn - tokensWidth - gap),
+                              NSTextTab(textAlignment: .right, location: figureColumn)]
+        }
+        // No colour on the label or the cost, so AppKit draws them in its
+        // own, white while highlighted.
+        let title = NSMutableAttributedString(string: label + "\t", attributes: [.font: textFont, .paragraphStyle: style])
+        title.append(NSAttributedString(string: cost, attributes: [.font: figureFont, .paragraphStyle: style]))
+        if let tokens = tokens {
+            title.append(NSAttributedString(string: "\t" + tokens, attributes: [
+                .font: figureFont, .paragraphStyle: style, .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        let row = NSMenuItem(title: label, action: action, keyEquivalent: "")
+        row.attributedTitle = title
+        row.target = target
+        row.representedObject = representedObject
+        row.state = chosen ? .on : .off
+        row.toolTip = toolTip
+        return row
+    }
+
+    /// A sentence, grey unless it is news. One wider than its column wraps
+    /// rather than widening the menu.
+    static func text(_ text: String, inset: CGFloat = inset, column: CGFloat = textColumn,
+                     colour: NSColor = .secondaryLabelColor, toolTip: String? = nil) -> NSMenuItem {
+        let wraps = (text as NSString).size(withAttributes: [.font: textFont]).width > column
+        let height = wraps ? wrappedHeight(text, column: column) : rowHeight
+        let view = MenuRowView(content: .text(text, column: column, wraps: wraps, colour: colour), inset: inset,
+                               height: height, width: inset + column + trailingInset)
+        view.setAccessibilityLabel(text)
+        view.toolTip = toolTip
+        let row = item(view)
+        row.toolTip = toolTip
+        return row
+    }
+
+    /// The widths of a breakdown's columns, the widest of each, so that every
+    /// row of the submenu lines up whatever its section.
+    struct Columns {
+        var label: CGFloat = 0, amount: CGFloat = 0, detail: CGFloat = 0
+        static let dot: CGFloat = 14, indent: CGFloat = 12, labelGap: CGFloat = 20
+
+        mutating func fit(_ label: String, dot: Bool, indent: Bool, amount: String, detail: String) {
+            let name = ceil((label as NSString).size(withAttributes: [.font: MenuRows.textFont]).width)
+            self.label = max(self.label, name + (dot ? Columns.dot : 0) + (indent ? Columns.indent : 0))
+            self.amount = max(self.amount, MenuRows.figureWidth([amount]))
+            self.detail = max(self.detail, MenuRows.figureWidth([detail]))
+        }
+
+        var width: CGFloat {
+            max(MenuRows.width(inset: MenuRows.plainInset),
+                MenuRows.plainInset + label + Columns.labelGap + amount + MenuRows.gap + detail + MenuRows.trailingInset)
+        }
+    }
+
+    /// One row of a breakdown: a dot in its colour if it has one, the name,
+    /// the amount, and grey at the edge its share or its calls.
+    static func part(_ label: String, dot: NSColor?, indent: Bool = false, amount: String, detail: String,
+                     columns: Columns, toolTip: String? = nil) -> NSMenuItem {
+        let view = MenuRowView(content: .part(label: label, dot: dot, indent: indent, amount: amount, detail: detail,
+                                              detailWidth: columns.detail),
+                               inset: plainInset, height: rowHeight, width: columns.width)
+        view.setAccessibilityLabel("\(label): \(amount), \(detail)")
+        view.toolTip = toolTip
+        let row = item(view)
+        row.toolTip = toolTip
+        return row
+    }
+
+    /// One bar split into the parts, each its share of the whole.
+    static func split(_ parts: [(share: Double, colour: NSColor)], width: CGFloat) -> NSMenuItem {
+        let view = MenuRowView(content: .split(parts), inset: plainInset, height: 14, width: width)
+        view.setAccessibilityElement(false)
+        return item(view)
+    }
+
+    /// The warning row's title: a yellow triangle, then the words.
+    static func warningTitle(_ text: String) -> NSAttributedString {
+        let title = NSMutableAttributedString()
+        if let symbol = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Warning")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [.systemYellow])) {
+            let mark = NSTextAttachment()
+            mark.image = symbol
+            mark.bounds = NSRect(x: 0, y: -2, width: symbol.size.width, height: symbol.size.height)
+            title.append(NSAttributedString(attachment: mark))
+            title.append(NSAttributedString(string: " "))
+        }
+        title.append(NSAttributedString(string: text))
+        title.addAttribute(.font, value: textFont, range: NSRange(location: 0, length: title.length))
+        return title
+    }
+
+    private static func item(_ view: MenuRowView) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.view = view
+        return item
+    }
+
+    private static func wrappedHeight(_ text: String, column: CGFloat) -> CGFloat {
+        let bounds = (text as NSString).boundingRect(
+            with: NSSize(width: column, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: textFont])
+        return max(rowHeight, ceil(bounds.height) + 8)
+    }
+}
+
+final class MenuRowView: NSView {
+
+    enum Content {
+        case header(String)
+        case text(String, column: CGFloat, wraps: Bool, colour: NSColor)
+        case part(label: String, dot: NSColor?, indent: Bool, amount: String, detail: String, detailWidth: CGFloat)
+        case split([(share: Double, colour: NSColor)])
+    }
+
+    private let content: Content
+    private let inset: CGFloat
+
+    init(content: Content, inset: CGFloat, height: CGFloat, width: CGFloat? = nil) {
+        self.content = content
+        self.inset = inset
+        super.init(frame: NSRect(x: 0, y: 0, width: width ?? MenuRows.width(inset: inset), height: height))
+        // The menu may be wider than this row, for a long command title; the
+        // row stretches, and the figures keep to its right edge.
+        autoresizingMask = [.width]
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+
+    private var right: CGFloat { bounds.width - MenuRows.trailingInset }
+
+    private static func lineHeight(_ font: NSFont) -> CGFloat { ceil(font.ascender - font.descender) }
+
+    /// Colours are the dynamic system ones, resolved at draw time against the
+    /// menu's own appearance, so light and dark menus both come out right.
+    override func draw(_ dirtyRect: NSRect) {
+        switch content {
+        case let .header(text):
+            drawLine(text, font: MenuRows.headerFont, colour: .secondaryLabelColor, x: inset, width: right - inset)
+
+        case let .text(text, column, wraps, colour):
+            let attributes: [NSAttributedString.Key: Any] = [.font: MenuRows.textFont, .foregroundColor: colour]
+            if wraps {
+                (text as NSString).draw(with: NSRect(x: inset, y: 4, width: column, height: bounds.height - 8),
+                                        options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes)
+            } else {
+                drawLine(text, font: MenuRows.textFont, colour: colour, x: inset, width: column)
+            }
+
+        case let .part(label, dot, indent, amount, detail, detailWidth):
+            drawRight(detail, colour: .secondaryLabelColor, right: right)
+            let amountRight = right - detailWidth - MenuRows.gap
+            let amountWidth = drawRight(amount, colour: .labelColor, right: amountRight)
+            var x = inset + (indent ? MenuRows.Columns.indent : 0)
+            if let dot = dot {
+                dot.setFill()
+                NSBezierPath(ovalIn: NSRect(x: x, y: (bounds.height - 8) / 2, width: 8, height: 8)).fill()
+                x += MenuRows.Columns.dot
+            }
+            drawLine(label, font: MenuRows.textFont, colour: .labelColor, x: x,
+                     width: amountRight - amountWidth - 8 - x)
+
+        case let .split(parts):
+            let track = NSRect(x: inset, y: (bounds.height - 6) / 2, width: right - inset, height: 6)
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: track, xRadius: 3, yRadius: 3).addClip()
+            NSColor.quaternaryLabelColor.setFill()
+            track.fill()
+            var x = track.minX
+            for part in parts where part.share > 0 {
+                let width = track.width * CGFloat(min(1, part.share))
+                part.colour.setFill()
+                NSRect(x: x, y: track.minY, width: width, height: track.height).fill()
+                x += width
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// One line from `x`, vertically centred, cut short with an ellipsis
+    /// rather than overflowing.
+    private func drawLine(_ text: String, font: NSFont, colour: NSColor, x: CGFloat, width: CGFloat) {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let lineHeight = Self.lineHeight(font)
+        (text as NSString).draw(with: NSRect(x: x, y: (bounds.height - lineHeight) / 2, width: max(0, width),
+                                             height: lineHeight),
+                                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                                attributes: [.font: font, .foregroundColor: colour, .paragraphStyle: style])
+    }
+
+    /// A figure right-aligned at `right`, vertically centred. Returns its width.
+    @discardableResult
+    private func drawRight(_ text: String, colour: NSColor, right: CGFloat) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: MenuRows.figureFont, .foregroundColor: colour]
+        let width = (text as NSString).size(withAttributes: attributes).width
+        (text as NSString).draw(at: NSPoint(x: right - width, y: (bounds.height - Self.lineHeight(MenuRows.figureFont)) / 2),
+                                withAttributes: attributes)
+        return width
+    }
+}
+
+// Preferences, a small window modelled on Bytemeter's
+// Sources/Bytemeter/PreferencesWindow.swift. Plain controls, no tabs. A menu
+// item cannot take Command-comma for a submenu, so this is a window, and
+// there is only ever one: a second Command-comma brings it to the front.
+final class PreferencesWindow: NSWindowController {
+
+    private let controller: Controller
+    private var currencyPopUp: NSPopUpButton!
+    private var ratesNote: NSTextField!
+    private var tokensSwitch: NSSwitch!
+
+    private static let textWidth: CGFloat = 320
+
+    init(controller: Controller) {
+        self.controller = controller
+        let window = PreferencesPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 368, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered, defer: false)
+        window.title = "Tokenmeter Preferences"
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+        buildContent()
+        window.center()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    private func buildContent() {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        currencyPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        currencyPopUp.target = self
+        currencyPopUp.action = #selector(chooseCurrency)
+        currencyPopUp.setAccessibilityLabel("Currency")
+        stack.addArrangedSubview(labelled("Currency", currencyPopUp))
+        ratesNote = caption("")
+        stack.addArrangedSubview(ratesNote)
+
+        stack.setCustomSpacing(16, after: ratesNote)
+        stack.addArrangedSubview(divider())
+        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+
+        tokensSwitch = NSSwitch()
+        tokensSwitch.target = self
+        tokensSwitch.action = #selector(switchTokens)
+        // The switch names itself; the label read out as well would say it twice.
+        tokensSwitch.setAccessibilityLabel("Show Tokens")
+        let tokensRow = labelled("Show Tokens", tokensSwitch)
+        tokensRow.arrangedSubviews.first?.setAccessibilityElement(false)
+        stack.addArrangedSubview(tokensRow)
+        stack.addArrangedSubview(caption("Total tokens beside the cost, in the menu bar and on every period row: "
+                                         + "uncached input, cache writes, cache reads and output."))
+
+        guard let window = window, let content = window.contentView else { return }
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        window.initialFirstResponder = currencyPopUp
+    }
+
+    /// The controls from the settings and the latest figures: the currencies
+    /// the engine offers, at its rates, and when those were fetched.
+    func refresh(_ snap: Snapshot) {
+        currencyPopUp.removeAllItems()
+        for code in currencyOrder {
+            let sym = currencySymbols[code] ?? ""
+            currencyPopUp.addItem(withTitle: code == "USD"
+                ? "\(sym) USD  (billed)"
+                : String(format: "%@ %@  %.4f", sym, code, rate(code)))
+            currencyPopUp.lastItem?.representedObject = code
+            if code == displayCurrency { currencyPopUp.select(currencyPopUp.lastItem) }
+        }
+        ratesNote.stringValue = snap.rateLive ? "Live rates, \(snap.rateWhen)" : "Rates: \(snap.rateWhen)"
+        tokensSwitch.state = controller.showTokens ? .on : .off
+    }
+
+    func show(_ snap: Snapshot) {
+        refresh(snap)
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Controls
+
+    private func caption(_ text: String) -> NSTextField {
+        let field = NSTextField(wrappingLabelWithString: text)
+        field.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        field.textColor = .secondaryLabelColor
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.widthAnchor.constraint(equalToConstant: Self.textWidth).isActive = true
+        return field
+    }
+
+    private func divider() -> NSView {
+        let line = NSBox()
+        line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        line.widthAnchor.constraint(equalToConstant: Self.textWidth).isActive = true
+        return line
+    }
+
+    private func labelled(_ title: String, _ control: NSView) -> NSStackView {
+        let row = NSStackView(views: [NSTextField(labelWithString: title), control])
+        row.orientation = .horizontal
+        row.spacing = 10
+        return row
+    }
+
+    // MARK: - Actions
+
+    @objc private func chooseCurrency() {
+        if let code = currencyPopUp.selectedItem?.representedObject as? String {
+            controller.chooseCurrency(code)
+        }
+    }
+
+    @objc private func switchTokens() {
+        controller.showTokens = tokensSwitch.state == .on
+        controller.render()
+    }
+}
+
+// The app has no menu bar of its own to carry Close, so the window answers
+// Escape and Command-W itself.
+final class PreferencesPanel: NSWindow {
+    override func cancelOperation(_ sender: Any?) { close() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "w" {
+            close()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 final class Controller: NSObject, NSApplicationDelegate {
@@ -349,6 +658,10 @@ final class Controller: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var snap = Snapshot()
     var busy = false
+    var preferences: PreferencesWindow?
+    // --open-menu opens the menu by itself once the figures are in, so a
+    // script can take its picture (docs/screenshots/menu_shot.swift).
+    var menuToOpen = CommandLine.arguments.contains("--open-menu")
 
     var mode: String {
         get { UserDefaults.standard.string(forKey: "mode") ?? "today" }
@@ -362,8 +675,8 @@ final class Controller: NSObject, NSApplicationDelegate {
         set { UserDefaults.standard.set(newValue, forKey: "breakdown") }
     }
 
-    // Total tokens beside each cost, in the title and on every window row.
-    // Off unless switched on from the menu, so both are what they always
+    // Total tokens beside each cost, in the title and on every period row.
+    // Off unless switched on in Preferences, so both are what they always
     // were. Kept under the key it had as a checkmark item, so a Mac that
     // turned it on then still has it on.
     var showTokens: Bool {
@@ -396,11 +709,12 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     // Every window named once. Three places used to spell these out
     // separately and a fourth window would have had to be added to each.
-    static let windowNames: [String: (long: String, possessive: String)] = [
-        "today": ("Today", "today's"),
-        "week":  ("Last 7 days", "the week's"),
-        "month": ("Last 30 days", "the last 30 days'"),
-        "all":   ("All time", "all of it"),
+    // The place is what the submenu's title says went: "Where 7 Days Went".
+    static let windowNames: [String: (long: String, place: String)] = [
+        "today": ("Today", "Today"),
+        "week":  ("Last 7 days", "7 Days"),
+        "month": ("Last 30 days", "30 Days"),
+        "all":   ("All time", "It All"),
     ]
 
     // In the order the menu lists them.
@@ -410,8 +724,8 @@ final class Controller: NSObject, NSApplicationDelegate {
         Controller.windowNames[key]?.long ?? "All time"
     }
 
-    func windowPossessive(_ key: String) -> String {
-        Controller.windowNames[key]?.possessive ?? "all of it"
+    func windowPlace(_ key: String) -> String {
+        Controller.windowNames[key]?.place ?? "It All"
     }
 
     func window(_ key: String) -> Window {
@@ -425,23 +739,16 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     func current() -> Window { window(mode) }
 
-    // A window's row: its name and cost, and with Show tokens on its total
-    // tokens after the cost, as the title writes them, for example
-    // "All time         $1,024.50 · 1.62B". With it on, the cost and token
-    // columns are as wide as the widest of the four rows, so the dots and
-    // the counts line up; off, the row is the name and the cost alone.
-    func windowLine(_ key: String) -> String {
-        let w = window(key), keys = Controller.windowKeys
-        guard showTokens else { return padRight(windowName(key), 14) + padLeft(money(w.total), 12) }
-        let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)
-        let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0
-        return padRight(windowName(key), 14) + padLeft(money(w.total), costs)
-            + " · " + padLeft(toks(w.tokens), counts)
-    }
-
     func render() {
         showTitle()
         buildMenu()
+        preferences?.refresh(snap)
+        if menuToOpen {
+            menuToOpen = false
+            // A moment for the status item to draw its figure first, so the
+            // menu hangs from where it will be.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.item.button?.performClick(nil) }
+        }
     }
 
     func showTitle() {
@@ -464,25 +771,20 @@ final class Controller: NSObject, NSApplicationDelegate {
 
     @discardableResult
     func add(_ menu: NSMenu, _ title: String, _ action: Selector? = nil,
-             key: String = "", indent: Int = 0, enabled: Bool? = nil,
-             mono: Bool = false, state: Bool = false) -> NSMenuItem {
+             key: String = "", enabled: Bool? = nil, state: Bool = false) -> NSMenuItem {
         let mi = NSMenuItem(title: title, action: action, keyEquivalent: key)
         mi.target = self
-        mi.indentationLevel = indent
         mi.isEnabled = enabled ?? (action != nil)
         if state { mi.state = .on }
-        if mono {
-            mi.attributedTitle = monospaced(title)
-        } else if title.contains("\n") {
-            // A plain title draws on one line; an attributed one honours breaks.
-            mi.attributedTitle = NSAttributedString(string: title, attributes: [
-                .font: NSFont.menuFont(ofSize: 0)
-            ])
-        }
         menu.addItem(mi)
         return mi
     }
 
+    // Short on purpose, the same pattern as Bytemeter's: the four periods,
+    // one line about caching, a warning only when a note needs attention,
+    // where the ticked period went one level down, then the commands.
+    // Everything else is on the dashboard. The menu this replaced was taller
+    // than a 13-inch screen.
     func buildMenu() {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -496,70 +798,138 @@ final class Controller: NSObject, NSApplicationDelegate {
             return
         }
 
-        add(menu, "Tokenmeter at API rates")
-
-        menu.addItem(.separator())
-        for key in Controller.windowKeys {
+        menu.addItem(MenuRows.header("At API rates"))
+        let tokens = Controller.windowKeys.map { toks(window($0).tokens) }
+        let tokensWidth = MenuRows.figureWidth(tokens)
+        for (key, count) in zip(Controller.windowKeys, tokens) {
             let w = window(key)
-            let mi = add(menu, windowLine(key), #selector(setMode(_:)), enabled: true,
-                         mono: true, state: mode == key)
-            mi.representedObject = key
             let calls = "\(w.calls) API call" + (w.calls == 1 ? "" : "s")
-            mi.toolTip = key == "all" && !snap.covered.isEmpty
-                ? "\(calls), covering \(snap.covered). Show this one in the menu bar."
-                : "\(calls). Show this one in the menu bar."
+            menu.addItem(MenuRows.period(
+                windowName(key), cost: money(w.total), tokens: showTokens ? count : nil, tokensWidth: tokensWidth,
+                chosen: mode == key,
+                toolTip: key == "all" && !snap.covered.isEmpty
+                    ? "\(calls), covering \(snap.covered). Show this one in the menu bar."
+                    : "\(calls). Show this one in the menu bar.",
+                action: #selector(setMode(_:)), target: self, representedObject: key))
         }
 
-        let w = current()
+        var middle: [NSMenuItem] = []
+        if snap.withoutCache > 0 && snap.all.total > 0 {
+            // Saved is derived from the two rounded figures rather than
+            // rounded on its own, so it is the difference of the totals as
+            // the report and the dashboard print them. Rounding each
+            // separately left the column a penny out in some currencies; the
+            // figures behind them were always exact. When caching cost more
+            // than it saved, that is named as a cost; a saving below zero
+            // read "-99.7% cheaper, 0.5x".
+            let dearer = cachingDearer(snap.withoutCache, snap.all.total)
+            let shownSaved = dearer ? shownDifference(snap.all.total, snap.withoutCache)
+                                    : shownDifference(snap.withoutCache, snap.all.total)
+            middle.append(MenuRows.text(dearer
+                ? "Caching cost \(money(shownSaved)) extra all time, " + String(format: "%.1f%% dearer", -snap.savedPct)
+                : "Caching saved \(money(shownSaved)) all time, " + String(format: "%.1fx", snap.multiple)))
+        }
+        // A warning row only when a note needs attention, with every note
+        // under it; the dashboard's footer carries them all as well. Every
+        // note in the menu itself pushed the commands off a 900 point screen
+        // on a day with nothing wrong.
+        let attention = snap.notes.filter { $0.attention }.count
+        if attention > 0 {
+            let row = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            row.attributedTitle = MenuRows.warningTitle(attention == 1 ? "1 Note Needs Attention"
+                                                                       : "\(attention) Notes Need Attention")
+            let notes = NSMenu()
+            notes.autoenablesItems = false
+            for note in snap.notes {
+                let text = note.text.prefix(1).uppercased() + note.text.dropFirst()
+                notes.addItem(MenuRows.text((note.attention ? "\u{26A0}\u{FE0E} " : "") + text,
+                                            inset: MenuRows.plainInset, column: MenuRows.noteColumn,
+                                            colour: note.attention ? .labelColor : .secondaryLabelColor))
+            }
+            row.submenu = notes
+            middle.append(row)
+        }
+        if !middle.isEmpty {
+            menu.addItem(.separator())
+            middle.forEach(menu.addItem)
+        }
+
         menu.addItem(.separator())
-        add(menu, "Where \(windowPossessive(mode)) went")
-        var parts: [(String, Double)] = [("Cache writes", w.cacheWrite), ("Cache reads", w.cacheRead),
-                                         ("Output", w.output), ("Input, uncached", w.input)]
-        if w.webSearch > 0 { parts.append(("Web searches", w.webSearch)) }
-        for (label, v) in parts {
-            let pct = w.total > 0 ? v / w.total * 100 : 0
-            add(menu, padRight(label, 16) + padLeft(money(v), 11) + padLeft(String(format: "%.1f%%", pct), 8),
-                indent: 1, mono: true)
-        }
+        let whereItem = NSMenuItem(title: "Where \(windowPlace(mode)) Went", action: nil, keyEquivalent: "")
+        whereItem.submenu = whereMenu()
+        menu.addItem(whereItem)
+        add(menu, "Open Dashboard", #selector(openDashboard), key: "d")
+        add(menu, "Refresh Now", #selector(doRefresh), key: "r")
+        add(menu, "Preferences\u{2026}", #selector(openPreferences), key: ",")
+        menu.addItem(.separator())
+        add(menu, "Quit Tokenmeter", #selector(doQuit), key: "q")
 
-        func callsText(_ n: Int) -> String { padLeft("\(n)", 7) + (n == 1 ? " call" : " calls") }
+        item.menu = menu
+    }
+
+    // Where the ticked period went: its cost in parts, in the dashboard's
+    // colours, then the breakdown, which the engine sends for all time only.
+    func whereMenu() -> NSMenu {
+        let w = current()
+        var parts: [(String, Double, NSColor)] = [("Cache writes", w.cacheWrite, MenuRows.cacheWriteColour),
+                                                  ("Cache reads", w.cacheRead, MenuRows.cacheReadColour),
+                                                  ("Output", w.output, MenuRows.outputColour),
+                                                  ("Input, uncached", w.input, MenuRows.inputColour)]
+        if w.webSearch > 0 { parts.append(("Web searches", w.webSearch, MenuRows.webSearchColour)) }
+        let shares = parts.map { w.total > 0 ? $0.1 / w.total : 0 }
+
+        func callsText(_ n: Int) -> String { "\(n) call" + (n == 1 ? "" : "s") }
+        func short(_ name: String) -> String { name.replacingOccurrences(of: "claude-", with: "") }
 
         // By model is the breakdown that matters most and always the default.
-        // Only when harnesses or providers are mixed can the menu be switched
-        // to show those instead, from the "Break down by" submenu.
+        // Only when harnesses or providers are mixed can it be switched to
+        // show those instead, from Break Down By below it.
         let choice = snap.multi ? breakdown : "model"
+        var heading = "By model, all time"
+        var rows: [(label: String, total: Double, calls: Int, indent: Bool, tip: String?)] = []
         if choice == "harness" && snap.harnesses.count > 1 {
-            menu.addItem(.separator())
-            add(menu, "By harness, all time")
-            let width = max(snap.harnesses.map { $0.label.count }.max() ?? 0, 10)
-            for h in snap.harnesses {
-                let mark = h.status == "verified" ? "\u{2713}" : "\u{25CB}"
-                add(menu, mark + " " + padRight(h.label, width) + padLeft(money(h.total), 11)
-                        + callsText(h.calls), indent: 1, mono: true).toolTip =
-                    h.status == "verified" ? "Verified: checked against real logs"
-                    : h.status == "yours" ? "Imported by you"
-                    : "Unverified: built from the published log format"
+            heading = "By harness, all time"
+            rows = snap.harnesses.map { h in
+                ((h.status == "verified" ? "\u{2713}" : "\u{25CB}") + " " + h.label, h.total, h.calls, false,
+                 h.status == "verified" ? "Verified: checked against real logs"
+                 : h.status == "yours" ? "Imported by you"
+                 : "Unverified: built from the published log format")
             }
         } else if choice == "provider" && snap.providers.count > 1 {
-            menu.addItem(.separator())
-            add(menu, "By provider, all time")
+            heading = "By provider, all time"
             for p in snap.providers {
-                add(menu, padRight(p.label, 26) + padLeft(money(p.total), 11) + callsText(p.calls),
-                    indent: 1, mono: true).toolTip = p.measured
-                    ? "Rates checked against real usage" : "Published rates"
-                for (name, total, calls) in p.models.prefix(4) {
-                    let short = name.replacingOccurrences(of: "claude-", with: "")
-                    add(menu, padRight("  " + short, 26) + padLeft(money(total), 11) + callsText(calls),
-                        indent: 1, mono: true)
-                }
+                rows.append((p.label, p.total, p.calls, false,
+                             p.measured ? "Rates checked against real usage" : "Published rates"))
+                rows += p.models.prefix(4).map { (short($0.0), $0.1, $0.2, true, nil) }
             }
-        } else if !snap.models.isEmpty {
-            menu.addItem(.separator())
-            add(menu, "By model, all time")
-            for (name, total, calls) in snap.models.prefix(6) {
-                let short = name.replacingOccurrences(of: "claude-", with: "")
-                add(menu, padRight(short, 26) + padLeft(money(total), 11) + callsText(calls),
-                    indent: 1, mono: true)
+        } else {
+            rows = snap.models.prefix(6).map { (short($0.0), $0.1, $0.2, false, nil) }
+        }
+
+        var columns = MenuRows.Columns()
+        for (part, share) in zip(parts, shares) {
+            columns.fit(part.0, dot: true, indent: false, amount: money(part.1),
+                        detail: String(format: "%.1f%%", share * 100))
+        }
+        for row in rows {
+            columns.fit(row.label, dot: false, indent: row.indent, amount: money(row.total), detail: callsText(row.calls))
+        }
+
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        sub.addItem(MenuRows.header("\(windowName(mode)), \(money(w.total))", inset: MenuRows.plainInset,
+                                    width: columns.width))
+        sub.addItem(MenuRows.split(zip(parts, shares).map { ($0.1, $0.0.2) }, width: columns.width))
+        for (part, share) in zip(parts, shares) {
+            sub.addItem(MenuRows.part(part.0, dot: part.2, amount: money(part.1),
+                                      detail: String(format: "%.1f%%", share * 100), columns: columns))
+        }
+        if !rows.isEmpty {
+            sub.addItem(.separator())
+            sub.addItem(MenuRows.header(heading, inset: MenuRows.plainInset, width: columns.width))
+            for row in rows {
+                sub.addItem(MenuRows.part(row.label, dot: nil, indent: row.indent, amount: money(row.total),
+                                          detail: callsText(row.calls), columns: columns, toolTip: row.tip))
             }
         }
         if snap.multi {
@@ -568,119 +938,18 @@ final class Controller: NSObject, NSApplicationDelegate {
                 key == "model" || (key == "harness" && snap.harnesses.count > 1)
                     || (key == "provider" && snap.providers.count > 1)
             }
-            let current = offered.first { $0.0 == choice }?.1 ?? "Model"
-            let byItem = NSMenuItem(title: "Break down by: \(current)", action: nil, keyEquivalent: "")
-            let sub = NSMenu()
-            sub.autoenablesItems = false
+            let byItem = NSMenuItem(title: "Break Down By", action: nil, keyEquivalent: "")
+            let by = NSMenu()
+            by.autoenablesItems = false
             for (key, label) in offered {
-                let mi = add(sub, label, #selector(setBreakdown(_:)), enabled: true, state: key == choice)
-                mi.representedObject = key
+                add(by, label, #selector(setBreakdown(_:)), enabled: true,
+                    state: key == choice).representedObject = key
             }
-            byItem.submenu = sub
-            menu.addItem(byItem)
+            byItem.submenu = by
+            sub.addItem(.separator())
+            sub.addItem(byItem)
         }
-
-        menu.addItem(.separator())
-        add(menu, "What caching is worth, all time")
-        // Saved is derived from the two rounded figures rather than rounded on
-        // its own, so the three lines add up as printed. Rounding each
-        // separately left the column a penny out in some currencies; the
-        // figures behind them were always exact. Same rule as the report.
-        // When caching cost more than it saved, that is named as a cost; a
-        // saving below zero read "-99.7% cheaper, 0.5x".
-        let dearer = cachingDearer(snap.withoutCache, snap.all.total)
-        let shownSaved = dearer ? shownDifference(snap.all.total, snap.withoutCache)
-                                : shownDifference(snap.withoutCache, snap.all.total)
-        let cmp: [(String, Double)] = [("With cache reads", snap.all.total),
-                                       ("Without cache reads", snap.withoutCache),
-                                       (dearer ? "Caching cost" : "Saved", shownSaved)]
-        for (label, v) in cmp {
-            add(menu, padRight(label, 21) + padLeft(money(v), 12), indent: 1, mono: true)
-        }
-        if snap.withoutCache > 0 && snap.all.total > 0 {
-            add(menu, dearer
-                ? String(format: "%.1f%% dearer", -snap.savedPct)
-                : String(format: "%.1f%% cheaper, %.1fx", max(snap.savedPct, 0), snap.multiple),
-                indent: 1)
-        }
-
-        menu.addItem(.separator())
-        // The engine sends the last 30 calendar days, a quiet day at zero. A
-        // month with no spend at all has nothing to draw.
-        if snap.days.contains(where: { $0 > 0 }) {
-            add(menu, sparkline(Array(snap.days.suffix(30))), indent: 1, mono: true)
-                .toolTip = "Daily spend, last 30 days"
-        }
-        // %.1f, matching the terminal report. At 95.5 the two faces were
-        // printing 96% and 95.5% for one number.
-        add(menu, String(format: "%.1f%% of prompt tokens served from cache", snap.cacheHit), indent: 1)
-
-        // Provenance and warnings, exactly as the terminal report words them,
-        // each shown whole, wrapped onto as many lines as it needs. What needs
-        // attention stays in the menu; every note is under Notes. All of them
-        // in the menu itself pushed Currency and Show tokens off a 900 point
-        // screen on a day with nothing wrong.
-        func noteLine(_ note: (level: String, text: String, attention: Bool)) -> String {
-            wrapped((note.level == "warn" ? "\u{26A0}\u{FE0E} " : "") + note.text, 58)
-        }
-        if !snap.notes.isEmpty {
-            menu.addItem(.separator())
-            for note in snap.notes where note.attention {
-                add(menu, noteLine(note), indent: 1).toolTip = note.text
-            }
-            let notesItem = NSMenuItem(title: "Notes", action: nil, keyEquivalent: "")
-            let notesMenu = NSMenu()
-            notesMenu.autoenablesItems = false
-            for note in snap.notes {
-                add(notesMenu, noteLine(note)).toolTip = note.text
-            }
-            notesItem.submenu = notesMenu
-            menu.addItem(notesItem)
-        }
-
-        menu.addItem(.separator())
-        let curItem = NSMenuItem(title: "Currency", action: nil, keyEquivalent: "")
-        let curMenu = NSMenu()
-        curMenu.autoenablesItems = false
-        for code in currencyOrder {
-            let sym = currencySymbols[code] ?? ""
-            let line = code == "USD"
-                ? "\(sym) USD  (billed)"
-                : String(format: "%@ %@  %.4f", sym, code, rate(code))
-            let mi = NSMenuItem(title: line, action: #selector(setCurrency(_:)), keyEquivalent: "")
-            mi.target = self
-            mi.isEnabled = true
-            mi.representedObject = code
-            if code == displayCurrency { mi.state = .on }
-            curMenu.addItem(mi)
-        }
-        curMenu.addItem(.separator())
-        let src = NSMenuItem(title: snap.rateLive ? "Live rates, \(snap.rateWhen)"
-                                                  : "Rates: \(snap.rateWhen)",
-                             action: nil, keyEquivalent: "")
-        src.isEnabled = false
-        curMenu.addItem(src)
-        curItem.submenu = curMenu
-        menu.addItem(curItem)
-        // One switch for the tokens in the title and on every window row. The
-        // item's own title and key equivalent are the keyboard's way to it,
-        // since the switch in its view never gets a key.
-        let tip = "Total tokens beside the cost, in the menu bar and on every row: uncached input, "
-            + "cache writes, cache reads and output. \u{2318}T switches it while this menu is open."
-        let tokensItem = NSMenuItem(title: "Show tokens", action: #selector(toggleTokens(_:)),
-                                    keyEquivalent: "t")
-        tokensItem.target = self
-        tokensItem.toolTip = tip
-        tokensItem.view = SwitchRow(title: "Show tokens", on: showTokens, tip: tip,
-                                    target: self, action: #selector(switchTokens(_:)))
-        menu.addItem(tokensItem)
-
-        menu.addItem(.separator())
-        add(menu, "Open the full dashboard", #selector(openDashboard))
-        add(menu, "Refresh now", #selector(doRefresh), key: "r")
-        add(menu, "Quit Tokenmeter", #selector(doQuit), key: "q")
-
-        item.menu = menu
+        return sub
     }
 
     @objc func setMode(_ sender: NSMenuItem) {
@@ -693,45 +962,16 @@ final class Controller: NSObject, NSApplicationDelegate {
         render()
     }
 
-    @objc func setCurrency(_ sender: NSMenuItem) {
-        if let code = sender.representedObject as? String {
-            displayCurrency = code
-            UserDefaults.standard.set(code, forKey: "currency")
-        }
+    // From the Preferences window, which reads the codes from the engine.
+    func chooseCurrency(_ code: String) {
+        displayCurrency = code
+        UserDefaults.standard.set(code, forKey: "currency")
         render()
     }
 
-    // The switch, clicked: the menu stays open.
-    @objc func switchTokens(_ sender: NSSwitch) {
-        showTokens = sender.state == .on
-        tokensChanged(sender.enclosingMenuItem?.menu)
-    }
-
-    // Command-T, the keyboard's way to the same setting.
-    @objc func toggleTokens(_ sender: NSMenuItem) {
-        showTokens.toggle()
-        tokensChanged(sender.menu)
-    }
-
-    // Show tokens takes effect at once: the title, and every window row and
-    // the switch of the menu as it stands. They are changed in place, since
-    // the menu may be open and one built afresh would only show the next
-    // time it opened. A refresh can build the status item a new menu while
-    // the old one is still open, so both are changed.
-    func tokensChanged(_ open: NSMenu?) {
-        showTitle()
-        var menus = [item.menu].compactMap { $0 }
-        if let open = open, open !== item.menu { menus.append(open) }
-        for menu in menus {
-            for mi in menu.items {
-                if mi.action == #selector(setMode(_:)), let key = mi.representedObject as? String {
-                    mi.title = windowLine(key)
-                    mi.attributedTitle = monospaced(mi.title)
-                } else if let row = mi.view as? SwitchRow {
-                    row.toggle.state = showTokens ? .on : .off
-                }
-            }
-        }
+    @objc func openPreferences() {
+        if preferences == nil { preferences = PreferencesWindow(controller: self) }
+        preferences?.show(snap)
     }
 
     @objc func doRefresh() { refresh() }

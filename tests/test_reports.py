@@ -277,11 +277,6 @@ class TestSummaryJson(Base):
         self.assertAlmostEqual(days[-4]["total"], 2000 * 25 / 1e6, places=12)
         self.assertEqual(days[-2]["total"], 0.0)                 # a day with no calls
         self.assertEqual(sum(1 for d in days if d["total"]), 2)  # 45 days ago is not in it
-        # Now always 30 entries, so the menu bar draws nothing for a month of
-        # zeros rather than an empty line.
-        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
-                      encoding="utf-8")
-        self.assertIn("if snap.days.contains(where: { $0 > 0 }) {", swift)
 
 
 class TestPeriods(Base):
@@ -756,6 +751,47 @@ class TestMenuBarFailure(Base):
             self.assertNotIn(dash, swift)
 
 
+class TestMenuBarRows(Base):
+    """The menu's rows copy two things from elsewhere in the repository,
+    which no Python test can run, so these read the sources."""
+
+    def root(self):
+        return os.path.join(os.path.dirname(FIXTURES), "..")
+
+    def test_the_bar_takes_the_dashboards_colours(self):
+        """The cost split's bar and dots are the dashboard's colours for the
+        parts of a bill, typed into the app because it cannot read the
+        stylesheet. Change one there and this fails until the menu follows,
+        or the menu and the dashboard colour the same part differently."""
+        css = slurp(os.path.join(self.root(), "dashboard", "dashboard.css"), encoding="utf-8")
+        named = dict(re.findall(r"--([a-z0-9]+):\s*([^;]+);", css))
+
+        def resolve(value):
+            while value.startswith("var(--"):
+                value = named[value[6:-1]]
+            return value.lower()
+
+        swift = slurp(os.path.join(self.root(), "costbar", "main.swift"), encoding="utf-8")
+        typed = dict(re.findall(r"static let (\w+)Colour = colour\(0x([0-9a-f]{6})\)", swift))
+        parts = {"cacheRead": "s1", "cacheWrite": "s2", "output": "s3", "input": "s4", "webSearch": "s5"}
+        self.assertEqual(set(typed), set(parts))
+        for part, slot in parts.items():
+            self.assertEqual("#" + typed[part], resolve(named[slot]), part)
+
+    def test_the_menu_shot_script_opens_the_menu_the_app_way(self):
+        """docs/screenshots/menu_shot.swift starts the app with --open-menu
+        and its settings as -key value pairs in the argument domain, which
+        the app must read by those same names, or the capture waits for a
+        menu that never opens, or shows the installed app's own settings."""
+        swift = slurp(os.path.join(self.root(), "costbar", "main.swift"), encoding="utf-8")
+        shot = slurp(os.path.join(self.root(), "docs", "screenshots", "menu_shot.swift"), encoding="utf-8")
+        self.assertIn('var menuToOpen = CommandLine.arguments.contains("--open-menu")', swift)
+        self.assertIn('demo.arguments = ["--open-menu"]', shot)
+        keys = re.search(r'var settings = \[(.*)\]', shot).group(1)
+        for key in re.findall(r'"(\w+)": ', keys):
+            self.assertRegex(swift, r'UserDefaults\.standard\.\w+\(forKey: "%s"\)' % key)
+
+
 class TestVersion(Base):
     def test_the_engine_the_app_and_the_changelog_name_one_version(self):
         """A version is stated in three places, each set by hand at a release:
@@ -807,12 +843,18 @@ class TestMenuBarNotes(Base):
     def test_the_menu_keeps_what_needs_attention_and_folds_the_rest(self):
         """No Python test can run the app, so this reads its source: it takes
         each note's answer from the engine, falling back to the level for an
-        engine that does not send one, and puts every note under Notes."""
+        engine that does not send one. One warning row appears only when a
+        note needs attention, and every note is in its submenu; with nothing
+        to act on, the notes are left to the dashboard's footer."""
         swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
                       encoding="utf-8")
         self.assertIn('($0["attention"] as? Bool) ?? (level == "warn")', swift)
-        self.assertIn('NSMenuItem(title: "Notes"', swift)
-        self.assertIn("for note in snap.notes where note.attention", swift)
+        menu = swift[swift.index("func buildMenu()"):swift.index("func whereMenu()")]
+        self.assertIn("let attention = snap.notes.filter { $0.attention }.count\n"
+                      "        if attention > 0 {", menu)
+        warning = menu[menu.index("if attention > 0 {"):menu.index("row.submenu = notes")]
+        self.assertIn("for note in snap.notes {", warning)
+        self.assertEqual(menu.count("snap.notes"), 2)
 
 
 class TestMenuBarTokens(Base):
@@ -838,62 +880,54 @@ class TestMenuBarTokens(Base):
         self.assertIn('showTokens ? "  \\(money(w.total)) · \\(toks(w.tokens))"', title)
         self.assertIn(': "  \\(money(w.total))"', title)     # off: the title it always had
 
-    def test_one_small_switch_replaces_the_checkmark_item(self):
-        """A switch in a custom view, at the small size, named for VoiceOver,
-        with the tooltip's account of what the tokens are. A view gets no
-        keyboard events, so its menu item keeps a title, an action and
-        Command-T."""
+    def test_the_switch_is_in_a_preferences_window(self):
+        """The switch was a view inside the menu, which AppKit gives no keys,
+        so it needed Command-T of its own, and with Currency it pushed the
+        menu past a 900 point screen. It is now a switch in one Preferences
+        window, opened from the menu by a click or Command-comma, named for
+        VoiceOver, with the tooltip's account of what the tokens are, and a
+        second opening brings the same window forward."""
         swift = self.swift()
-        self.assertNotIn("Show tokens in the menu bar", swift)
         joined = re.sub(r'"\s*\n\s*\+\s*"', "", swift)
-        self.assertIn("Total tokens beside the cost, in the menu bar and on every row: uncached "
+        self.assertIn("Total tokens beside the cost, in the menu bar and on every period row: uncached "
                       "input, cache writes, cache reads and output.", joined)
-        self.assertIn('NSMenuItem(title: "Show tokens", action: #selector(toggleTokens(_:)),\n'
-                      '                                    keyEquivalent: "t")', swift)
-        self.assertIn('tokensItem.view = SwitchRow(title: "Show tokens", on: showTokens, tip: tip,\n'
-                      '                                    target: self, action: #selector(switchTokens(_:)))',
-                      swift)
-        row = swift[swift.index("final class SwitchRow: NSView {"):swift.index("final class Controller")]
-        for line in ("let toggle = NSSwitch()", "toggle.controlSize = .small",
-                     "toggle.setAccessibilityLabel(title)", "toggle.setAccessibilityHelp(tip)",
-                     "label.font = NSFont.menuFont(ofSize: 0)", "label.textColor = .labelColor",
-                     "autoresizingMask = [.width]"):
-            self.assertIn(line, row)
+        self.assertIn('add(menu, "Preferences\\u{2026}", #selector(openPreferences), key: ",")', swift)
+        self.assertIn("if preferences == nil { preferences = PreferencesWindow(controller: self) }", swift)
+        window = swift[swift.index("final class PreferencesWindow"):swift.index("final class Controller")]
+        for line in ('window.title = "Tokenmeter Preferences"', "tokensSwitch = NSSwitch()",
+                     'tokensSwitch.setAccessibilityLabel("Show Tokens")',
+                     "tokensSwitch.state = controller.showTokens ? .on : .off",
+                     "override func cancelOperation(_ sender: Any?) { close() }"):
+            self.assertIn(line, window)
+        for gone in ("SwitchRow", "toggleTokens", 'keyEquivalent: "t"'):
+            self.assertNotIn(gone, swift)
 
-    def test_every_window_row_gives_its_tokens_when_the_switch_is_on(self):
+    def test_every_period_row_gives_its_tokens_when_the_switch_is_on(self):
         """Each of the four rows gives its cost and, with the switch on, its
-        total tokens in the title's shape, the columns as wide as the widest
-        row so the figures line up in the monospaced font. Off, a row is
-        exactly what it was."""
+        total tokens in the title's shape, grey at the figure edge, the costs
+        set in from it by the widest count so they line up. Off, a row is
+        the name and the cost at the edge."""
         swift = self.swift()
-        line = swift[swift.index("func windowLine(_ key: String)"):swift.index("func render()")]
-        self.assertIn("guard showTokens else { return padRight(windowName(key), 14) "
-                      "+ padLeft(money(w.total), 12) }", line)
-        self.assertIn("let costs = max(12, keys.map { money(window($0).total).count }.max() ?? 0)", line)
-        self.assertIn("let counts = keys.map { toks(window($0).tokens).count }.max() ?? 0", line)
-        self.assertIn('return padRight(windowName(key), 14) + padLeft(money(w.total), costs)\n'
-                      '            + " · " + padLeft(toks(w.tokens), counts)', line)
         self.assertIn('static let windowKeys = ["today", "week", "month", "all"]', swift)
-        self.assertIn("for key in Controller.windowKeys {\n            let w = window(key)\n"
-                      "            let mi = add(menu, windowLine(key), #selector(setMode(_:))", swift)
+        menu = swift[swift.index("func buildMenu()"):swift.index("func whereMenu()")]
+        self.assertIn("let tokens = Controller.windowKeys.map { toks(window($0).tokens) }\n"
+                      "        let tokensWidth = MenuRows.figureWidth(tokens)", menu)
+        self.assertIn("windowName(key), cost: money(w.total), tokens: showTokens ? count : nil, "
+                      "tokensWidth: tokensWidth", menu)
+        period = swift[swift.index("static func period("):swift.index("static func text(")]
+        self.assertIn("NSTextTab(textAlignment: .right, location: figureColumn - tokensWidth - gap)", period)
+        self.assertIn(".foregroundColor: NSColor.secondaryLabelColor", period)
 
-    def test_flipping_it_changes_the_open_menu_in_place(self):
-        """The switch changes the setting, the title, every window row and the
-        switch itself in the menu as it stands, and builds no new menu, which
-        would only show the next time the menu opened."""
+    def test_flipping_it_changes_the_menu_bar_at_once(self):
+        """The switch changes the setting and, at once, the menu bar's figure
+        and the period rows, which are built afresh for the next opening."""
         swift = self.swift()
-        flip = swift[swift.index("@objc func switchTokens(_ sender: NSSwitch)"):
-                     swift.index("@objc func doRefresh()")]
-        self.assertIn("showTokens = sender.state == .on", flip)
-        self.assertIn("tokensChanged(sender.enclosingMenuItem?.menu)", flip)
-        self.assertIn("showTokens.toggle()\n        tokensChanged(sender.menu)", flip)
-        changed = flip[flip.index("func tokensChanged(_ open: NSMenu?)"):]
-        for step in ("showTitle()", "mi.title = windowLine(key)",
-                     "mi.attributedTitle = monospaced(mi.title)",
-                     "row.toggle.state = showTokens ? .on : .off"):
-            self.assertIn(step, changed)
-        for rebuild in ("render()", "buildMenu()"):
-            self.assertNotIn(rebuild, flip)
+        flip = swift[swift.index("@objc private func switchTokens()"):]
+        flip = flip[:flip.index("}")]
+        self.assertIn("controller.showTokens = tokensSwitch.state == .on\n        controller.render()", flip)
+        render = swift[swift.index("    func render() {"):swift.index("    func showTitle()")]
+        for step in ("showTitle()", "buildMenu()", "preferences?.refresh(snap)"):
+            self.assertIn(step, render)
 
     def test_it_reads_each_windows_total_from_the_summary(self):
         swift = self.swift()
