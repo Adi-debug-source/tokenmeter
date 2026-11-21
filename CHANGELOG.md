@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.3.6, 21 November 2026
+
+The menu bar's menu fits the screen again. It printed every note whole on
+every open, so on a 900 point screen a day with nothing wrong pushed
+Currency and Show tokens off the bottom. No figure moves.
+
+### Menu bar
+
+- Every note is now one row away, under **Notes**. The menu itself keeps
+  only a note that needs attention: a price page that no longer matches or
+  cannot be read, a model with no price or a looked-up one, records left
+  out, and unverified readers once they carry 1% or more of the total.
+  Unverified readers under that share, and the "rates checked" lines, are
+  under Notes. The terminal report and the dashboard print every note as
+  before.
+
+### For scripts
+
+- Each note in `--summary-json` gains `attention`, true or false, after
+  `level` and `text`. `--json` is unchanged.
+
+### Tests
+
+- 742, three of them new.
+
 ## 1.3.5, 20 November 2026
 
 A security review and a tidier front door. The review read every path that

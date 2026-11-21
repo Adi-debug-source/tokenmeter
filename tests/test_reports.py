@@ -775,6 +775,46 @@ class TestVersion(Base):
         self.assertEqual(newest.group(1), tm.__version__)
 
 
+class TestMenuBarNotes(Base):
+    """The menu printed every note whole, on every open: on a 900 point
+    screen a day with nothing wrong pushed Currency and Show tokens off the
+    bottom under three paragraphs of provenance. The engine now says which
+    notes need attention, the menu keeps those in view, and every note is
+    one row away under Notes."""
+
+    def test_the_engine_says_which_notes_need_attention(self):
+        """A warning needs attention and provenance does not, with one
+        exception each way: unverified readers carrying under 1% of the
+        total are provenance, and the first-run note is the whole menu."""
+        unverified = "OpenCode figures, under 0.1% of this total, are " + tm.UNVERIFIED_NOTE
+        notes = [("warn", unverified), ("warn", "no price on file for x"),
+                 ("info", "Anthropic rates checked 19 Nov 2026")]
+        quiet = tm.menu_notes(notes, 0.0004)
+        self.assertEqual([n["attention"] for n in quiet], [False, True, False])
+        self.assertEqual([(n["level"], n["text"]) for n in quiet], notes)
+        self.assertEqual(list(quiet[0]), ["level", "text", "attention"])
+        loud = tm.menu_notes(notes, tm.MENU_QUIET_SHARE)
+        self.assertEqual([n["attention"] for n in loud], [True, True, False])
+
+    def test_the_summary_carries_it_and_a_first_run_is_in_view(self):
+        """--summary-json is what the menu reads, so each of its notes has
+        the answer; with nothing found, the note saying where it looked
+        stays in the menu itself."""
+        notes = tm.summary()["notes"]
+        self.assertTrue(notes and all(isinstance(n["attention"], bool) for n in notes))
+        self.assertTrue(notes[0]["attention"], notes[0])
+
+    def test_the_menu_keeps_what_needs_attention_and_folds_the_rest(self):
+        """No Python test can run the app, so this reads its source: it takes
+        each note's answer from the engine, falling back to the level for an
+        engine that does not send one, and puts every note under Notes."""
+        swift = slurp(os.path.join(os.path.dirname(FIXTURES), "..", "costbar", "main.swift"),
+                      encoding="utf-8")
+        self.assertIn('($0["attention"] as? Bool) ?? (level == "warn")', swift)
+        self.assertIn('NSMenuItem(title: "Notes"', swift)
+        self.assertIn("for note in snap.notes where note.attention", swift)
+
+
 class TestMenuBarTokens(Base):
     """The menu bar can give each window's total tokens beside its cost, in
     its title and on every window row of its menu, from one Show tokens

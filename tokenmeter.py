@@ -51,7 +51,7 @@ from pricing import TABLES
 from pricing import anthropic as _anthropic
 from pricing.names import NAMES
 
-__version__ = "1.3.5"
+__version__ = "1.3.6"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -2325,6 +2325,25 @@ UNVERIFIED_NOTE = ("unverified: built from the published log format, not yet che
                    "with a sample.")
 
 
+# The menu keeps a note about unverified readers in view only from this share
+# of the total up; under it the note is provenance, read under Notes.
+MENU_QUIET_SHARE = 0.01
+
+
+def menu_notes(notes: list, unverified_share: float) -> list:
+    """report_notes() for the menu bar, each with whether it needs attention.
+
+    The menu is opened many times a day and is as tall as the screen, so it
+    keeps in view only what there is something to do about: every warning but
+    one. Unverified readers behind under MENU_QUIET_SHARE of the total change
+    no figure anyone would act on, and go with the provenance.
+    """
+    return [{"level": level, "text": text,
+             "attention": level == "warn" and not (text.endswith(UNVERIFIED_NOTE)
+                                                   and unverified_share < MENU_QUIET_SHARE)}
+            for level, text in notes]
+
+
 def report_notes(groups, unknown, fetched=None, only=None) -> list:
     """What every face must say alongside the figures, as (level, text).
 
@@ -3400,10 +3419,11 @@ def summary(ledger: bool = True) -> dict:
     windows = rolling_windows(groups, today)
     caching = caching_summary(overall)
     split = kept_and_on_disk(overall, groups)
-    notes = [{"level": level, "text": text} for level, text in report_notes(groups, unknown)]
+    unverified_share = trust_summary(groups, unknown)["unverified_share"]
+    notes = menu_notes(report_notes(groups, unknown), unverified_share)
     if not overall["calls"] and not paths:
         # A first run: say where it looked, so $0.00 is not the whole menu.
-        notes.insert(0, {"level": "info", "text": first_run_note()})
+        notes.insert(0, {"level": "info", "text": first_run_note(), "attention": True})
     # Which table priced each model, for grouping; the dearest if two did.
     priced_by = {}
     for (provider, model), v in groups["provider_model"].items():
@@ -3463,7 +3483,7 @@ def summary(ledger: bool = True) -> dict:
                        "models": [{"name": m["model"], "total": m["total"], "calls": m["calls"]}
                                   for m in p["models"]]}
                       for p in models_by_provider(groups, unknown)],
-        "unverified_share": trust_summary(groups, unknown)["unverified_share"],
+        "unverified_share": unverified_share,
         "generated": dt.datetime.now().isoformat(timespec="seconds"),
     }
 
